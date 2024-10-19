@@ -47,6 +47,18 @@ class Cards:
     def is_empty(self) -> int:
         return self._draw_index == len(self._buffer)
     
+    def render(self) -> list[str]:
+        """Render this hand in ASCII art, returning each line."""
+
+        card_width = len(str(max(self._deck)))
+        edge = "-" * card_width
+        space = " " * card_width
+        return [
+            f"+{edge}+  +{edge}+",
+            f"|{{:>{card_width}d}}|  |{space}|".format(self.top_discard),
+            f"+{edge}+  +{edge}+",
+        ]
+    
     def _peek_draw(self) -> int:
         assert self._draw_index < len(self._buffer), "Deck must be restocked!"
         return self._buffer[self._draw_index]
@@ -97,7 +109,6 @@ class Finger:
     _card: int
 
     is_visible: bool = 0
-
 
     @property
     def card(self) -> int | None:
@@ -175,6 +186,22 @@ class Hand:
     def are_all_cards_visible(self) -> int:
         return self.visible_count == self.card_count
     
+    def render(self) -> list[str]:
+        """Render this hand in ASCII art, returning each line."""
+
+        card_width = max(max(len(str(finger._card)) for finger in self._fingers), 2)
+        empty = " " * card_width
+        divider = ("+" + "-" * card_width) * self.columns + "+"
+        template = f"|{{:>{card_width}}}" * self.columns + "|"
+        lines = [divider] * (self.rows * 2 + 1)
+        lines[1::2] = (
+            template.format(*(
+                str(finger._card) if finger.is_visible else empty
+                for finger in self._fingers[i:i+self.columns])
+            ) for i in range(self.rows)
+        )
+        return lines
+
     def _get_valid_index(self, row: int, column: int | None) -> None:
         index = row * self.columns + column if column is not None else row
         if index > len(self._fingers):
@@ -250,9 +277,9 @@ class Flip:
 class Turn:
     """An action controller for taking a turn."""
 
-    DISCARD_AND_FLIP: ClassVar[Final[int]] = 1
-    PLACE_DRAWN_CARD: ClassVar[Final[int]] = 2
-    PLACE_FROM_DISCARD: ClassVar[Final[int]] = 3
+    DISCARD_AND_FLIP: ClassVar[Final[int]] = "discard and flip"
+    PLACE_DRAWN_CARD: ClassVar[Final[int]] = "place drawn card"
+    PLACE_FROM_DISCARD: ClassVar[Final[int]] = "place from discard"
 
     _hand: Hand
     _cards: Cards
@@ -360,7 +387,33 @@ class State:
     def lowest_score_player_index(self) -> int:
         return min(range(len(self.players)), key=lambda i: self.players[i].score)
     
-    def play(self):
+    def render(self) -> list[str]:
+        """Render the board state in ASCII art."""
+
+        cards_render = self._cards.render()
+        cards_render[1] += (
+            f"  Round: {self.round_index}"
+            f"  Turn: {self.turn_index % len(self.players)}/{self.turn_index}"
+            + (f"  (ending)" if self.is_round_ending else "")
+        )
+
+        hands_render = [""]
+        for index, player in enumerate(self.players):
+            hand_render = player.hand.render()
+            base_length = len(hands_render[0])
+            for i, line in enumerate(hand_render):
+                if i == len(hands_render):
+                    hands_render.append(" " * base_length)
+                if index > 0:
+                    hands_render[i] += "  "
+                hands_render[i] += line
+
+        return [
+            *cards_render,
+            *hands_render,
+        ]
+    
+    def play(self, interactive: bool = False):
         """Play a single game of Skyjo, returning final scores."""
 
         if len(self.players) < 3:
@@ -368,15 +421,21 @@ class State:
         elif len(self.players) > 8:
             raise RuleError(f"Must have 8 or fewer players, got {len(self.players)}")
 
+        if interactive:
+            print(" NEW GAME ".center(80, "="))
+
         self.round_index = 0
         self.turn_index = 0
         self.round_ender_index = None
-        self._cards._reset_and_shuffle()
-        
+        self._cards._reset_and_shuffle()        
         for index, player in enumerate(self.players):
             player.score = 0
             player.hand._clear()
             player.hand._deal_from(self._cards)
+
+        if interactive:
+            print("- Fully reset game")
+            self._prompt()
 
         flips = [Flip(player.hand) for player in self.players]
         for player, flip in zip(self.players, flips):
@@ -384,6 +443,10 @@ class State:
         for flip in flips:
             flip._apply_to_hand()
         del flips
+
+        if interactive:
+            print("- Flipped cards")
+            self._prompt()
 
         starting_index = self.largest_visible_hand_player_index
         rotation = self.players[starting_index:] + self.players[:starting_index]
@@ -428,6 +491,27 @@ class State:
                 player.hand._clear()
                 player.hand._deal_from(self._cards)
 
+        if interactive:
+            print(f"* Player {self.lowest_score_player_index} wins")
+            self._prompt()
+
+    def _prompt(self) -> None:
+        """Continues once the user enters nothing."""
+
+        for line in self.render():
+            print(f"  {line}")
+
+        try:
+            while True:
+                text = input("> ").strip()
+                if not text or text in {"q", "quit"}:
+                    break
+                else:
+                    print(f"Unrecognized command {text}")
+        except KeyboardInterrupt:
+            print("Exiting due to keyboard interrupt!")
+            exit(1)
+
 
 @dataclass(slots=True)
 class Outcomes:
@@ -468,16 +552,26 @@ def play(
     players: list[Player],
     games: int = 1,
     *,
+    seed: int | float | str | bytes | bytearray | None = None,
     rng: random.Random | None = None,
+    interactive: bool = False,
     processes: int = multiprocessing.cpu_count(),
     display: bool = True,
 ) -> Outcomes:
     """Play `games` rounds of Skyjo, aggregating statisics."""
 
+    if seed is not None:
+        if rng is not None:
+            raise ValueError("Cannot pass both seed and rng")
+        rng = random.Random(seed)
+
     if rng is not None and processes > 1:
-        raise ValueError("Cannot multiprocess with a fixed rng")
+        raise ValueError("Cannot multiprocess with fixed rng")
     elif rng is None:
         rng = random.Random()
+
+    if interactive and processes > 1:
+        raise ValueError("Cannot multiprocess with interactive mode enabled")
 
     if display:
         start_time = time.monotonic()
@@ -496,7 +590,7 @@ def play(
         state = State(players, _rng=rng)
         outcomes = Outcomes(player_count=len(players))
         for _ in range(games):
-            state.play()
+            state.play(interactive=interactive)
             outcomes.game_count += 1
             outcomes.average_round_count += state.round_index
             for index, player in enumerate(state.players):
