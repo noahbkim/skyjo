@@ -50,31 +50,20 @@ void test_piles_draw_all() {
 void test_game_3() {
     rng_t rng(0);
     Simulation simulation(rng, BasicAgent(), BasicAgent(), BasicAgent());
-    std::array<score_t, 3> scores = simulation.play();
-    assert(scores[0] == 120);
-    assert(scores[1] == 59);
-    assert(scores[2] == 61);
+    simulation.play();
+    assert(simulation.scores[0] == 140);
+    assert(simulation.scores[1] == 59);
+    assert(simulation.scores[2] == 61);
 }
 
 void test_game_4() {
     rng_t rng(0);
     Simulation simulation(rng, BasicAgent(), BasicAgent(), BasicAgent(), BasicAgent());
-    std::array<score_t, 4> scores = simulation.play();
-    assert(scores[0] == 98);
-    assert(scores[1] == 127);
-    assert(scores[2] == 89);
-    assert(scores[3] == 81);
-}
-
-void test_game_stress(size_t count) {
-    rng_t rng(0);
-    Simulation simulation(rng, BasicAgent(), BasicAgent(), BasicAgent(), BasicAgent());
-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-    for (size_t i = 0; i < count; ++i) {
-        simulation.play();
-    }
-    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-    std::cout << "Ran " << count << " games in " << std::chrono::duration_cast<std::chrono::seconds>(end - start).count() << "ms" << std::endl;
+    simulation.play();
+    assert(simulation.scores[0] == 104);
+    assert(simulation.scores[1] == 85);
+    assert(simulation.scores[2] == 89);
+    assert(simulation.scores[3] == 81);
 }
 
 int main() {
@@ -82,5 +71,4 @@ int main() {
     test_deck_shuffle();
     test_game_3();
     test_game_4();
-    test_game_stress(10'000);
 }

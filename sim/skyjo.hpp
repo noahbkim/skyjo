@@ -52,7 +52,7 @@ struct Deck : public std::array<Card, DECK_SIZE> {
         12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
     }} {}
 
-    void shuffle(rng_t rng) {
+    void shuffle(rng_t& rng) {
         std::shuffle(this->begin(), this->end(), rng);
     }
     
@@ -81,7 +81,7 @@ public:
     Card discard() const { return (*this)[this->_discard]; }
     void discard(Card card) { (*this)[++this->_discard] = card; }
     
-    void restock(rng_t rng) {
+    void restock(rng_t& rng) {
         decksize_t buried = this->_discard;
         if (buried > 0) {
             std::swap(this->front(), (*this)[this->_discard]);
@@ -91,7 +91,9 @@ public:
         }
     }
     
-    void shuffle(rng_t rng) {
+    void shuffle(rng_t& rng) {
+        this->_discard = 0;
+        this->_draw = 1;
         std::shuffle(this->begin(), this->end(), rng);
     }
 
@@ -383,9 +385,9 @@ public:
 };
 
 struct Player {
-    Hand hand;
-    score_t score;
-    position_t index;
+    Hand hand{};
+    score_t score{};
+    position_t index{};
 };
 
 struct State {
@@ -449,6 +451,8 @@ struct Simulation {
         
     rng_t rng;
     vtuple<Agent, Agents...> agents;
+    std::array<uint32_t, size> wins{};
+    std::array<int64_t, size> scores{}; 
     
     Simulation(Agents&&... agents)
         : rng{std::random_device{}()}
@@ -457,7 +461,7 @@ struct Simulation {
         : rng{rng}
         , agents{std::forward<Agents>(agents)...} {}
 
-    std::array<score_t, size> play() {
+    void play() {
         std::array<Player, size> players{};
         for (position_t i = 0; i < size; ++i) { players[i].index = i; }
 
@@ -512,9 +516,21 @@ struct Simulation {
 
         state.is_round_ending = false;
 
+        std::array<score_t, size> round_scores{};
         for (position_t i = 0; i < size; ++i) {
             players[i].hand.flip_all();
-            players[i].score += players[i].hand.visible_card_value();
+            round_scores[i] = players[i].hand.visible_card_value();
+        }
+
+        for (position_t i = 0; i < size; ++i) {
+            if (i != state.round_ender_index && round_scores[i] <= round_scores[state.round_ender_index]) {
+                round_scores[state.round_ender_index] *= 2;
+                break;
+            }
+        }
+            
+        for (position_t i = 0; i < size; ++i) {
+            players[i].score += round_scores[i];
             if (players[i].score >= 100) {
                 goto done;
             }
@@ -530,12 +546,10 @@ struct Simulation {
         goto turns;
 
     done:
-        // Retrieve and return scores.
-        std::array<score_t, size> scores;
+        this->wins[imin(players.begin(), players.end(), [](Player& player) { return player.score; })] += 1;
         for (position_t i = 0; i < size; ++i) {
-            scores[i] = players[i].score;
+            this->scores[i] += players[i].score;
         }
-        return scores;
     }
 };
 
