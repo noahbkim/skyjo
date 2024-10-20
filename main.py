@@ -15,7 +15,7 @@ class DrawPlayer(skyjo.Player):
 
     def turn(self, state: skyjo.State, action: skyjo.Turn) -> None:
         action.draw_card()
-        action.place_drawn_card(self.hand.first_unflipped_or_highest_card_index)
+        action.place_drawn_card(self.hand.find_first_unflipped_or_highest_card_index())
 
 
 class RandomPlayer(skyjo.Player):
@@ -29,12 +29,12 @@ class RandomPlayer(skyjo.Player):
         choice = random.randint(1, 2 if self.hand.are_all_cards_flipped else 3)
         if choice == 1:
             action.draw_card()
-            action.place_drawn_card(self.hand.first_unflipped_or_highest_card_index)
+            action.place_drawn_card(self.hand.find_first_unflipped_or_highest_card_index())
         elif choice == 2:
-            action.place_from_discard(self.hand.first_unflipped_or_highest_card_index)
+            action.place_from_discard(self.hand.find_first_unflipped_or_highest_card_index())
         elif choice == 3:
             action.draw_card()
-            action.discard_and_flip(self.hand.first_unflipped_or_highest_card_index)
+            action.discard_and_flip(self.hand.find_first_unflipped_or_highest_card_index())
 
 
 class ThresholdPlayer(skyjo.Player):
@@ -45,16 +45,16 @@ class ThresholdPlayer(skyjo.Player):
         action.flip_card(1)
 
     def turn(self, state: skyjo.State, action: skyjo.Turn) -> None:
-        if state.top_discard < state.deck_average:
-            action.place_from_discard(self.hand.first_unflipped_or_highest_card_index)
+        if state.cards.last_discard < state.cards.average_deck_card_value:
+            action.place_from_discard(self.hand.find_first_unflipped_or_highest_card_index())
             return
         card = action.draw_card()
-        if card < state.deck_average:
-            action.place_drawn_card(self.hand.first_unflipped_or_highest_card_index)
+        if card < state.cards.average_deck_card_value:
+            action.place_drawn_card(self.hand.find_first_unflipped_or_highest_card_index())
         elif self.hand.are_all_cards_flipped:
-            action.place_drawn_card(self.hand.highest_card_index)
+            action.place_drawn_card(self.hand.find_highest_card_index())
         else:
-            action.discard_and_flip(self.hand.first_unflipped_or_highest_card_index)
+            action.discard_and_flip(self.hand.find_first_unflipped_or_highest_card_index())
 
 
 def main() -> None:
