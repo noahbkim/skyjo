@@ -64,6 +64,7 @@ def main() -> None:
     parser.add_argument("-s", "--seed", type=int, default=None, help="a seed for random number generation.")
     parser.add_argument("-i", "--interactive", default=False, action="store_true")
     parser.add_argument("-m", "--multiprocess", type=int, nargs="?", default=(), help="the number of subprocesses to use.")
+    parser.add_argument("-r", "--repro", default=None, help="A repro code to debug a broken rule.")
     args = parser.parse_args()
 
     players: list[skyjo.Player] = []
@@ -90,7 +91,14 @@ def main() -> None:
         processes = args.multiprocess[0]
 
     try:
-        skyjo.play(players, games=args.games, seed=args.seed, interactive=args.interactive, processes=processes)
+        skyjo.simulate(
+            players,
+            games=args.games,
+            seed=args.seed,
+            interactive=args.interactive,
+            processes=processes,
+            repro=args.repro,
+        )
     except ValueError as error:
         parser.error(str(error))
 

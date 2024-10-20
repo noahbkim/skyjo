@@ -4,7 +4,9 @@ import abc
 import datetime
 import functools
 import multiprocessing
+import pickle
 import random
+import textwrap
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -25,6 +27,8 @@ HAND_SIZE = HAND_ROWS * HAND_COLUMNS
 
 class RuleError(Exception):
     """Raised when a rule is broken."""
+
+    repro: object | None = None
 
 
 @dataclass(slots=True)
@@ -314,6 +318,7 @@ class Hand:
                 return False
         for i in reversed(range(column, self.card_count, self.column_count)):
             del self._fingers[i]        
+        assert len(self._fingers) % self.row_count == 0
         self.flipped_card_count -= self.row_count
         return True
     
@@ -321,13 +326,13 @@ class Hand:
         finger = self._fingers[index]
         self.flipped_card_count += not finger.is_flipped
         replaced_card = finger._replace_card(card)
-        self._try_clear(index % self.row_count)
+        self._try_clear(index % self.column_count)
         return replaced_card
 
     def _flip_card(self, index: int) -> None:
         self._fingers[index]._flip_card()
         self.flipped_card_count += 1
-        self._try_clear(index % self.row_count)
+        self._try_clear(index % self.column_count)
 
     def _flip_all_cards(self) -> None:
         for finger in self._fingers:
@@ -339,8 +344,6 @@ class Hand:
         return self.sum_flipped_cards()
 
     def _render(self, *, xray: bool = False) -> list[str]:
-        """Render this hand in ASCII art, returning each line."""
-
         card_width = max(max(len(str(finger._card)) for finger in self._fingers), 2)
         empty = " " * card_width
         divider = ("+" + "-" * card_width) * self.column_count + "+"
@@ -492,7 +495,20 @@ class Turn:
 
 @dataclass(slots=True)
 class Player(abc.ABC):
-    """A Skyjo player."""
+    """A Skyjo player.
+    
+    To implement your own Skyjo bot, inherit from this class and
+    override the `flip` and `turn` methods. See main.py for examples.
+    To ensure your bot doesn't cheat or break the simulation:
+
+      - Do not modify any provided attributes, e.g. `hand` or `score`
+        on `Player` or `cards` on `State`. Modifying new attributes
+        defined by your subclass is totally fine.
+      - Do not access private variables or methods, all of which are
+        prefixed with an underscore e.g. `Finger._card`.
+
+    See README.md for how to run the simulation.
+    """
 
     hand: Hand = field(default_factory=Hand)
     """The players current hand of cards."""
@@ -505,16 +521,113 @@ class Player(abc.ABC):
         
     @abc.abstractmethod
     def flip(self, state: State, action: Flip) -> None:
-        """Start the game by flipping two cards in your hand."""
+        """Start the game by flipping two cards in your hand.
+        
+        To flip a card, call `action.flip_card` with its index or row
+        and column. Doing so will return the value of the flipped card,
+        but note `self.hand` won't be updated until afterwards to ensure
+        your flips don't influence later players'.
+        """
 
     @abc.abstractmethod
     def turn(self, state: State, action: Turn) -> None:
-        """Take a turn as part of a round."""
+        """Take a turn as part of a round.
+        
+        Either `action.draw_card` or `action.place_from_discard()`. The
+        former will allow you to then `action.place_drawn_card()` or
+        `action.discard_and_flip()`. The latter three methods take the
+        index or row and column of the card in your hand you wish to
+        replace or flip.
+        """
+
+
+@dataclass(slots=True)
+class Debugger:
+    """Used to interactively debug games."""
+
+    _continuing: bool = False
+    
+    def reset(self) -> None:
+        self._continuing = False
+
+    def print(self, message: str, symbol: str = "", end="\n") -> None:
+        if symbol:
+            prefix = len(symbol) + 1
+            print(symbol, textwrap.indent(message, " " * prefix)[prefix:], end=end)
+        else:
+            print(textwrap.indent(message, "  "), end=end)
+
+    def info(self, message: str) -> None:
+        self.print(message, symbol="-")
+    
+    def alert(self, message: str) -> None:
+        self.print(message, symbol="*")
+
+    def display(self, state: State, *, xray: bool = False) -> None:
+        symbol = "#"
+        for line in state._render(xray=xray):
+            print(symbol, line)
+            symbol = " "
+    
+    def traceback(self, exception: Exception) -> None:
+        for trace in traceback.format_exception(exception):
+            self.print(trace, end="")
+
+    def prompt(
+        self,
+        state: State,
+        namespace: dict[str, object],
+        context: BaseException | None = None,
+    ) -> None:
+        if self._continuing and context is None:
+            return
+        self.display(state)
+        try:
+            while True:
+                command, _, text = input("> ").strip().partition(" ")
+                if not command or command in {"s", "step"}:
+                    break
+                elif command in {"g", "game"}:
+                    for line in state._render():
+                        self.print(line)
+                elif command in {"c", "continue"}:
+                    self._continuing = True
+                    break
+                elif command in {"p", "print", "e", "eval"}:
+                    try:
+                        print(repr(eval(text, globals(), namespace)))
+                    except BaseException as error:
+                        if error.__context__ is context:
+                            error.__context__ = None
+                        self.traceback(error)
+                elif command in {"x", "xray"}:
+                    self.display(state, xray=True)
+                elif command in {"h", "help"}:
+                    self.print("s/step      progress the simulation")
+                    self.print("<enter>     same as step")
+                    self.print("c/continue  progress until the game finishes")
+                    self.print("g/game      reprint the game state")
+                    self.print("e/eval      evaluate the following expression")
+                    self.print("p/print     same as eval")
+                    self.print("x/xray      show unflipped cards in player hands")
+                    self.print("h/help      show this dialog")
+                    self.print("q/quit      exit the simulation")
+                elif command in {"q", "quit"}:
+                    exit(0)
+                else:
+                    self.alert(f"unknown command {text}, see help for commands")
+        except (KeyboardInterrupt, EOFError):
+            exit(0)
 
 
 @dataclass(slots=True)
 class State:
-    """The entire state of a Skyjo game."""
+    """The entire state of a Skyjo game.
+    
+    This class is reusable but not threadsafe. Call `play()` to reset
+    and simulate a single game of Skyjo. Games can be made deterministic
+    by passing a seeded `_rng: random.Random` to the constructor.
+    """
 
     players: list[Player] = field()
     """The list of participating players."""
@@ -535,6 +648,7 @@ class State:
     """The index of the player that flipped all their cards first."""
     
     _rng: random.Random = field(default_factory=random.Random)
+    _repro: object | None = field(default=None)
 
     def __post_init__(self) -> None:
         if self.cards is None:
@@ -607,92 +721,105 @@ class State:
 
         return min(self.players, key=lambda player: player.score)
     
-    def play(self, interactive: bool = False):
+    def play(self, debugger: Debugger | None = None) -> None:
         """Play a single game of Skyjo, returning final scores."""
 
-        if len(self.players) < 3:
-            raise RuleError(f"Must have at least 3 players, got {len(self.players)}")
-        elif len(self.players) > 8:
-            raise RuleError(f"Must have 8 or fewer players, got {len(self.players)}")
+        try:
+            # If we throw here, we can potentially recover our state for debugging.
+            self._repro = self._rng.getstate()
 
-        if interactive:
-            print("* new game ".ljust(80, "*"))
+            if len(self.players) < 3:
+                raise RuleError(f"Must have at least 3 players, got {len(self.players)}")
+            elif len(self.players) > 8:
+                raise RuleError(f"Must have 8 or fewer players, got {len(self.players)}")
 
-        self.round_index = 0
-        self.turn_index = 0
-        self.round_starter_index = 0
-        self.round_ender_index = None
-        self.cards._reset()
-        self.cards._shuffle()        
-        for player in self.players:
-            player.score = 0
-            player.hand._deal_from(self.cards)
+            if debugger:
+                debugger.reset()
+                debugger.alert("new game ".ljust(78, "*"))
 
-        if interactive:
-            print("- fully reset game")
-            self._prompt(locals())
+            self.round_index = 0
+            self.turn_index = 0
+            self.round_starter_index = 0
+            self.round_ender_index = None
+            self.cards._reset()
+            self.cards._shuffle()        
+            for player in self.players:
+                player.score = 0
+                player.hand._deal_from(self.cards)
 
-        flips = [Flip(player.hand) for player in self.players]
-        for player, flip in zip(self.players, flips):
-            player.flip(self, flip)
-        for player, flip in zip(self.players, flips):  # Do separately
-            flip._apply_to_hand()
-        del flips
-        self.round_starter_index = self.find_highest_flipped_card_sum_player_index()
+            if debugger:
+                debugger.info("fully reset game")
+                debugger.prompt(self, locals())
 
-        if interactive:
-            print("- flipped cards")
-            print(f"- player {self.round_starter_index} starts with the highest hand")
-            self._prompt(locals())
+            flips = [Flip(player.hand) for player in self.players]
+            for player, flip in zip(self.players, flips):
+                player.flip(self, flip)
+            for player, flip in zip(self.players, flips):  # Do separately
+                flip._apply_to_hand()
+            del flips
+            self.round_starter_index = self.find_highest_flipped_card_sum_player_index()
 
-        while True:
-            while not self.is_round_ending:
-                for _ in range(len(self.players)):
+            if debugger:
+                debugger.info("flipped cards")
+                debugger.info(f"player {self.round_starter_index} starts with the highest hand")
+                debugger.prompt(self, locals())
+
+            while True:
+                while not self.is_round_ending:
+                    for _ in range(len(self.players)):
+                        turn = self._turn(self.player)
+                        player_index = self.player_index
+                        self.turn_index += 1
+
+                        if debugger:
+                            debugger.info(f"player {player_index} chose to {turn._action}")
+                            debugger.prompt(self, locals())
+
+                        if self.player.hand.are_all_cards_flipped:
+                            round_ender_index = self.round_ender_index = self.player_index
+                            break
+                
+                if debugger:
+                    debugger.info("entering endgame")
+
+                for _ in range(len(self.players) - 1):
                     turn = self._turn(self.player)
                     player_index = self.player_index
                     self.turn_index += 1
+                    
+                    if debugger:
+                        debugger.info(f"player {player_index} chose to {turn._action}")
+                        debugger.prompt(self, locals())
 
-                    if interactive:
-                        print(f"- player {player_index} chose to {turn._action}")
-                        self._prompt(locals())
-
-                    if self.player.hand.are_all_cards_flipped:
-                        round_ender_index = self.round_ender_index = self.player_index
-                        break
-            
-            if interactive:
-                print("- entering endgame")
-
-            for _ in range(len(self.players) - 1):
-                turn = self._turn(self.player)
-                player_index = self.player_index
-                self.turn_index += 1
+                round_scores = [player.hand._flip_all_cards() for player in self.players]
+                round_ender_score = round_scores[round_ender_index]
+                if min(round_scores) < round_ender_score or round_scores.count(round_ender_score) > 1:
+                    round_scores[round_ender_index] *= 2
+                for player, round_score in zip(self.players, round_scores):
+                    player.score += round_score
                 
-                if interactive:
-                    print(f"- player {player_index} chose to {turn._action}")
-                    self._prompt(locals())
+                self.round_index += 1  # So we get the right count after breaking
+                
+                if max(self.players, key=lambda player: player.score).score >= 100:
+                    break
 
-            round_scores = [player.hand._flip_all_cards() for player in self.players]
-            round_ender_score = round_scores[round_ender_index]
-            if min(round_scores) < round_ender_score or round_scores.count(round_ender_score) > 1:
-                round_scores[round_ender_index] *= 2
-            for player, round_score in zip(self.players, round_scores):
-                player.score += round_score
-            
-            self.round_index += 1  # So we get the right count after breaking
-            
-            if max(self.players, key=lambda player: player.score).score >= 100:
-                break
+                self.round_starter_index = round_ender_index
+                self.cards._reset()
+                self.cards._shuffle()
+                for player in self.players:
+                    player.hand._deal_from(self.cards)
 
-            self.round_starter_index = round_ender_index
-            self.cards._reset()
-            self.cards._shuffle()
-            for player in self.players:
-                player.hand._deal_from(self.cards)
+            if debugger:
+                debugger.alert(f"player {self.find_lowest_score_player_index()} wins")
+                debugger.prompt(self, locals())
 
-        if interactive:
-            print(f"* player {self.find_lowest_score_player_index()} wins")
-            self._prompt(locals())
+        except RuleError as error:
+            error.repro = self._repro
+            if debugger:
+                debugger.alert(f"a rule was broken: {error}")
+                debugger.traceback(error)
+                debugger.prompt(self, locals(), context=error)
+            raise
 
     def _turn(self, player: Player) -> Turn:
         turn = Turn(self.player.hand, self.cards)
@@ -701,8 +828,6 @@ class State:
         return turn
 
     def _render(self, *, xray: bool = False) -> list[str]:
-        """Render the board state in ASCII art."""
-
         first_line = (
             f"discard: {self.cards.last_discard}"
             f"  draw: {self.cards._next_draw}"
@@ -728,39 +853,6 @@ class State:
             first_line,
             *hands_render,
         ]
-    
-    def _prompt(self, namespace: dict) -> None:
-        """Continues once the user enters nothing."""
-
-        for line in self._render():
-            print(f"  {line}")
-
-        try:
-            while True:
-                command, _, text = input("> ").strip().partition(" ")
-                if not command or command in {"c", "continue"}:
-                    break
-                elif command in {"q", "quit"}:
-                    exit(0)
-                elif command in {"p", "print", "e", "eval"}:
-                    try:
-                        print(repr(eval(text, globals(), namespace)))
-                    except BaseException:
-                        traceback.print_exc()
-                elif command in {"x", "xray"}:
-                    for line in self._render(xray=True):
-                        print(f"  {line}")
-                elif command in {"h", "help"}:
-                    print("  c/continue  progress the simulation")
-                    print("  <enter>     same as continue")
-                    print("  q/quit      exit the simulation")
-                    print("  e/eval      evaluate the following expression")
-                    print("  p/print     same as eval")
-                    print("  x/xray      show unflipped cards in player hands")
-                else:
-                    print(f"Unknown command {text}, see help for commands")
-        except (KeyboardInterrupt, EOFError):
-            exit(0)
 
 
 @dataclass(slots=True)
@@ -798,57 +890,81 @@ class Outcomes:
             self.average_scores[i] /= self.game_count
 
 
-def play(
+def simulate(
     players: list[Player],
     games: int = 1,
     *,
     seed: int | float | str | bytes | bytearray | None = None,
+    repro: object | None = None,
     rng: random.Random | None = None,
     interactive: bool = False,
     processes: int = multiprocessing.cpu_count(),
-    display: bool = True,
+    subprocess: bool = False,
 ) -> Outcomes:
-    """Play `games` rounds of Skyjo, aggregating statisics."""
+    """Play `games` rounds of Skyjo, aggregating game statistics.    
 
-    if seed is not None:
-        if rng is not None:
-            raise ValueError("Cannot pass both seed and rng")
+    Use `seed` or `rng` to make rounds deterministic. Use `interactive`
+    to debug or see how rounds play out. Use `processes` to run games
+    in parallel.
+    """
+    
+    if (seed is not None) + (repro is not None) + (rng is not None) > 1:
+        raise ValueError("Parameters seed, repro, and rng are mutually exclusive")
+    elif seed is not None:
         rng = random.Random(seed)
-
-    if rng is not None and processes > 1:
-        raise ValueError("Cannot multiprocess with fixed rng")
-    elif rng is None:
+    elif repro is not None:
         rng = random.Random()
+        rng.setstate(pickle.loads(bytes.fromhex(repro)))
 
-    if interactive and processes > 1:
-        raise ValueError("Cannot multiprocess with interactive mode enabled")
-
-    if display:
+    if not subprocess:
         start_time = time.monotonic()
 
     if processes > 1:
-        partial = functools.partial(play, players, processes=1, display=False)
+        if rng is not None:
+            raise ValueError("Cannot multiprocess with fixed rng")
+        if repro is not None:
+            raise ValueError("Cannot multiprocess a repro")
+        
+        partial = functools.partial(simulate, players, processes=1, subprocess=True)
         chunks = tuple(filter(None, (games // processes + (i < games % processes) for i in range(processes))))
         processes = len(chunks)
-        with multiprocessing.Pool(processes=processes) as pool:
-            outcomes = sum(pool.map(partial, chunks), start=Outcomes(player_count=len(players)))
+        try:
+            with multiprocessing.Pool(processes=processes) as pool:
+                outcomes = sum(pool.map(partial, chunks), start=Outcomes(player_count=len(players)))
+        except RuleError as error:
+            if error.repro is not None:
+                simulate(players, interactive=True, repro=error.repro)
+            exit(1)
 
     elif processes != 1:
         raise ValueError(f"Invalid process count {processes}, must be 1 or larger")
     
     else:
+        if rng is None:
+            rng = random.Random()
+        
         state = State(players, _rng=rng)
         outcomes = Outcomes(player_count=len(players))
+        debugger = Debugger() if interactive else None
+
         for _ in range(games):
-            state.play(interactive=interactive)
+            try:
+                state.play(debugger)
+            except RuleError as error:
+                if repro is None and error.repro is not None:
+                    print(f"* repro: {pickle.dumps(error.repro).hex()}")
+                if interactive:
+                    exit(1)
+
             outcomes.game_count += 1
             outcomes.average_round_count += state.round_index
             for index, player in enumerate(state.players):
                 outcomes.average_scores[index] += player.score
             outcomes.win_counts[state.find_lowest_score_player_index()] += 1
+
         outcomes._finalize()
 
-    if display:
+    if not subprocess:
         delta = datetime.timedelta(seconds=time.monotonic() - start_time)
         print(f"= Played {games:,} games on {processes} cores in {delta}")
         print(f"= Average rounds: {outcomes.average_round_count:.2f}")
