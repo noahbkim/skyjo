@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import datetime
 import functools
+import inspect
 import multiprocessing
 import pickle
 import random
@@ -10,7 +11,9 @@ import textwrap
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import ClassVar, Collection, Final, Iterator, overload
+from typing import ClassVar, Collection, Final, Iterator, TypeVar
+
+T = TypeVar("T")
 
 DECK_SIZE = 150
 DECK = (
@@ -29,6 +32,19 @@ class RuleError(Exception):
     """Raised when a rule is broken."""
 
     repro: object | None = None
+
+
+def inspectable(t: T) -> T:
+    """Mark an instance method as safe to call for introspection."""
+
+    setattr(t, "__inspectable__", True)
+    return t
+
+
+def isinspectable(o: object) -> bool:
+    """Determines whether an object has been marked inspectable."""
+
+    return getattr(o, "__inspectable__", False)
 
 
 @dataclass(slots=True)
@@ -78,13 +94,13 @@ class Cards:
     of cards in our deck in `_deck` and reset to that instead.
     """
 
-    _rng: random.Random = field(default_factory=random.Random)
+    _rng: random.Random = field(default_factory=random.Random, repr=False)
     """A shared random number generator for deterministic shuffling."""
 
-    _deck: Collection[int] = field(default=DECK)
+    _deck: Collection[int] = field(default=DECK, repr=False)
     """The original collection of cards to reset the deck to."""
 
-    _buffer: list[int] = field(init=False)
+    _buffer: list[int] = field(init=False, repr=False)
     """A container for the discard and draw piles."""
 
     _discard_index: int = 0
@@ -260,6 +276,12 @@ class Hand:
         """The number of columns that have been cleared from this hand."""
 
         return self.original_column_count - self.column_count
+    
+    @property
+    def unflipped_card_count(self) -> int:
+        """The number of cards yet to be flipped."""
+
+        return self.card_count - self.flipped_card_count
 
     @property
     def are_all_cards_flipped(self) -> bool:
@@ -510,7 +532,7 @@ class Player(abc.ABC):
     See README.md for how to run the simulation.
     """
 
-    hand: Hand = field(default_factory=Hand)
+    hand: Hand = field(default_factory=Hand, repr=False)
     """The players current hand of cards."""
 
     score: int = 0
@@ -573,6 +595,22 @@ class Debugger:
         for trace in traceback.format_exception(exception):
             self.print(trace, end="")
 
+    def inspect(self, o: object) -> None:
+        items: list[tuple[str, object]] = []
+        for name in getattr(type(o), "__slots__", ()):
+            if not name.startswith("_"):
+                items.append((name, getattr(o, name)))
+        for name, descriptor in vars(type(o)).items():
+            if not name.startswith("_"):
+                if isinstance(descriptor, property):
+                    items.append((name, getattr(o, name)))
+                elif isinspectable(descriptor):
+                    if inspect.isfunction(descriptor):
+                        items.append((name, getattr(o, name)()))
+        width = max(len(name) for name, _ in items)
+        for name, value in items:
+            self.print(f"{name:>{width}} = {value!r}")
+
     def prompt(
         self,
         state: State,
@@ -590,6 +628,8 @@ class Debugger:
                 elif command in {"g", "game"}:
                     for line in state._render():
                         self.print(line)
+                elif command in {"i", "inspect"}:
+                    self.inspect(state)
                 elif command in {"c", "continue"}:
                     self._continuing = True
                     break
@@ -607,6 +647,7 @@ class Debugger:
                     self.print("<enter>     same as step")
                     self.print("c/continue  progress until the game finishes")
                     self.print("g/game      reprint the game state")
+                    self.print("i/inspect   print state properties")
                     self.print("e/eval      evaluate the following expression")
                     self.print("p/print     same as eval")
                     self.print("x/xray      show unflipped cards in player hands")
@@ -664,7 +705,19 @@ class State:
     def player_index(self) -> int:
         """The index of the current player with action."""
 
-        return (self.round_starter_index + self.turn_index) % len(self.players)
+        return (self.round_starter_index + self.turn_index) % self.player_count
+        
+    @property
+    def player_count(self) -> int:
+        """The number of players in this game."""
+
+        return len(self.players)
+    
+    @property
+    def player_indices(self) -> range:
+        """Shorthand for the range of player indices."""
+
+        return range(self.player_count)
 
     @property
     def player(self) -> Player:
@@ -676,7 +729,7 @@ class State:
     def next_player_index(self) -> int:
         """The index of the next player to take a turn."""
 
-        return (self.player_index + 1) % len(self.players)
+        return (self.player_index + 1) % self.player_count
 
     @property
     def next_player(self) -> Player:
@@ -688,38 +741,129 @@ class State:
     def previous_player_index(self) -> int:
         """The index of the last player to take a turn."""
 
-        return (self.player_index + len(self.players) - 1) % len(self.players)
+        return (self.player_index + self.player_count - 1) % self.player_count
 
     @property
     def previous_player(self) -> Player:
         """The last player to take a turn."""
 
         return self.players[self.previous_player_index]
+    
+    @property
+    def turn_order(self) -> int:
+        """The index in the turn order of the current player."""
 
+        return self.count_turn_order()
+    
+    @property
+    def turns_taken_count(self) -> int:
+        """The number of turns the current player has taken."""
+
+        return self.count_turns_taken()
+
+    @inspectable
     def find_highest_flipped_card_sum_player_index(self) -> None:
         """Find player with the high sum of flipped card values."""
 
-        return max(range(len(self.players)), key=lambda i: self.players[i].hand.sum_flipped_cards())
+        return max(self.player_indices, key=lambda i: self.players[i].hand.sum_flipped_cards())
 
+    @inspectable
     def find_highest_score_player_index(self) -> int:
         """Get the index of the player with the highest overall score."""
 
-        return max(range(len(self.players)), key=lambda i: self.players[i].score)
+        return max(self.player_indices, key=lambda i: self.players[i].score)
     
+    @inspectable
     def find_highest_score_player(self) -> Player:
         """Get the player with the highest overall score."""
 
         return max(self.players, key=lambda player: player.score)
 
+    @inspectable
     def find_lowest_score_player_index(self) -> int:
         """Get the index of the player with the lowest overall score."""
 
-        return min(range(len(self.players)), key=lambda i: self.players[i].score)
+        return min(self.player_indices, key=lambda i: self.players[i].score)
      
+    @inspectable
     def find_lowest_score_player(self) -> int:
         """Get the player with the lowest overall score."""
 
         return min(self.players, key=lambda player: player.score)
+    
+    @inspectable
+    def count_turn_order(self, player_index: int | None = None) -> int:
+        """Get the index in the turn order of the given player.
+        
+        The first player to take their turn will have order 0. The last
+        will have order `self.player_count - 1`. `player_index` defaults
+        to the current player.
+        """
+
+        if player_index is None:
+            player_index = self.player_index
+        reference = self.round_ender_index if self.is_round_ending else self.round_starter_index
+        return (player_index - reference) % self.player_count
+    
+    def count_turn_differential(self, player_index: int, from_player_index: int | None = None) -> int:
+        """Determine whether a player is a turn ahead or behind.
+        
+        Returns 1 if `player_index` takes their nth turn before
+        `from_player_index` does. Returns -1 in the opposite case.
+        Returns 0 if both indices are the same. `from_player_index`
+        defaults to the current player.
+
+        All other players are behind the first player in the turn order
+        and all other players are ahead of the last player in the turn
+        order at all times.
+        """
+
+        if from_player_index is None:
+            from_player_index = self.player_index
+        player_turn_order = self.count_turn_order(player_index) 
+        from_player_turn_order = self.count_turn_order(from_player_index)
+        return (
+            1 if player_turn_order < from_player_turn_order  # They go first
+            else -1 if player_turn_order > from_player_turn_order  # We go first
+            else 0  # Same player specified twice
+        )
+    
+    @inspectable
+    def count_turns_taken(self, player_index: int | None = None) -> int:
+        """Determine how many turns a given player has taken.
+        
+        Does not count the current turn if the player has action. For
+        example, on the very first turn, all players will have taken
+        zero turns. `player_index` defaults to the current player.
+        """
+
+        if player_index is None:
+            player_index = self.player_index
+        has_taken_current_turn = self.count_turn_order(player_index) < self.turn_index % self.player_count
+        return self.turn_index // self.player_count + has_taken_current_turn
+
+    @inspectable
+    def count_turns_to_end(self, player_index: int | None = None) -> int:
+        """Determine the minimum number of turns a player can finish in."""
+
+        if player_index is None:
+            return self.player_index
+        return self.players[player_index].hand.unflipped_card_count
+    
+    @inspectable
+    def count_minimum_turns_remaining(self, player_index: int | None = None) -> int:
+        """Determine the minimum number of turns the current player has.
+        
+        Accounts for the relative position in the turn order of other
+        players. Does not include the current turn if the specified
+        player has action.
+        """
+
+        return max(
+            self.count_turns_to_end(i)
+            for i in self.player_indices
+            if i != player_index
+        ) + 1  # Endgame
     
     def play(self, debugger: Debugger | None = None) -> None:
         """Play a single game of Skyjo, returning final scores."""
@@ -728,10 +872,10 @@ class State:
             # If we throw here, we can potentially recover our state for debugging.
             self._repro = self._rng.getstate()
 
-            if len(self.players) < 3:
-                raise RuleError(f"Must have at least 3 players, got {len(self.players)}")
-            elif len(self.players) > 8:
-                raise RuleError(f"Must have 8 or fewer players, got {len(self.players)}")
+            if self.player_count < 3:
+                raise RuleError(f"Must have at least 3 players, got {self.player_count}")
+            elif self.player_count > 8:
+                raise RuleError(f"Must have 8 or fewer players, got {self.player_count}")
 
             if debugger:
                 debugger.reset()
@@ -766,7 +910,7 @@ class State:
 
             while True:
                 while not self.is_round_ending:
-                    for _ in range(len(self.players)):
+                    for _ in range(self.player_count):
                         turn = self._turn(self.player)
                         player_index = self.player_index
                         self.turn_index += 1
@@ -782,7 +926,7 @@ class State:
                 if debugger:
                     debugger.info("entering endgame")
 
-                for _ in range(len(self.players) - 1):
+                for _ in range(self.player_count - 1):
                     turn = self._turn(self.player)
                     player_index = self.player_index
                     self.turn_index += 1
@@ -830,9 +974,9 @@ class State:
     def _render(self, *, xray: bool = False) -> list[str]:
         first_line = (
             f"discard: {self.cards.last_discard}"
-            f"  draw: {self.cards._next_draw}"
+            f"  draw: ({self.cards._next_draw})"
             f"  round: {self.round_index}"
-            f"  turn: {self.turn_index // len(self.players)} + {self.turn_index%len(self.players)}"
+            f"  turn: {self.turn_index // self.player_count} + {self.turn_index%self.player_count}"
             + (f"  (ending)" if self.is_round_ending else "")
         )
 
