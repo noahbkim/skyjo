@@ -398,18 +398,30 @@ class State:
     @property
     def largest_visible_hand_player_index(self) -> None:
         return max(range(len(self.players)), key=lambda i: self.players[i].hand.visible_value)
+
+    @property
+    def highest_score_player_index(self) -> int:
+        return max(range(len(self.players)), key=lambda i: self.players[i].score)
     
+    @property
+    def highest_score_player(self) -> int:
+        return max(self.players, key=lambda player: player.score)
+
     @property
     def lowest_score_player_index(self) -> int:
         return min(range(len(self.players)), key=lambda i: self.players[i].score)
-    
+     
+    @property
+    def lowest_score_player(self) -> int:
+        return min(self.players, key=lambda player: player.score)
+
     def render(self) -> list[str]:
         """Render the board state in ASCII art."""
 
         cards_render = self._cards.render()
         cards_render[1] += (
             f"  Round: {self.round_index}"
-            f"  Turn: {self.turn_index % len(self.players)}/{self.turn_index}"
+            f"  Turn: {self.turn_index // len(self.players)} + {self.turn_index%len(self.players)}"
             + (f"  (ending)" if self.is_round_ending else "")
         )
 
@@ -445,7 +457,7 @@ class State:
         self.round_starter_index = 0
         self.round_ender_index = None
         self._cards._reset_and_shuffle()        
-        for index, player in enumerate(self.players):
+        for player in self.players:
             player.score = 0
             player.hand._deal_from(self._cards)
 
@@ -490,7 +502,6 @@ class State:
                 player.score += round_score
             
             self.round_index += 1  # So we get the right count after breaking
-            self.turn_index = 0
             
             if max(self.players, key=lambda player: player.score).score >= 100:
                 break
@@ -501,7 +512,7 @@ class State:
                 player.hand._deal_from(self._cards)
 
         if interactive:
-            print(f"* Player {self.lowest_score_player_index} wins")
+            print(f"* player {self.lowest_score_player_index} wins")
             self._prompt()
 
     def _prompt(self) -> None:
@@ -610,7 +621,7 @@ def play(
 
     if display:
         delta = datetime.timedelta(seconds=time.monotonic() - start_time)
-        print(f"= Played {games} games on {processes} cores in {delta}")
+        print(f"= Played {games:,} games on {processes} cores in {delta}")
         print(f"= Average rounds: {outcomes.average_round_count:.2f}")
         for index, player in enumerate(players):
             win_count = outcomes.win_counts[index]
