@@ -21,4 +21,5 @@ class AlwaysDrawPlayer(skyjo.Player):
 if __name__ == "__main__":
     rng = random.Random(0)
     players = [AlwaysDrawPlayer(), AlwaysDrawPlayer(), AlwaysDrawPlayer(), AlwaysDrawPlayer()]
+    # skyjo.play(players, games=100_000)
     skyjo.play(players, games=1, processes=1, seed=0, interactive=True)

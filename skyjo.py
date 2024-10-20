@@ -55,7 +55,7 @@ class Cards:
         space = " " * card_width
         return [
             f"+{edge}+  +{edge}+",
-            f"|{{:>{card_width}d}}|  |{space}|".format(self.top_discard),
+            f"|{space}|  |{{:>{card_width}d}}|".format(self.top_discard),
             f"+{edge}+  +{edge}+",
         ]
     
@@ -236,9 +236,8 @@ class Hand:
                 finger._flip_card()
         for column in reversed(range(self.columns)):  # Reverse to avoid skipping
             self._try_clear(column)
+        return self.visible_value
 
-    def _clear(self) -> None:
-        self._fingers.clear()
 
 @dataclass(slots=True)
 class Flip:
@@ -362,6 +361,7 @@ class State:
     players: list[Player] = field()
     round_index: int = field(init=False, default=0)
     turn_index: int = field(init=False, default=0)
+    round_starter_index: int = field(init=False, default=0)
     round_ender_index: int | None = field(init=False, default=None)
     
     _rng: random.Random = field(default_factory=random.Random)
@@ -378,6 +378,22 @@ class State:
     @property
     def is_round_ending(self) -> bool:
         return self.round_ender_index is not None
+    
+    @property
+    def player_index(self) -> int:
+        return (self.round_starter_index + self.turn_index) % len(self.players)
+
+    @property
+    def player(self) -> Player:
+        return self.players[self.player_index]
+    
+    @property
+    def hand(self) -> Hand:
+        return self.player.hand
+    
+    @property
+    def score(self) -> int:
+        return self.player.score
 
     @property
     def largest_visible_hand_player_index(self) -> None:
@@ -426,11 +442,11 @@ class State:
 
         self.round_index = 0
         self.turn_index = 0
+        self.round_starter_index = 0
         self.round_ender_index = None
         self._cards._reset_and_shuffle()        
         for index, player in enumerate(self.players):
             player.score = 0
-            player.hand._clear()
             player.hand._deal_from(self._cards)
 
         if interactive:
@@ -443,52 +459,45 @@ class State:
         for flip in flips:
             flip._apply_to_hand()
         del flips
+        self.round_starter_index = self.largest_visible_hand_player_index
 
         if interactive:
             print("- Flipped cards")
             self._prompt()
 
-        starting_index = self.largest_visible_hand_player_index
-        rotation = self.players[starting_index:] + self.players[:starting_index]
-
         while True:
             while not self.is_round_ending:
-                for index, player in enumerate(rotation):
-                    turn = Turn(player.hand, self._cards)
-                    player.turn(self, turn)
+                for _ in range(len(self.players)):
+                    turn = Turn(self.player.hand, self._cards)
+                    self.player.turn(self, turn)
                     turn._apply_to_hand_and_cards()
                     self.turn_index += 1
-                    if player.hand.are_all_cards_visible:
-                        round_ender_index = self.round_ender_index = index
+                    if self.player.hand.are_all_cards_visible:
+                        round_ender_index = self.round_ender_index = self.player_index
                         break
             
-            for _ in range(len(rotation) - 1):
-                player = rotation[self.turn_index % len(rotation)]
-                turn = Turn(player.hand, self._cards)
-                player.turn(self, turn)
+            for _ in range(len(self.players) - 1):
+                turn = Turn(self.player.hand, self._cards)
+                self.player.turn(self, turn)
                 turn._apply_to_hand_and_cards()
                 self.turn_index += 1
 
-            for player in rotation:
-                player.hand._flip_all_cards()
-            round_scores = [player.hand.visible_value for player in rotation]
-
+            round_scores = [player.hand._flip_all_cards() for player in self.players]
             round_ender_score = round_scores[round_ender_index]
             if min(round_scores) < round_ender_score or round_scores.count(round_ender_score) > 1:
                 round_scores[round_ender_index] *= 2
-            for player, round_score in zip(rotation, round_scores):
+            for player, round_score in zip(self.players, round_scores):
                 player.score += round_score
             
             self.round_index += 1  # So we get the right count after breaking
             self.turn_index = 0
             
-            if max(rotation, key=lambda player: player.score).score >= 100:
+            if max(self.players, key=lambda player: player.score).score >= 100:
                 break
 
-            rotation = rotation[round_ender_index:] + rotation[:round_ender_index]
+            self.round_starter_index = round_ender_index
             self._cards._reset_and_shuffle()
-            for index, player in enumerate(rotation):
-                player.hand._clear()
+            for player in self.players:
                 player.hand._deal_from(self._cards)
 
         if interactive:
@@ -504,13 +513,14 @@ class State:
         try:
             while True:
                 text = input("> ").strip()
-                if not text or text in {"q", "quit"}:
+                if not text or text in {"c", "continue"}:
                     break
+                elif text in {"q", "quit"}:
+                    exit(0)
                 else:
                     print(f"Unrecognized command {text}")
         except KeyboardInterrupt:
-            print("Exiting due to keyboard interrupt!")
-            exit(1)
+            exit(0)
 
 
 @dataclass(slots=True)
@@ -600,12 +610,12 @@ def play(
 
     if display:
         delta = datetime.timedelta(seconds=time.monotonic() - start_time)
-        print(f"Played {games} games on {processes} cores in {delta}")
-        print(f"  Average rounds: {outcomes.average_round_count:.2f}")
+        print(f"= Played {games} games on {processes} cores in {delta}")
+        print(f"= Average rounds: {outcomes.average_round_count:.2f}")
         for index, player in enumerate(players):
             win_count = outcomes.win_counts[index]
             win_percent = win_count / games * 100
             average_score = outcomes.average_scores[index]
-            print(f"  {player}[{index}]: {win_count} wins ({win_percent:.2f}%), average score {average_score:.2f}")
+            print(f"= {player}[{index}]: {win_count} wins ({win_percent:.2f}%), average score {average_score:.2f}")
 
     return outcomes
