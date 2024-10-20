@@ -197,7 +197,7 @@ class Hand:
         lines[1::2] = (
             template.format(*(
                 str(finger._card) if finger.is_visible else empty
-                for finger in self._fingers[i:i+self.columns])
+                for finger in self._fingers[i*self.columns:(i + 1)*self.columns])
             ) for i in range(self.rows)
         )
         return lines
@@ -268,8 +268,8 @@ class Flip:
     def _apply_to_hand(self) -> None:
         if self._first_index is None or self._second_index is None:
             raise RuleError("Fewer than two cards were flipped!")
-        self._hand[self._first_index]._flip_card()
-        self._hand[self._second_index]._flip_card()
+        self._hand._flip_card(self._first_index)
+        self._hand._flip_card(self._second_index)
 
 
 @dataclass
@@ -438,7 +438,7 @@ class State:
             raise RuleError(f"Must have 8 or fewer players, got {len(self.players)}")
 
         if interactive:
-            print(" NEW GAME ".center(80, "="))
+            print("* new game ".ljust(80, "*"))
 
         self.round_index = 0
         self.turn_index = 0
@@ -450,7 +450,7 @@ class State:
             player.hand._deal_from(self._cards)
 
         if interactive:
-            print("- Fully reset game")
+            print("- fully reset game")
             self._prompt()
 
         flips = [Flip(player.hand) for player in self.players]
@@ -462,7 +462,7 @@ class State:
         self.round_starter_index = self.largest_visible_hand_player_index
 
         if interactive:
-            print("- Flipped cards")
+            print("- flipped cards")
             self._prompt()
 
         while True:
