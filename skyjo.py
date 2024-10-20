@@ -40,6 +40,10 @@ class Cards:
         self._buffer = list(self._deck)
 
     @property
+    def deck_average(self) -> float:
+        return sum(self._deck) / len(self._deck)
+
+    @property
     def top_discard(self) -> int:
         return self._buffer[self._discard_index]
     
@@ -78,7 +82,7 @@ class Cards:
 
     def _replace_discard_card(self, card: int) -> None:
         assert self._discard_index < len(self._buffer), "Deck has too many cards!"
-        self._buffer[self._discard_card] = card
+        self._buffer[self._discard_index] = card
 
     def _restock_draw(self) -> None:
         assert self._discard_index < len(self._buffer), "Invalid discard index!"
@@ -108,20 +112,20 @@ class Finger:
 
     _card: int
 
-    is_visible: bool = 0
+    is_flipped: bool = 0
 
     @property
     def card(self) -> int | None:
-        return self._card if self.is_visible else None
+        return self._card if self.is_flipped else None
     
     def _flip_card(self) -> None:
-        assert not self.is_visible, "Cannot flip already-visible card!"
-        self.is_visible = True
+        assert not self.is_flipped, "Cannot flip already-flipped card!"
+        self.is_flipped = True
     
     def _replace_card(self, card: int) -> int:
         replaced_card = self._card
         self._card = card
-        self.is_visible = True
+        self.is_flipped = True
         return replaced_card
 
 
@@ -163,18 +167,18 @@ class Hand:
         return self.rows * self.original_columns
     
     @property
-    def visible_value(self) -> int:
+    def flipped_value(self) -> int:
         value = 0
         for finger in self._fingers:
-            if finger.is_visible:
+            if finger.is_flipped:
                 value += finger.card
         return value
     
     @property
-    def visible_count(self) -> int:
+    def flipped_count(self) -> int:
         count = 0
         for finger in self._fingers:
-            if finger.is_visible:
+            if finger.is_flipped:
                 count += 1
         return count
 
@@ -183,8 +187,29 @@ class Hand:
         return self.original_card_count - len(self._fingers)
     
     @property
-    def are_all_cards_visible(self) -> int:
-        return self.visible_count == self.card_count
+    def are_all_cards_flipped(self) -> bool:
+        return self.flipped_count == self.card_count
+    
+    @property
+    def first_unflipped_card_index(self) -> int | None:
+        for i, finger in enumerate(self._fingers):
+            if not finger.is_flipped:
+                return i
+        return None
+    
+    @property
+    def highest_card_index(self) -> int | None:
+        flipped_card_indices = [i for i, finger in enumerate(self._fingers) if finger.is_flipped]
+        if not flipped_card_indices:
+            return None
+        return max(flipped_card_indices, key=lambda i: self._fingers[i].card)
+    
+    @property
+    def first_unflipped_or_highest_card_index(self) -> int:
+        index = self.first_unflipped_card_index
+        if index is not None:
+            return index
+        return self.highest_card_index
     
     def render(self) -> list[str]:
         """Render this hand in ASCII art, returning each line."""
@@ -196,7 +221,7 @@ class Hand:
         lines = [divider] * (self.rows * 2 + 1)
         lines[1::2] = (
             template.format(*(
-                str(finger._card) if finger.is_visible else empty
+                str(finger._card) if finger.is_flipped else empty
                 for finger in self._fingers[i*self.columns:(i + 1)*self.columns])
             ) for i in range(self.rows)
         )
@@ -204,7 +229,7 @@ class Hand:
 
     def _get_valid_index(self, row: int, column: int | None) -> None:
         index = row * self.columns + column if column is not None else row
-        if index > len(self._fingers):
+        if index < -len(self._fingers) or index >= len(self._fingers):
             raise RuleError(f"Card ({row}, {column}) is outside hand dimensions")
         return index
         
@@ -216,7 +241,7 @@ class Hand:
     def _try_clear(self, column: int) -> bool:
         card = self._fingers[column]._card
         for finger in self._fingers[column::self.rows]:
-            if not finger.is_visible or finger._card != card:
+            if not finger.is_flipped or finger._card != card:
                 return False
         del self._fingers[column::self.rows]
         return True
@@ -232,11 +257,11 @@ class Hand:
 
     def _flip_all_cards(self) -> None:
         for finger in self._fingers:
-            if not finger.is_visible:
+            if not finger.is_flipped:
                 finger._flip_card()
         for column in reversed(range(self.columns)):  # Reverse to avoid skipping
             self._try_clear(column)
-        return self.visible_value
+        return self.flipped_value
 
 
 @dataclass(slots=True)
@@ -276,13 +301,13 @@ class Flip:
 class Turn:
     """An action controller for taking a turn."""
 
-    DISCARD_AND_FLIP: ClassVar[Final[int]] = "discard and flip"
-    PLACE_DRAWN_CARD: ClassVar[Final[int]] = "place drawn card"
-    PLACE_FROM_DISCARD: ClassVar[Final[int]] = "place from discard"
+    DISCARD_AND_FLIP: ClassVar[Final[str]] = "discard and flip"
+    PLACE_DRAWN_CARD: ClassVar[Final[str]] = "place drawn card"
+    PLACE_FROM_DISCARD: ClassVar[Final[str]] = "place from discard"
 
     _hand: Hand
     _cards: Cards
-    _action: int | None = None
+    _action: str | None = None
     _selected_card: int | None = None
     _replaced_or_flipped_index: int | None = None
 
@@ -299,6 +324,8 @@ class Turn:
             raise RuleError("Cannot take multiple actions in a single turn")
         if self._selected_card is None:
             raise RuleError("Cannot discard and flip without first drawing a card")
+        if self._hand.are_all_cards_flipped:
+            raise RuleError("Cannot discard and flip when all cards are flipped")
         self._action = Turn.DISCARD_AND_FLIP
         self._replaced_or_flipped_index = self._hand._get_valid_index(row, column)
         return self._hand[self._replaced_or_flipped_index]._card
@@ -376,6 +403,10 @@ class State:
         return self._cards.top_discard
     
     @property
+    def deck_average(self) -> float:
+        return self._cards.deck_average
+    
+    @property
     def is_round_ending(self) -> bool:
         return self.round_ender_index is not None
     
@@ -388,16 +419,24 @@ class State:
         return self.players[self.player_index]
     
     @property
-    def hand(self) -> Hand:
-        return self.player.hand
-    
-    @property
-    def score(self) -> int:
-        return self.player.score
+    def next_player_index(self) -> int:
+        return (self.player_index + 1) % len(self.players)
 
     @property
-    def largest_visible_hand_player_index(self) -> None:
-        return max(range(len(self.players)), key=lambda i: self.players[i].hand.visible_value)
+    def next_player(self) -> Player:
+        return self.players[self.next_player_index]
+    
+    @property
+    def previous_player_index(self) -> int:
+        return (self.player_index + len(self.players) - 1) % len(self.players)
+
+    @property
+    def previous_player(self) -> Player:
+        return self.players[self.previous_player_index]
+
+    @property
+    def largest_flipped_hand_player_index(self) -> None:
+        return max(range(len(self.players)), key=lambda i: self.players[i].hand.flipped_value)
 
     @property
     def highest_score_player_index(self) -> int:
@@ -429,6 +468,8 @@ class State:
         for index, player in enumerate(self.players):
             hand_render = player.hand.render()
             base_length = len(hands_render[0])
+            if index == self.player_index:
+                hand_render.append("^" * len(hand_render[-1]))
             for i, line in enumerate(hand_render):
                 if i == len(hands_render):
                     hands_render.append(" " * base_length)
@@ -471,7 +512,7 @@ class State:
         for flip in flips:
             flip._apply_to_hand()
         del flips
-        self.round_starter_index = self.largest_visible_hand_player_index
+        self.round_starter_index = self.largest_flipped_hand_player_index
 
         if interactive:
             print("- flipped cards")
@@ -483,16 +524,31 @@ class State:
                     turn = Turn(self.player.hand, self._cards)
                     self.player.turn(self, turn)
                     turn._apply_to_hand_and_cards()
+                    player_index = self.player_index
                     self.turn_index += 1
-                    if self.player.hand.are_all_cards_visible:
+
+                    if interactive:
+                        print(f"- player {player_index} chose to {turn._action}")
+                        self._prompt()
+
+                    if self.player.hand.are_all_cards_flipped:
                         round_ender_index = self.round_ender_index = self.player_index
                         break
             
+            if interactive:
+                print("- entering endgame")
+
             for _ in range(len(self.players) - 1):
                 turn = Turn(self.player.hand, self._cards)
                 self.player.turn(self, turn)
                 turn._apply_to_hand_and_cards()
+                player_index = self.player_index
                 self.turn_index += 1
+                
+                if interactive:
+                    print(f"- player {player_index} chose to {turn._action}")
+                    self._prompt()
+
 
             round_scores = [player.hand._flip_all_cards() for player in self.players]
             round_ender_score = round_scores[round_ender_index]
