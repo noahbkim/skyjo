@@ -47,6 +47,31 @@ def isinspectable(o: object) -> bool:
     return getattr(o, "__inspectable__", False)
 
 
+@dataclass(slots=True, frozen=True)
+class Average:
+    """Holds a value and divisor."""
+
+    dividend: float = 0
+    divisor: float = 0
+
+    def __add__(self, other: int | float | Average) -> Average:
+        if isinstance(other, Average):
+            return Average(self.dividend + other.dividend, self.divisor + other.divisor)
+        else:
+            return Average(self.dividend + other, self.divisor + 1)
+    
+    def __radd__(self, other: int | float | Average) -> Average:
+        return self + other
+
+    def __float__(self) -> float:
+        if self.divisor == 0:
+            return float("nan")
+        return self.dividend / self.divisor
+    
+    def __format__(self, spec: str) -> str:
+        return float(self).__format__(spec)
+
+
 @dataclass(slots=True)
 class Cards:
     """The discard and draw piles in the center of the table.
@@ -289,6 +314,18 @@ class Hand:
 
         return self.flipped_card_count == self.card_count
     
+    def iter_columns(self) -> Iterator[list[Finger]]:
+        """Yield each column in this hand."""
+
+        for i in range(self.column_count):
+            yield self._fingers[i::self.column_count]
+
+    def iter_rows(self) -> Iterator[list[Finger]]:
+        """Yield each row in this hand."""
+
+        for i in range(0, self.card_count, self.column_count):
+            yield self._fingers[i:i+self.column_count]
+    
     def sum_flipped_cards(self) -> int:
         """Get the total value of flipped cards in this hand."""
 
@@ -309,7 +346,7 @@ class Hand:
         if not flipped_card_indices:
             return None
         return max(flipped_card_indices, key=lambda i: self._fingers[i].card)
-    
+
     def find_first_unflipped_or_highest_card_index(self) -> int:
         """Get the first unflipped card or the highest card; must exist."""
 
@@ -319,6 +356,15 @@ class Hand:
         index = self.find_highest_card_index()
         assert index is not None
         return index
+    
+    def count_cards(self, card: int) -> int:
+        """Count how many of the specified card are visible."""
+
+        count = 0
+        for finger in self._fingers:
+            if finger.is_flipped and finger._card == card:
+                count += 1
+        return count
 
     def _get_valid_index(self, row: int, column: int | None) -> None:
         index = row * self.column_count + column if column is not None else row
@@ -537,6 +583,12 @@ class Player(abc.ABC):
 
     score: int = 0
     """The player's cumulative game score."""
+
+    _flip_elapsed: Average = Average()
+    """The amount of time spent flipping cards."""
+
+    _turn_elapsed: Average = Average()
+    """Cumulative number of seconds spent taking turns."""
 
     def __str__(self) -> None:
         return type(self).__qualname__
@@ -897,7 +949,9 @@ class State:
 
             flips = [Flip(player.hand) for player in self.players]
             for player, flip in zip(self.players, flips):
+                start_time = time.monotonic()
                 player.flip(self, flip)
+                player._flip_elapsed = time.monotonic() - start_time
             for player, flip in zip(self.players, flips):  # Do separately
                 flip._apply_to_hand()
             del flips
@@ -911,29 +965,34 @@ class State:
             while True:
                 while not self.is_round_ending:
                     for _ in range(self.player_count):
-                        turn = self._turn(self.player)
+                        player = self.player
                         player_index = self.player_index
-                        self.turn_index += 1
 
+                        turn = self._turn(player)
                         if debugger:
                             debugger.info(f"player {player_index} chose to {turn._action}")
                             debugger.prompt(self, locals())
-
-                        if self.player.hand.are_all_cards_flipped:
-                            round_ender_index = self.round_ender_index = self.player_index
+    
+                        self.turn_index += 1  # Careful here, this changes internal state
+                        if player.hand.are_all_cards_flipped:
+                            round_ender_index = self.round_ender_index = player_index
                             break
-                
+
+                    self.round_index += 1
+
                 if debugger:
                     debugger.info("entering endgame")
 
                 for _ in range(self.player_count - 1):
-                    turn = self._turn(self.player)
+                    player = self.player
                     player_index = self.player_index
-                    self.turn_index += 1
-                    
+
+                    turn = self._turn(player)
                     if debugger:
                         debugger.info(f"player {player_index} chose to {turn._action}")
                         debugger.prompt(self, locals())
+
+                    self.turn_index += 1
 
                 round_scores = [player.hand._flip_all_cards() for player in self.players]
                 round_ender_score = round_scores[round_ender_index]
@@ -947,7 +1006,11 @@ class State:
                 if max(self.players, key=lambda player: player.score).score >= 100:
                     break
 
+                if debugger:
+                    debugger.alert(f"scores are {', '.join(str(player.score) for player in self.players)}")
+
                 self.round_starter_index = round_ender_index
+                self.round_ender_index = None
                 self.cards._reset()
                 self.cards._shuffle()
                 for player in self.players:
@@ -967,7 +1030,9 @@ class State:
 
     def _turn(self, player: Player) -> Turn:
         turn = Turn(self.player.hand, self.cards)
+        start_time = time.monotonic()
         player.turn(self, turn)
+        player._turn_elapsed += time.monotonic() - start_time
         turn._apply_to_hand_and_cards()
         return turn
 
@@ -976,7 +1041,7 @@ class State:
             f"discard: {self.cards.last_discard}"
             f"  draw: ({self.cards._next_draw})"
             f"  round: {self.round_index}"
-            f"  turn: {self.turn_index // self.player_count} + {self.turn_index%self.player_count}"
+            f"  turn: {self.turn_index}/{self.turn_index%self.player_count}"
             + (f"  (ending)" if self.is_round_ending else "")
         )
 
@@ -1003,13 +1068,19 @@ class State:
 class Outcomes:
     player_count: int
     game_count: int = 0
-    average_round_count: float = 0.0
-    average_scores: list[float] = field(default=None)
+    average_round_count: Average = Average()
+    average_scores: list[Average] = field(default=None)
+    average_flip_elapseds: list[Average] = field(default=None)
+    average_turn_elapseds: list[Average] = field(default=None)
     win_counts: list[int] = field(default=None)
 
     def __post_init__(self) -> None:
         if self.average_scores is None:
-            self.average_scores = [0.0] * self.player_count
+            self.average_scores = [Average()] * self.player_count
+        if self.average_flip_elapseds is None:
+            self.average_flip_elapseds = [Average()] * self.player_count
+        if self.average_turn_elapseds is None:
+            self.average_turn_elapseds = [Average()] * self.player_count
         if self.win_counts is None:
             self.win_counts = [0] * self.player_count
 
@@ -1019,19 +1090,15 @@ class Outcomes:
         if self.player_count != other.player_count:
             raise ValueError(f"Player counts {self.player_count} and {other.player_count} do not match")
         game_count = self.game_count + other.game_count
-        weighted = lambda x, y: (x * self.game_count + y * other.game_count) / game_count
         return Outcomes(
             player_count=self.player_count,
             game_count=game_count,
-            average_round_count=weighted(self.average_round_count, other.average_round_count),
-            average_scores=[weighted(x, y) for x, y in zip(self.average_scores, other.average_scores)],
+            average_round_count=self.average_round_count + other.average_round_count,
+            average_scores=[x + y for x, y in zip(self.average_scores, other.average_scores)],
+            average_flip_elapseds=[x + y for x, y in zip(self.average_flip_elapseds, other.average_flip_elapseds)],
+            average_turn_elapseds=[x + y for x, y in zip(self.average_turn_elapseds, other.average_turn_elapseds)],
             win_counts=[x + y for x, y in zip(self.win_counts, other.win_counts)],
         )
-    
-    def _finalize(self) -> None:
-        self.average_round_count /= self.game_count
-        for i in range(self.player_count):
-            self.average_scores[i] /= self.game_count
 
 
 def simulate(
@@ -1104,9 +1171,9 @@ def simulate(
             outcomes.average_round_count += state.round_index
             for index, player in enumerate(state.players):
                 outcomes.average_scores[index] += player.score
+                outcomes.average_flip_elapseds[index] += player._flip_elapsed
+                outcomes.average_turn_elapseds[index] += player._turn_elapsed
             outcomes.win_counts[state.find_lowest_score_player_index()] += 1
-
-        outcomes._finalize()
 
     if not subprocess:
         delta = datetime.timedelta(seconds=time.monotonic() - start_time)
@@ -1116,6 +1183,12 @@ def simulate(
             win_count = outcomes.win_counts[index]
             win_percent = win_count / games * 100
             average_score = outcomes.average_scores[index]
-            print(f"= {player}[{index}]: {win_count} wins ({win_percent:.2f}%), average score {average_score:.2f}")
+            average_turn_elapsed = outcomes.average_turn_elapseds[index]
+            print(
+                f"= {player}[{index}]: "
+                f"{win_count} wins ({win_percent:.2f}%), "
+                f"mean score {average_score:.2f}, "
+                f"mean turn elapsed {average_turn_elapsed:.2f}"
+            )
 
     return outcomes
