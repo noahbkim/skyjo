@@ -49,7 +49,7 @@ def isinspectable(o: object) -> bool:
 
 @dataclass(slots=True, frozen=True)
 class Average:
-    """Holds a value and divisor."""
+    """Holds a dividend and divisor, provides arithmetic overrides."""
 
     dividend: float = 0
     divisor: float = 0
@@ -57,8 +57,7 @@ class Average:
     def __add__(self, other: int | float | Average) -> Average:
         if isinstance(other, Average):
             return Average(self.dividend + other.dividend, self.divisor + other.divisor)
-        else:
-            return Average(self.dividend + other, self.divisor + 1)
+        return Average(self.dividend + other, self.divisor + 1)
     
     def __radd__(self, other: int | float | Average) -> Average:
         return self + other
@@ -88,7 +87,7 @@ class Cards:
               _draw_index
     
     This represents a discard pile with just -2 facing up and a draw
-    pile containing everything else (with the next -2 on top).
+    pile containing everything else (with a -1 on top).
     
     When a card is `drawn`, the card at `_draw_index` is retrieved then
     the index is incremented. We don't bother overwriting draw cards
@@ -101,13 +100,13 @@ class Cards:
                           ^
                           _draw_index
 
-    When a card is discarded, `_discard_index` is incremented then the
-    new corresponding element is set to its value. If we discarded our
+    When a card is discarded, we increment `_discard_index` and set the
+    corresponding element in `_buffer` to its value. If we discarded our
     four cards in reverse order, we would have:
 
                        _discard_index
                        v
-        [1, 0, -1, -2, 2, 3, 4, ...] < _buffer
+        [-2, 2, 1, 0, -1, 3, 4, ...] < _buffer
                           ^
                           _draw_index
     
@@ -242,12 +241,14 @@ class Hand:
     determined by `len(_fingers) / rows`. Fingers can also be indexed by
     row and column, in which case they are arranged as follows:
 
-             0   1   2   3 < columns
-        0 [  0,  1,  2,  3,
-        1    4,  5,  6,  7,
-        2    8,  9, 10, 11, ]
-        ^          ^
-        rows       indices
+                 0   1   2   3 < columns
+                -4  -3  -2  -1
+
+        0 -1  [  0,  1,  2,  3,
+        1 -2     4,  5,  6,  7,
+        2 -3     8,  9, 10, 11, ]
+        ^                    ^
+        rows                 indices
     """
 
     _fingers: list[Finger] = field(default_factory=list)
@@ -346,6 +347,14 @@ class Hand:
         if not flipped_card_indices:
             return None
         return max(flipped_card_indices, key=lambda i: self._fingers[i].card)
+    
+    def find_lowest_card_index(self) -> int | None:
+        """Get the index of the lowest card if any are flipped."""
+
+        flipped_card_indices = [i for i, finger in enumerate(self._fingers) if finger.is_flipped]
+        if not flipped_card_indices:
+            return None
+        return min(flipped_card_indices, key=lambda i: self._fingers[i].card)
 
     def find_first_unflipped_or_highest_card_index(self) -> int:
         """Get the first unflipped card or the highest card; must exist."""
@@ -365,12 +374,71 @@ class Hand:
             if finger.is_flipped and finger._card == card:
                 count += 1
         return count
+    
+    def find_first_clearing_index(self, card: int) -> int | None:
+        """Find a position where the given card will clear a column.
+        
+        This method will return a position even if the provided card is
+        negative and would be detrimental to clear.
+        """
 
-    def _get_valid_index(self, row: int, column: int | None) -> None:
-        index = row * self.column_count + column if column is not None else row
-        if index < -len(self._fingers) or index >= len(self._fingers):
-            raise RuleError(f"Card ({row}, {column}) is outside hand dimensions")
-        return index
+        for column in range(self.column_count):
+            if self[0, column].card == column[1, column].card == card:
+                return 2 * self.column_count + column
+            if self[0, column].card == column[2, column].card == card:
+                return 1 * self.column_count + column
+            if self[1, column].card == column[2, column].card == card:
+                return 0 * self.column_count + column
+        return None
+
+    def is_column_cleared_with_placement(
+        self,
+        card: int,
+        row_or_index: int,
+        column: int | None = None,
+    ) -> bool:
+        """Check if placing the given card will clear a column."""
+
+        row, column = self.coordinates(row_or_index, column)
+        for i in range(self.row_count):
+            if i != row and self[i, column].card != card:
+                return False
+        return True
+
+    def coordinates(self, row_or_index: int, column: int | None = None) -> tuple[int, int]:
+        """Convert an index to coordintes and validate."""
+
+        if column is not None:
+            self._validate_coordinates(row_or_index, column)
+        else:
+            self._validate_index(row_or_index)
+            row_or_index, column = divmod(row_or_index, self.column_count) 
+            if row_or_index < 0:  # Account for negative divmod
+                column -= self.column_count
+
+        return row_or_index, column
+
+    def index(self, row_or_index: int, column: int | None = None) -> int:
+        """Convert coordinates to an index and validate."""
+
+        if column is None:
+            self._validate_index(row_or_index)
+        else:
+            self._validate_coordinates(row_or_index, column)
+            row_or_index = row_or_index * self.column_count + column
+
+        return row_or_index
+
+    def _validate_coordinates(self, row: int, column: int) -> None:
+        row_count = self.row_count
+        column_count = self.column_count
+        if row < -row_count or row >= row_count or column < -column_count or column >= column_count:
+            raise IndexError(f"Hand coordinates ({row}, {column}) outside hand size [{row_count}, {column_count}]")
+    
+    def _validate_index(self, index: int) -> None:
+        card_count = self.card_count
+        if index < -card_count or index >= card_count:
+            raise IndexError(f"Hand index {index} outside hand size [{self.row_count}, {self.column_count}] ")
 
     def _deal_from(self, cards: Cards) -> None:
         self.flipped_card_count = 0
@@ -444,14 +512,14 @@ class Flip:
             return 1
         return 2
 
-    def flip_card(self, row: int, column: int | None = None, /) -> int:
+    def flip_card(self, row_or_index: int, column: int | None = None, /) -> int:
         """Flip a single card, seeing its value.
         
         This method accepts either the row and column of the card to
         flip or its index in the flat list of fingers.
         """
 
-        index = self._hand._get_valid_index(row, column)
+        index = self._hand.index(row_or_index, column)
         if self._first_index is None:
             self._first_index = index
             return self._hand[index]._card
@@ -495,7 +563,7 @@ class Turn:
         self._selected_card = self._cards._next_draw
         return self._selected_card
 
-    def discard_and_flip(self, row: int, column: int | None = None, /) -> int:
+    def discard_and_flip(self, row_or_index: int, column: int | None = None, /) -> int:
         """Discard the drawn card and flip a card in the player's hand.
         
         This method accepts either the row and column of the card to
@@ -510,12 +578,12 @@ class Turn:
         if self._hand.are_all_cards_flipped:
             raise RuleError("Cannot discard and flip when all cards are flipped")
         self._action = Turn.DISCARD_AND_FLIP
-        self._replaced_or_flipped_index = self._hand._get_valid_index(row, column)
+        self._replaced_or_flipped_index = self._hand.index(row_or_index, column)
         if self._hand[self._replaced_or_flipped_index].is_flipped:
             raise RuleError(f"Cannot flip already-flipped card at {self._replaced_or_flipped_index}")
         return self._hand[self._replaced_or_flipped_index]._card
 
-    def place_drawn_card(self, row: int, column: int | None = None, /) -> int:
+    def place_drawn_card(self, row_or_index: int, column: int | None = None, /) -> int:
         """Replace a card in the player's hand with the drawn card.
         
         This method accepts either the row and column of the card to
@@ -528,10 +596,10 @@ class Turn:
         if self._selected_card is None:
             raise RuleError("Cannot place drawn card without first drawing a card")
         self._action = Turn.PLACE_DRAWN_CARD
-        self._replaced_or_flipped_index = self._hand._get_valid_index(row, column)
+        self._replaced_or_flipped_index = self._hand.index(row_or_index, column)
         return self._hand[self._replaced_or_flipped_index]._card
 
-    def place_from_discard(self, row: int, column: int | None = None, /) -> int:
+    def place_from_discard(self, row_or_index: int, column: int | None = None, /) -> int:
         """Replace a card in the player's hand with the topmost discard.
         
         This method accepts either the row and column of the card to
@@ -545,7 +613,7 @@ class Turn:
             raise RuleError("Cannot place from discard after drawing a card")
         self._selected_card = self._cards.last_discard
         self._action = Turn.PLACE_FROM_DISCARD
-        self._replaced_or_flipped_index = self._hand._get_valid_index(row, column)
+        self._replaced_or_flipped_index = self._hand.index(row_or_index, column)
         return self._hand[self._replaced_or_flipped_index]._card
 
     def _apply_to_hand_and_cards(self) -> None:
