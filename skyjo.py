@@ -133,9 +133,11 @@ class Cards:
     _draw_index: int = 1
     """The index of the topmost card in the draw pile."""
 
+    # Prevent `dataclass` from trying to generate a `__hash__`.
     def __hash__(self) -> None:
         return id(self)
 
+    # Reset the buffer on start.
     def __post_init__(self) -> None:
         self._buffer = list(self._deck)
 
@@ -153,7 +155,7 @@ class Cards:
         return sum(self._deck) / len(self._deck)
 
     @property
-    def _next_draw(self) -> int:
+    def _next_draw_card(self) -> int:
         """The (hidden) card on top of the draw pile."""
         
         assert self._draw_index < len(self._buffer), "Deck must be restocked!"
@@ -167,14 +169,17 @@ class Cards:
             self._restock_draw()
         return card
     
-    def _discard_card(self, card: int) -> None:
+    def _discard_card(self, card: int) -> int:
         assert self._discard_index < len(self._buffer), "Deck has too many cards!"
         self._discard_index += 1
         self._buffer[self._discard_index] = card
+        return card
 
-    def _replace_discard_card(self, card: int) -> None:
+    def _replace_discard_card(self, card: int) -> int:
         assert self._discard_index < len(self._buffer), "Deck has too many cards!"
+        previous_discard_card = self._buffer[self._discard_index]
         self._buffer[self._discard_index] = card
+        return previous_discard_card
 
     def _restock_draw(self) -> None:
         assert self._discard_index < len(self._buffer), "Invalid discard index!"
@@ -560,7 +565,7 @@ class Turn:
             raise RuleError("Cannot take multiple actions in a single turn")
         if self._selected_card is not None:
             raise RuleError("Cannot draw more than one card")
-        self._selected_card = self._cards._next_draw
+        self._selected_card = self._cards._next_draw_card
         return self._selected_card
 
     def discard_and_flip(self, row_or_index: int, column: int | None = None, /) -> int:
@@ -1107,7 +1112,7 @@ class State:
     def _render(self, *, xray: bool = False) -> list[str]:
         first_line = (
             f"discard: {self.cards.last_discard}"
-            f"  draw: ({self.cards._next_draw})"
+            f"  draw: ({self.cards._next_draw_card})"
             f"  round: {self.round_index}"
             f"  turn: {self.turn_index}/{self.turn_index%self.player_count}"
             + (f"  (ending)" if self.is_round_ending else "")

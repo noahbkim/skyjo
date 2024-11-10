@@ -23,6 +23,11 @@ class TestAverage(unittest.TestCase):
         average = Average()
         average += 1
         self.assertEqual(float(average), 1)
+
+    def test_add_float_right(self) -> None:
+        average = Average()
+        average = 1 + average
+        self.assertEqual(float(average), 1)
     
     def test_add_float_many(self) -> None:
         average = Average()
@@ -36,7 +41,7 @@ class TestAverage(unittest.TestCase):
         b = Average(1, 1)
         self.assertEqual(float(a + b), 2.5)
     
-    def test_add_assign(self) -> None:
+    def test_add_immutable(self) -> None:
         a = Average(9, 3)
         self.assertEqual(float(a), 3)
         b = a
@@ -45,6 +50,44 @@ class TestAverage(unittest.TestCase):
         self.assertEqual(float(a), 2.5)
         self.assertNotEqual(a, b)
 
+
+class TestCards(unittest.TestCase):
+    """Ensure draws and discards are successful."""
+
+    def test_construct(self) -> None:
+        Cards()
+    
+    def test_last_discard(self) -> None:
+        cards = Cards()
+        self.assertEqual(cards.last_discard, DECK[0])
+        cards._discard_card(0)
+        self.assertEqual(cards.last_discard, 0)
+    
+    def test_average_deck_card_value(self) -> None:
+        cards = Cards()
+        self.assertEqual(cards.average_deck_card_value, sum(DECK) / len(DECK))
+    
+    def test__next_draw_card(self) -> None:
+        cards = Cards()
+        self.assertEqual(cards._next_draw_card, DECK[1])
+
+    def test__draw_card(self) -> None:
+        cards = Cards()
+        self.assertEqual(cards._next_draw_card, DECK[1])
+        cards._draw_card()
+        self.assertEqual(cards._next_draw_card, DECK[2])
+    
+    def test__draw_card_restock(self) -> None:
+        cards = Cards()
+        for _ in range(1, len(DECK) * 2 + 1):
+            cards._discard_card(cards._draw_card())
+            cards.validate()
+    
+    def test__replace_discard_card(self) -> None:
+        cards = Cards()
+        self.assertEqual(cards._replace_discard_card(0), DECK[0])
+        self.assertEqual(cards.last_discard, 0)
+        
 
 if __name__ == "__main__":
     unittest.main()
