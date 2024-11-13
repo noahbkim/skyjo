@@ -1,6 +1,8 @@
 #define PY_SSIZE_T_CLEAN
 #include "Python.h"
 
+#include "cards.h"
+
 static PyMethodDef method_def[] = {
     {NULL, NULL, 0, NULL}
 };
