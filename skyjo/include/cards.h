@@ -5,12 +5,24 @@
 #include <stdint.h>
 
 #define CARD_BITS 5
-#define DECK_SIZE 150
-
-/** Sane wrapping for the `rand_r` type. */
+#define CARD_MAX 12
+#define CARD_MIN -2
+#define CARD_INVALID -3
 
 /** The integer type for individual cards. */
 typedef int8_t card_t;
+
+#define FIVE(CARD) (CARD), (CARD), (CARD), (CARD), (CARD)
+#define TEN(CARD) FIVE(CARD), FIVE(CARD)
+#define FIFTEEN(CARD) FIVE(CARD), FIVE(CARD), FIVE(CARD)
+
+/** The contents of a Skyjo deck. */
+static const card_t DECK[] = {
+    FIVE(-2), TEN(-1), FIFTEEN(0),
+    TEN(1), TEN(2), TEN(3), TEN(4), TEN(5), TEN(6),
+    TEN(7), TEN(8), TEN(9), TEN(10), TEN(11), TEN(12)};
+
+#define DECK_SIZE 150
 
 /** A safe integer width for an index in a deck. */
 typedef uint8_t decksize_t;
@@ -62,12 +74,12 @@ typedef struct
     card_t buffer[DECK_SIZE];
 } cards_t;
 
-void cards_restore(cards_t* cards);
-void cards_shuffle(cards_t* cards);
-card_t cards_get_last_discard(const cards_t* cards);
-card_t cards_get_next_draw(const cards_t* cards);
-card_t cards_draw(cards_t* cards);
-void cards_discard(cards_t* cards, card_t card);
-card_t cards_replace_discard(cards_t* cards, card_t card);
+void cards_restore(cards_t *cards);
+void cards_shuffle(cards_t *cards);
+card_t cards_get_last_discard(const cards_t *cards);
+card_t cards_get_next_draw(const cards_t *cards);
+card_t cards_draw(cards_t *cards);
+void cards_discard(cards_t *cards, card_t card);
+card_t cards_replace_discard(cards_t *cards, card_t card);
 
-#endif  // CARDS_H
+#endif // CARDS_H
