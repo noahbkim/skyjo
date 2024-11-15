@@ -7,6 +7,8 @@
 
 TESTS_BEGIN()
 
+// MARK: Cards
+
 TEST(cards_restore)
 {
     cards_t cards;
@@ -103,6 +105,147 @@ TEST(cards_replace_discard)
     ASSERT(cards_get_last_discard(&cards) == draw);
     ASSERT(cards.discard_index == 0);
     ASSERT(cards.draw_index == 2);
+}
+
+// MARK: Hand
+
+TEST(finger_restore)
+{
+    finger_t finger;
+    finger_restore(&finger);
+    ASSERT(finger_matches(finger, C));
+}
+
+TEST(finger_deal)
+{
+    finger_t finger;
+    ASSERT(finger_deal(&finger, 12) == 12);
+    ASSERT(finger_matches(finger, 12 H));
+}
+
+TEST(finger_reveal)
+{
+    finger_t finger;
+    finger_deal(&finger, 12);
+    finger_reveal(&finger);
+    ASSERT(finger_matches(finger, 12));
+}
+
+TEST(finger_replace_hidden)
+{
+    finger_t finger;
+    finger_deal(&finger, 12);
+    ASSERT(finger_replace(&finger, -2) == 12);
+    ASSERT(finger_matches(finger, -2));
+}
+
+TEST(finger_replace_revealed)
+{
+    finger_t finger;
+    finger_deal(&finger, 12);
+    finger_reveal(&finger);
+    ASSERT(finger_replace(&finger, -2) == 12);
+    ASSERT(finger_matches(finger, -2));
+}
+
+TEST(hand_restore)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    ASSERT(hand_matches(hand,
+                        C, C, C, C,
+                        C, C, C, C,
+                        C, C, C, C));
+}
+
+TEST(hand_try_clear_single)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, C, C, C,
+                12, C, C, C,
+                12, C, C, C);
+    ASSERT(hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        C, C, C, C,
+                        C, C, C, C,
+                        C, C, C, C));
+}
+
+TEST(hand_try_clear_double_right)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, C, C,
+                12, 11, C, C,
+                12, 11, C, C);
+    ASSERT(hand_try_clear(&hand, 1));
+    ASSERT(hand_matches(hand,
+                        12, C, C, C,
+                        12, C, C, C,
+                        12, C, C, C));
+}
+
+TEST(hand_try_clear_double_left)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, C, C,
+                12, 11, C, C,
+                12, 11, C, C);
+    ASSERT(hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        11, C, C, C,
+                        11, C, C, C,
+                        11, C, C, C));
+}
+
+TEST(hand_try_clear_triple_right)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, C,
+                12, 11, 10, C,
+                12, 11, 10, C);
+    ASSERT(hand_try_clear(&hand, 2));
+    ASSERT(hand_matches(hand,
+                        12, 11, C, C,
+                        12, 11, C, C,
+                        12, 11, C, C));
+}
+
+TEST(hand_try_clear_triple_middle)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, C,
+                12, 11, 10, C,
+                12, 11, 10, C);
+    ASSERT(hand_try_clear(&hand, 1));
+    ASSERT(hand_matches(hand,
+                        12, 10, C, C,
+                        12, 10, C, C,
+                        12, 10, C, C));
+}
+
+TEST(hand_try_clear_triple_right)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, C,
+                12, 11, 10, C,
+                12, 11, 10, C);
+    ASSERT(hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        11, 10, C, C,
+                        11, 10, C, C,
+                        11, 10, C, C));
 }
 
 TESTS_END()

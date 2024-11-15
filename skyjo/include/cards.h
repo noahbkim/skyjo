@@ -7,7 +7,7 @@
 #define CARD_BITS 5
 #define CARD_MAX 12
 #define CARD_MIN -2
-#define CARD_INVALID -3
+#define CARD_SAFE (abs(CARD_MAX) + abs(CARD_MIN) + 1)
 
 /** The integer type for individual cards. */
 typedef int8_t card_t;

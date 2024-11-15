@@ -1,4 +1,4 @@
-COMPILE = clang -Wall -Iinclude
+COMPILE = clang -Wall -Iinclude -std=c17
 
 build:
 	mkdir build
