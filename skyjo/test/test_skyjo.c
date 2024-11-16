@@ -248,4 +248,109 @@ TEST(hand_try_clear_triple_right)
                         11, 10, C, C));
 }
 
+TEST(hand_try_clear_four_left)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, 9,
+                12, 11, 10, 9,
+                12, 11, 10, 9);
+    ASSERT(hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        11, 10, 9, C,
+                        11, 10, 9, C,
+                        11, 10, 9, C));
+}
+
+TEST(hand_try_clear_four_left_middle)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, 9,
+                12, 11, 10, 9,
+                12, 11, 10, 9);
+    ASSERT(hand_try_clear(&hand, 1));
+    ASSERT(hand_matches(hand,
+                        12, 10, 9, C,
+                        12, 10, 9, C,
+                        12, 10, 9, C));
+}
+
+TEST(hand_try_clear_four_right_middle)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, 9,
+                12, 11, 10, 9,
+                12, 11, 10, 9);
+    ASSERT(hand_try_clear(&hand, 2));
+    ASSERT(hand_matches(hand,
+                        12, 11, 9, C,
+                        12, 11, 9, C,
+                        12, 11, 9, C));
+}
+
+TEST(hand_try_clear_four_right)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, 11, 10, 9,
+                12, 11, 10, 9,
+                12, 11, 10, 9);
+    ASSERT(hand_try_clear(&hand, 3));
+    ASSERT(hand_matches(hand,
+                        12, 11, 10, C,
+                        12, 11, 10, C,
+                        12, 11, 10, C));
+}
+
+TEST(hand_try_clear_different_first)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                11, C, C, C,
+                12, C, C, C,
+                12, C, C, C);
+    ASSERT(!hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        11, C, C, C,
+                        12, C, C, C,
+                        12, C, C, C));
+}
+
+TEST(hand_try_clear_different_second)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, C, C, C,
+                11, C, C, C,
+                12, C, C, C);
+    ASSERT(!hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        12, C, C, C,
+                        11, C, C, C,
+                        12, C, C, C));
+}
+
+TEST(hand_try_clear_different_third)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, C, C, C,
+                12, C, C, C,
+                11, C, C, C);
+    ASSERT(!hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        12, C, C, C,
+                        12, C, C, C,
+                        11, C, C, C));
+}
+
 TESTS_END()

@@ -57,7 +57,7 @@ bool hand_try_clear(hand_t *hand, handsize_t column)
     }
 
     // Check if every subsequent finger has the same card and is revealed.
-    finger_t *cursor = finger;
+    finger_t *cursor = finger + 1;
     for (handsize_t r = 1; r < HAND_ROWS; ++r, ++cursor)
     {
         if (cursor->state != CARD_REVEALED || cursor->card != finger->card)
