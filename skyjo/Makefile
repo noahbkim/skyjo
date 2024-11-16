@@ -9,8 +9,11 @@ cards.o: src/cards.c build
 hand.o: src/hand.c build
 	$(COMPILE) -c src/hand.c -o build/hand.o
 
-test.o: cards.o hand.o test/test_skyjo.c build
-	$(COMPILE) test/test_skyjo.c build/cards.o build/hand.o -o build/test.o
+game.o: src/game.c build
+	$(COMPILE) -c src/game.c -o build/game.o
+
+test.o: cards.o hand.o game.o test/test_skyjo.c build
+	$(COMPILE) test/test_skyjo.c build/cards.o build/hand.o build/game.o -o build/test.o
 
 test: test.o
 	./build/test.o

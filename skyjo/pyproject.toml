@@ -14,8 +14,8 @@ build-backend = "setuptools.build_meta"
 packages = ["skyjo"]
 
 [[tool.setuptools.ext-modules]]
-name = "skyjo.ext"
-sources = ["src/cards.c", "src/hand.c", "src/skyjo.c"]
+name = "skyjo.core"
+sources = ["src/cards.c", "src/hand.c", "src/game.c", "src/skyjo.c"]
 include-dirs = ["include"]
-depends = ["include/cards.h", "include/hand.h"]
+depends = ["include/cards.h", "include/hand.h", "include/game.h"]
 extra-compile-args = ["-Wall", "-std=c17"]

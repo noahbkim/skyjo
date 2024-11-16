@@ -16,17 +16,6 @@ typedef uint8_t handsize_t;
 /** A safe integer width for score values. */
 typedef ptrdiff_t score_t;
 
-/** States for a card in a hand. */
-typedef enum
-{
-    CARD_CLEARED = 0,
-    CARD_HIDDEN,
-    CARD_REVEALED
-} finger_state_t;
-
-/** Number of bits required to pack `finger_state_t`. */
-#define FINGER_STATE_BITS 2
-
 /** The slot for a card in a hand.
  *
  * Includes the card value and a bit indicating whether said card has
@@ -34,7 +23,12 @@ typedef enum
  */
 typedef struct
 {
-    finger_state_t state : FINGER_STATE_BITS;
+    enum
+    {
+        CARD_CLEARED = 0,
+        CARD_HIDDEN,
+        CARD_REVEALED
+    } state : 2;
     card_t card : CARD_BITS;
 } finger_t;
 

@@ -2,19 +2,21 @@
 #include "Python.h"
 
 #include "cards.h"
+#include "hand.h"
+#include "game.h"
 
-static PyMethodDef method_def[] = {
+static PyMethodDef METHODS[] = {
     {NULL, NULL, 0, NULL}};
 
-static struct PyModuleDef module_def = {
+static struct PyModuleDef MODULE = {
     PyModuleDef_HEAD_INIT,
-    "ext",
+    "core",
     NULL, // Docs
     -1,   // Size of per-interpreter state
-    method_def};
+    METHODS};
 
 PyMODINIT_FUNC
-PyInit_ext()
+PyInit_core()
 {
-    return PyModule_Create(&module_def);
+    return PyModule_Create(&MODULE);
 }
