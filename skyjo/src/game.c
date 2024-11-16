@@ -60,11 +60,3 @@ void turn_increment(turn_t *turn)
     turn->index += 1;
     turn->state = TURN_DRAW_OR_TAKE;
 }
-
-void game_restore(game_t *game)
-{
-    players_restore(&game->players);
-    cards_restore(&game->cards);
-    round_restore(&game->round);
-    turn_restore(&game->turn);
-}

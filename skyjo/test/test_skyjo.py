@@ -2,4 +2,8 @@
 
 from __future__ import annotations
 
-from skyjo.core import *
+import skyjo.core
+
+print(f"{dir(skyjo.core)=}")
+
+print(skyjo.core.Game)

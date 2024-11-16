@@ -77,15 +77,4 @@ void turn_flip(turn_t *turn);
 void turn_start(turn_t *turn);
 void turn_increment(turn_t *turn);
 
-/** State for an entire Skyjo game. */
-typedef struct
-{
-    players_t players;
-    cards_t cards;
-    round_t round;
-    turn_t turn;
-} game_t;
-
-void game_restore(game_t *game);
-
 #endif // GAME_H
