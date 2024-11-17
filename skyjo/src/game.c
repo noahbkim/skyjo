@@ -8,15 +8,6 @@ void player_restore(player_t *player)
     hand_restore(&player->hand);
 }
 
-void players_restore(players_t *players)
-{
-    players->count = 0;
-    for (playercount_t i = 0; i < PLAYERS_MAX; ++i)
-    {
-        player_restore(players->buffer + i);
-    }
-}
-
 void round_restore(round_t *round)
 {
     memset(round, 0, sizeof(round_t));

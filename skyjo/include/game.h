@@ -19,15 +19,6 @@ typedef struct
 
 void player_restore(player_t *player);
 
-/** Convenient container for the fixed player list. */
-typedef struct
-{
-    playercount_t count;
-    player_t buffer[PLAYERS_MAX];
-} players_t;
-
-void players_restore(players_t *players);
-
 /** Overall state for flipping cards then taking turns. */
 typedef struct
 {
