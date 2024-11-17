@@ -56,6 +56,15 @@ TEST(cards_shuffle_restore)
     ASSERT(cards.buffer[DECK_SIZE - 1] == 12);
 }
 
+TEST(cards_deal)
+{
+    cards_t cards;
+    cards_restore(&cards);
+    ASSERT(cards_deal(&cards) == -2);
+    ASSERT(cards.discard_index == 1);
+    ASSERT(cards.draw_index == 2);
+}
+
 TEST(cards_get_last_discard)
 {
     cards_t cards;

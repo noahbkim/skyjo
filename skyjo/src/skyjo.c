@@ -120,9 +120,53 @@ static void PyGameObject_Dealloc(PyObject *self)
     Py_TRASHCAN_END;
 }
 
-static PyObject *PyGameObject_Play(PyObject *self, PyObject *args)
+static PyObject *PyGameObject_Play(PyObject *self, PyObject *args, PyObject *kwargs)
 {
+    PyGameObject *this = (PyGameObject *)self;
+    unsigned int seed;
+
+    // Parse `*args` and `**kwargs` to accept an argument `seed`.
+    static char *kwlist[] = {"seed", NULL};
+    if (PyTuple_GET_SIZE(args) == 0 && kwargs == NULL)
+    {
+        // If the user didn't pass anything, don't parse arguments.
+        // This saves us from a tricky default situation with `seed`.
+    }
+    else if (PyArg_ParseTupleAndKeywords(args, kwargs, "I", kwlist, &seed))
+    {
+        srand(seed);
+    }
+    else
+    {
+        goto error;
+    }
+
+    // Completely wipe previous state.
+    round_restore(&this->round);
+    turn_restore(&this->turn);
+    cards_restore(&this->cards);
+    for (playercount_t i = 0; i < PLAYERS_MAX; ++i)
+    {
+        player_restore(this->players + i);
+    }
+
+    // Shuffle the deck.
+    cards_shuffle(&this->cards);
+
+    // Deal cards.
+    for (handsize_t f = 0; f < HAND_SIZE; ++f)
+    {
+        for (playercount_t p = 0; p < this->size; ++p)
+        {
+            finger_t *finger = this->players[p].hand.fingers + f;
+            finger_deal(finger, cards_deal(&this->cards));
+        }
+    }
+
     Py_RETURN_NONE;
+
+error:
+    return NULL;
 }
 
 static PyObject *PyGameObject_FlipCard(PyObject *self, PyObject *args)
@@ -146,7 +190,7 @@ static PyObject *PyGameObject_PlaceDrawnCard(PyObject *self, PyObject *args)
 }
 
 static PyMethodDef PyGameType_Methods[] = {
-    {"play", PyGameObject_Play, METH_NOARGS, PyDoc_STR("Run a Skyjo simulation.")},
+    {"play", _PyCFunction_CAST(PyGameObject_Play), METH_VARARGS | METH_KEYWORDS, PyDoc_STR("Run a Skyjo simulation.")},
     {"flip_card", PyGameObject_FlipCard, METH_O, PyDoc_STR("Flip a card at the start of the round.")},
     {"draw_card", PyGameObject_DrawCard, METH_O, PyDoc_STR("Take a card from the draw pile.")},
     {"discard_and_flip", PyGameObject_DiscardAndFlipCard, METH_O, PyDoc_STR("Discard the drawn card and flip one in hand.")},

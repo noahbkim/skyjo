@@ -76,6 +76,7 @@ typedef struct
 
 void cards_restore(cards_t *cards);
 void cards_shuffle(cards_t *cards);
+card_t cards_deal(cards_t *cards);
 card_t cards_get_last_discard(const cards_t *cards);
 card_t cards_get_next_draw(const cards_t *cards);
 card_t cards_draw(cards_t *cards);

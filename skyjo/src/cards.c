@@ -35,6 +35,16 @@ void cards_shuffle(cards_t *cards)
     shuffle(cards->buffer, DECK_SIZE);
 }
 
+/** Deal from the top of the deck for congruence with real life. */
+card_t cards_deal(cards_t *cards)
+{
+    assert(cards->draw_index + 1 < DECK_SIZE);
+    card_t card = cards->buffer[cards->discard_index];
+    cards->discard_index += 1;
+    cards->draw_index += 1;
+    return card;
+}
+
 card_t cards_get_last_discard(const cards_t *cards)
 {
     assert(cards->discard_index < DECK_SIZE);
