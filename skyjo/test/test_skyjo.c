@@ -173,6 +173,51 @@ TEST(hand_try_clear_single)
                         C, C, C, C));
 }
 
+TEST(hand_try_clear_hidden)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12 H, C, C, C,
+                12 H, C, C, C,
+                12 H, C, C, C);
+    ASSERT(!hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        12 H, C, C, C,
+                        12 H, C, C, C,
+                        12 H, C, C, C));
+}
+
+TEST(hand_try_clear_hidden_one)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, C, C, C,
+                12, C, C, C,
+                12 H, C, C, C);
+    ASSERT(!hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        12, C, C, C,
+                        12, C, C, C,
+                        12 H, C, C, C));
+}
+
+TEST(hand_try_clear_hidden_two)
+{
+    hand_t hand;
+    hand_restore(&hand);
+    hand_assign(hand,
+                12, C, C, C,
+                12 H, C, C, C,
+                12 H, C, C, C);
+    ASSERT(!hand_try_clear(&hand, 0));
+    ASSERT(hand_matches(hand,
+                        12, C, C, C,
+                        12 H, C, C, C,
+                        12 H, C, C, C));
+}
+
 TEST(hand_try_clear_double_right)
 {
     hand_t hand;
