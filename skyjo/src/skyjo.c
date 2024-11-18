@@ -5,6 +5,12 @@
 #include "hand.h"
 #include "game.h"
 
+// MARK: Agent
+
+_Py_IDENTIFIER(join);
+_Py_IDENTIFIER(flip);
+_Py_IDENTIFIER(turn);
+
 // MARK: Game
 
 typedef struct
@@ -67,7 +73,7 @@ static int PyGameObject_Init(PyObject *self, PyObject *args, PyObject *kwargs)
         {
             PyErr_Format(
                 PyExc_ValueError,
-                "Expected between %d and %d players, got at least %d",
+                "expected between %d and %d players, got at least %d",
                 PLAYERS_MIN, PLAYERS_MAX, index + 1);
             goto error;
         }
@@ -81,7 +87,7 @@ static int PyGameObject_Init(PyObject *self, PyObject *args, PyObject *kwargs)
     {
         PyErr_Format(
             PyExc_ValueError,
-            "Expected between %d and %d players, got %d",
+            "expected between %d and %d players, got %d",
             PLAYERS_MIN, PLAYERS_MAX, agent_index);
         goto error;
     }
@@ -123,6 +129,7 @@ static void PyGameObject_Dealloc(PyObject *self)
 static PyObject *PyGameObject_Play(PyObject *self, PyObject *args, PyObject *kwargs)
 {
     PyGameObject *this = (PyGameObject *)self;
+    PyObject *buffer = NULL;
     unsigned int seed;
 
     // Parse `*args` and `**kwargs` to accept an argument `seed`.
@@ -160,18 +167,141 @@ static PyObject *PyGameObject_Play(PyObject *self, PyObject *args, PyObject *kwa
         {
             finger_t *finger = this->players[p].hand.fingers + f;
             finger_deal(finger, cards_deal(&this->cards));
+            this->players[p].hand.columns = (f + 1) / HAND_ROWS;
+        }
+    }
+
+    // Ask each agent to flip cards for their player.
+    for (playercount_t p = 0; p < this->size; ++p)
+    {
+        turn_flip(&this->turn);
+        if (!PyObject_CallMethodOneArg(this->agents[p], _PyUnicode_FromId(&PyId_flip), self))
+        {
+            goto error;
+        }
+
+        if (this->turn.state != FLIP_DONE)
+        {
+            PyErr_Format(
+                PyExc_RuntimeError,
+                "player %R at index %d did not flip two cards",
+                this->agents[p], p);
+            goto error;
         }
     }
 
     Py_RETURN_NONE;
 
 error:
+    Py_XDECREF(buffer);
     return NULL;
 }
 
-static PyObject *PyGameObject_FlipCard(PyObject *self, PyObject *args)
+static bool _PyHand_ParseIndex(PyObject *arg, const hand_t *hand, handsize_t *index)
 {
-    Py_RETURN_NONE;
+    if (PyLong_Check(arg))
+    {
+        Py_ssize_t value = PyLong_AsSsize_t(arg);
+        if (PyErr_Occurred())
+        {
+            return false;
+        }
+
+        Py_ssize_t hand_size = hand->columns * HAND_ROWS;
+        if (value < -hand_size || value >= hand_size)
+        {
+            PyErr_Format(
+                PyExc_IndexError,
+                "hand index %R out of range for hand size %d rows, %d columns",
+                arg, HAND_ROWS, hand->columns);
+            return false;
+        }
+
+        *index = (handsize_t)((value + hand_size) % hand_size);
+        return true;
+    }
+    else if (PyTuple_Check(arg))
+    {
+        Py_ssize_t arg_size = PyTuple_GET_SIZE(arg);
+        if (arg_size != 2)
+        {
+            PyErr_Format(
+                PyExc_IndexError,
+                "hand coordinates %R must be of size 2, not %zd",
+                arg, arg_size);
+            return false;
+        }
+
+        Py_ssize_t row = PyLong_AsSsize_t(PyTuple_GET_ITEM(arg, 0));
+        Py_ssize_t column = PyLong_AsSsize_t(PyTuple_GET_ITEM(arg, 1));
+        if (PyErr_Occurred())
+        {
+            return false;
+        }
+
+        if (row < -HAND_ROWS || row >= HAND_ROWS || column < -hand->columns || column >= hand->columns)
+        {
+            PyErr_Format(
+                PyExc_IndexError,
+                "hand index %R out of range for hand size %d rows, %d columns",
+                arg, HAND_ROWS, hand->columns);
+            return false;
+        }
+
+        row = (row + HAND_ROWS) % HAND_ROWS;
+        column = (column + hand->columns) % hand->columns;
+        *index = (handsize_t)(row * hand->columns + column);
+        return true;
+    }
+    else
+    {
+        PyErr_Format(
+            PyExc_TypeError,
+            "hand indices may be integers or (row, column) tuples, not %T",
+            arg);
+        return false;
+    }
+}
+
+static PyObject *PyGameObject_FlipCard(PyObject *self, PyObject *arg)
+{
+    PyGameObject *this = (PyGameObject *)self;
+    turn_t *turn = &this->turn;
+    switch (turn->state)
+    {
+    case FLIP_FIRST:
+        if (!_PyHand_ParseIndex(arg, &this->players[turn->index].hand, &turn->finger_index))
+        {
+            return NULL;
+        }
+        turn->state = FLIP_SECOND;
+        Py_RETURN_NONE;
+    case FLIP_SECOND:
+        if (!_PyHand_ParseIndex(arg, &this->players[turn->index].hand, &turn->second_finger_index))
+        {
+            return NULL;
+        }
+        if (turn->second_finger_index == turn->finger_index)
+        {
+            PyErr_Format(
+                PyExc_RuntimeError,
+                "the card at %R has already been flipped",
+                arg);
+            return NULL;
+        }
+        turn->state = FLIP_DONE;
+        Py_RETURN_NONE;
+    case FLIP_DONE:
+        PyErr_SetString(
+            PyExc_RuntimeError,
+            "two cards have already been flipped");
+        return NULL;
+    default:
+        PyErr_SetString(
+            PyExc_RuntimeError,
+            "this method may not be called in the current game state");
+        return NULL;
+    }
 }
 
 static PyObject *PyGameObject_DrawCard(PyObject *self, PyObject *args)

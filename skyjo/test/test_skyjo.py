@@ -9,8 +9,16 @@ import unittest
 import skyjo
 
 
-class MockPlayer:
+class MockAgent:
     """Used to test `Game` invocations."""
+
+    def flip(self, game: skyjo.Game) -> None:
+        game.flip_card((-1, -1))
+        game.flip_card(0)
+
+
+game = skyjo.Game([MockAgent(), MockAgent(), MockAgent()])
+game.play(seed=1)
 
 
 class TestGame(unittest.TestCase):
@@ -26,14 +34,14 @@ class TestGame(unittest.TestCase):
 
     def test_new_few(self) -> None:
         with self.assertRaises(ValueError):
-            skyjo.Game([MockPlayer()])
+            skyjo.Game([MockAgent()])
 
     def test_new_many(self) -> None:
         with self.assertRaises(ValueError):
-            skyjo.Game([MockPlayer() for _ in range(9)])
+            skyjo.Game([MockAgent() for _ in range(9)])
 
     def test_new_refcount(self) -> None:
-        players = [MockPlayer() for _ in range(3)]
+        players = [MockAgent() for _ in range(3)]
         game = skyjo.Game(players)
         self.assertEqual(sys.getrefcount(players[0]), 3)
         self.assertEqual(sys.getrefcount(players[1]), 3)
