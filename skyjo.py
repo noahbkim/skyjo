@@ -765,8 +765,7 @@ class Debugger:
     _continuing: bool = False
 
     def reset(self) -> None:
-        # self._continuing = False
-        pass
+        self._continuing = False
 
     def print(self, message: str, symbol: str = "", end="\n") -> None:
         if symbol:
