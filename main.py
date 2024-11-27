@@ -1,6 +1,6 @@
 import argparse
-import multiprocessing
 import importlib
+import multiprocessing
 import random
 
 import skyjo

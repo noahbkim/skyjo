@@ -13,6 +13,8 @@ import traceback
 from dataclasses import dataclass, field
 from typing import ClassVar, Collection, Final, Iterator, TypeVar
 
+import torch
+
 T = TypeVar("T")
 
 DECK_SIZE = 150
@@ -230,14 +232,26 @@ class Finger:
     is_flipped: bool = 0
     """Whether the card is face up."""
 
+    is_cleared: bool = 0
+    """Whether the card has been cleared."""
+
     @property
     def card(self) -> int | None:
         """The value of the card if it's face up, `None` otherwise."""
 
         return self._card if self.is_flipped else None
 
+    @property
+    def is_visible(self) -> bool:
+        return not self.is_cleared and self.is_flipped
+
+    @property
+    def is_flippable(self) -> bool:
+        return not self.is_cleared and not self.is_flipped
+            
     def _flip_card(self) -> None:
         assert not self.is_flipped, "Cannot flip already-flipped card!"
+        assert not self.is_cleared, "Cannot flip already cleared card"
         self.is_flipped = True
 
     def _replace_card(self, card: int) -> int:
@@ -246,6 +260,20 @@ class Finger:
         self.is_flipped = True
         return replaced_card
 
+    def _clear(self) -> None:
+        assert not self.is_cleared, "This card has already been cleared"
+        self.is_cleared = True
+
+    def tensor_repr(self) -> torch.Tensor:
+        card_tensor = torch.zeros((1, 17))
+        if self.is_cleared:
+            card_tensor[0, -1] = 1
+        elif not self.is_flipped:
+            card_tensor[0, -2] = 1
+        else:
+            card_tensor[0, self.card + 2] = 1
+        return card_tensor
+    
 
 @dataclass(slots=True)
 class Hand:
@@ -270,12 +298,13 @@ class Hand:
     _fingers: list[Finger] = field(default_factory=list)
 
     row_count: int = HAND_ROWS
-    original_column_count: int = HAND_COLUMNS
+    column_count: int = HAND_COLUMNS
     flipped_card_count: int = 0  # Optimization
+    cleared_card_count: int = 0
 
     def __post_init__(self) -> None:
         assert self.row_count > 0
-        assert self.original_column_count > 0
+        assert self.column_count > 0
 
     def __getitem__(self, index: int | tuple[int, int]) -> Finger:
         if isinstance(index, int):
@@ -291,45 +320,33 @@ class Hand:
 
     @property
     def card_count(self) -> int:
-        """The remaining number of cards in this hand."""
+        """The number of cards in this hand."""
 
-        return len(self._fingers)
-
-    @property
-    def column_count(self) -> int:
-        """The remaining number of columns in this hand."""
-
-        return self.card_count // self.row_count
-
+        return self.row_count * self.column_count
+    
     @property
     def original_card_count(self) -> int:
         """The original number of cards dealt to this hand."""
 
-        return self.row_count * self.original_column_count
-
-    @property
-    def cleared_card_count(self) -> int:
-        """The number of cards that have been cleared from this hand."""
-
-        return self.original_card_count - len(self._fingers)
+        return self.row_count * self.column_count
 
     @property
     def cleared_column_count(self) -> int:
         """The number of columns that have been cleared from this hand."""
 
-        return self.original_column_count - self.column_count
+        return self.cleared_card_count // self.row_count
 
     @property
     def unflipped_card_count(self) -> int:
         """The number of cards yet to be flipped."""
 
-        return self.card_count - self.flipped_card_count
+        return self.card_count - self.cleared_card_count - self.flipped_card_count
 
     @property
     def are_all_cards_flipped(self) -> bool:
         """Whether all cards in this hand have been flipped."""
 
-        return self.flipped_card_count == self.card_count
+        return self.unflipped_card_count == 0
 
     def iter_columns(self) -> Iterator[list[Finger]]:
         """Yield each column in this hand."""
@@ -346,13 +363,13 @@ class Hand:
     def sum_flipped_cards(self) -> int:
         """Get the total value of flipped cards in this hand."""
 
-        return sum(finger.card for finger in self._fingers if finger.is_flipped)
+        return sum(finger.card for finger in self._fingers if finger.is_visible)
 
     def find_first_unflipped_card_index(self) -> int | None:
         """Get the index of the first unflipped card if one is present."""
 
         for i, finger in enumerate(self._fingers):
-            if not finger.is_flipped:
+            if finger.is_flippable:
                 return i
         return None
 
@@ -360,7 +377,7 @@ class Hand:
         """Get the index of the highest card if any are flipped."""
 
         flipped_card_indices = [
-            i for i, finger in enumerate(self._fingers) if finger.is_flipped
+            i for i, finger in enumerate(self._fingers) if finger.is_visible
         ]
         if not flipped_card_indices:
             return None
@@ -370,7 +387,7 @@ class Hand:
         """Get the index of the lowest card if any are flipped."""
 
         flipped_card_indices = [
-            i for i, finger in enumerate(self._fingers) if finger.is_flipped
+            i for i, finger in enumerate(self._fingers) if finger.is_visible
         ]
         if not flipped_card_indices:
             return None
@@ -391,7 +408,7 @@ class Hand:
 
         count = 0
         for finger in self._fingers:
-            if finger.is_flipped and finger._card == card:
+            if finger.is_visible and finger._card == card:
                 count += 1
         return count
 
@@ -401,8 +418,9 @@ class Hand:
         This method will return a position even if the provided card is
         negative and would be detrimental to clear.
         """
-
         for column in range(self.column_count):
+            if self[0, column].is_cleared:
+                continue
             if self[0, column].card == column[1, column].card == card:
                 return 2 * self.column_count + column
             if self[0, column].card == column[2, column].card == card:
@@ -421,6 +439,8 @@ class Hand:
 
         row, column = self.coordinates(row_or_index, column)
         for i in range(self.row_count):
+            if self[i, column].is_cleared:
+                return False
             if i != row and self[i, column].card != card:
                 return False
         return True
@@ -451,6 +471,17 @@ class Hand:
 
         return row_or_index
 
+    def tensor_repr(self) -> torch.Tensor:
+        finger_tensors = []
+        for finger in self:
+            finger_tensors.append(finger.tensor_repr())
+        return torch.cat(finger_tensors, dim=0)
+
+    def _reset(self):
+        self.flipped_card_count = 0
+        self.cleared_card_count = 0
+        self._fingers.clear()
+
     def _validate_coordinates(self, row: int, column: int) -> None:
         row_count = self.row_count
         column_count = self.column_count
@@ -472,31 +503,31 @@ class Hand:
             )
 
     def _deal_from(self, cards: Cards) -> None:
-        self.flipped_card_count = 0
-        self._fingers.clear()
-        for _ in range(self.original_card_count):
+        for _ in range(self.card_count):
             self._fingers.append(Finger(cards._draw_card()))
 
     def _try_clear(self, column: int) -> bool:  # Cannot be negative
         card = self._fingers[column]._card
         for i in range(column, self.card_count, self.column_count):
             finger = self._fingers[i]
-            if not finger.is_flipped or finger._card != card:
+            if not finger.is_visible or finger._card != card:
                 return False
         for i in reversed(range(column, self.card_count, self.column_count)):
-            del self._fingers[i]
-        assert len(self._fingers) % self.row_count == 0
+            self._fingers[i]._clear()
         self.flipped_card_count -= self.row_count
+        self.cleared_card_count += self.row_count
         return True
 
     def _replace_card(self, index: int, card: int) -> int:
         finger = self._fingers[index]
+        assert not finger.is_cleared, "Cannot replace cleared card"
         self.flipped_card_count += not finger.is_flipped
         replaced_card = finger._replace_card(card)
         self._try_clear(index % self.column_count)
         return replaced_card
 
     def _flip_card(self, index: int) -> None:
+        assert not self._fingers[index].is_cleared, "Cannot flip cleared card"
         self._fingers[index]._flip_card()
         self.flipped_card_count += 1
         self._try_clear(index % self.column_count)
@@ -519,7 +550,7 @@ class Hand:
         lines[1::2] = (
             template.format(
                 *(
-                    str(finger._card) if finger.is_flipped or xray else empty
+                    str(finger._card) if finger.is_visible or xray else empty
                     for finger in self._fingers[
                         i * self.column_count : (i + 1) * self.column_count
                     ]
@@ -1070,6 +1101,7 @@ class State:
             self.cards._shuffle()
             for player in self.players:
                 player.score = 0
+                player.hand._reset()
                 player.hand._deal_from(self.cards)
 
             if debug:
@@ -1154,6 +1186,7 @@ class State:
                 self.cards._reset()
                 self.cards._shuffle()
                 for player in self.players:
+                    player.hand._reset()
                     player.hand._deal_from(self.cards)
 
             if debug:
