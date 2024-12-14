@@ -51,6 +51,100 @@ class TestHand(unittest.TestCase):
         hand = sj.Hand(is_cleared=cleared, is_flipped=flipped)
         self.assertListEqual(hand.face_down_indices, [])
 
+    def test_visible_points(self):
+        hand_size = sj.NUM_ROWS * sj.NUM_COLUMNS
+        flipped = np.zeros(hand_size)
+        cleared = np.zeros(hand_size)
+        hand = sj.Hand(cards=np.ones(hand_size), is_flipped=flipped, is_cleared=cleared)
+        self.assertEqual(hand.visible_points(), 0)
+        hand = hand.flip(0, 0)
+        hand = hand.flip(1, 0)
+        self.assertEqual(hand.visible_points(), 2)
+        # clears column
+        for r in range(2, sj.NUM_ROWS):
+            hand = hand.flip(r, 0)
+        self.assertEqual(hand.visible_points(), 0)
+
+    def test_total_points_basic(self):
+        hand_size = sj.NUM_ROWS * sj.NUM_COLUMNS
+        flipped = np.zeros(hand_size)
+        cleared = np.zeros(hand_size)
+        cards = np.array(range(hand_size))
+        self.assertEqual(
+            sj.Hand(cards=cards, is_flipped=flipped, is_cleared=cleared).total_points(),
+            sum(cards),
+        )
+        flipped = np.ones(hand_size)
+        self.assertEqual(
+            sj.Hand(cards=cards, is_flipped=flipped, is_cleared=cleared).total_points(),
+            sum(cards),
+        )
+
+    def test_total_points_uncleared(self):
+        hand_size = sj.NUM_ROWS * sj.NUM_COLUMNS
+        flipped = np.zeros(hand_size)
+        cleared = np.zeros(hand_size)
+
+        hand = sj.Hand(cards=np.ones(hand_size), is_flipped=flipped, is_cleared=cleared)
+        # everthing would be cleared when revealed
+        self.assertEqual(hand.total_points(), 0)
+
+    def test_valid_place_drawn_actions(self):
+        hand_size = sj.NUM_ROWS * sj.NUM_COLUMNS
+        flipped = np.zeros(hand_size)
+        cleared = np.zeros(hand_size)
+
+        hand = sj.Hand(cards=np.ones(hand_size), is_flipped=flipped, is_cleared=cleared)
+        self.assertEqual(len(hand.valid_place_drawn_actions), hand_size)
+
+        # clear first column
+        for r in range(sj.NUM_ROWS):
+            hand = hand.flip(r, 0)
+        self.assertEqual(
+            len(hand.valid_place_drawn_actions), hand_size - hand.is_cleared.sum()
+        )
+
+    def test_valid_place_from_discard_actions(self):
+        hand_size = sj.NUM_ROWS * sj.NUM_COLUMNS
+        flipped = np.zeros(hand_size)
+        cleared = np.zeros(hand_size)
+
+        hand = sj.Hand(cards=np.ones(hand_size), is_flipped=flipped, is_cleared=cleared)
+        self.assertEqual(len(hand.valid_place_from_discard_actions), hand_size)
+
+        # clear first column
+        for r in range(sj.NUM_ROWS):
+            hand = hand.flip(r, 0)
+        self.assertEqual(
+            len(hand.valid_place_from_discard_actions),
+            hand_size - hand.is_cleared.sum(),
+        )
+
+    def test_valid_discard_and_flip_actions(self):
+        hand_size = sj.NUM_ROWS * sj.NUM_COLUMNS
+        flipped = np.zeros(hand_size)
+        cleared = np.zeros(hand_size)
+
+        hand = sj.Hand(cards=np.ones(hand_size), is_flipped=flipped, is_cleared=cleared)
+        self.assertEqual(
+            len(hand.valid_discard_and_flip_actions), len(hand.face_down_indices)
+        )
+
+        # clear first column
+        for r in range(sj.NUM_ROWS):
+            hand = hand.flip(r, 0)
+        self.assertEqual(
+            len(hand.valid_discard_and_flip_actions),
+            len(hand.face_down_indices),
+        )
+
+        # flip one more card
+        hand = hand.flip(0, 1)
+        self.assertEqual(
+            len(hand.valid_discard_and_flip_actions),
+            len(hand.face_down_indices),
+        )
+
 
 class TestDeck(unittest.TestCase):
     def test_draw_top_card(self):
@@ -89,6 +183,7 @@ class TestDiscardPile(unittest.TestCase):
         expected_counts = np.zeros(sj.NUM_CARD_TYPES)
         expected_counts[9 + 2] = 1
         npt.assert_allclose(new_discard.discarded_card_counts, expected_counts)
+
 
 # TODO: Add tests for end of round and end of game cases
 class TestImmutableSkyjoState(unittest.TestCase):
@@ -194,6 +289,90 @@ class TestImmutableSkyjoState(unittest.TestCase):
             ],
             1,
         )
+
+    def test_round_end(self):
+        curr_state = sj.ImmutableSkyjoState(
+            num_players=2,
+            player_scores=np.zeros(2),
+            deck=sj.Deck(_cards=sj.DECK),
+            round_ending_player=0,  # enforce first player starts
+        ).setup_round()
+
+        while (
+            len(curr_state.hands[(curr_state.curr_player + 1) % 2].face_down_indices)
+            >= 1
+        ):
+            curr_state = curr_state.take_action(
+                sj.SkyjoAction(
+                    action_type=sj.SkyjoActionType.PLACE_FROM_DISCARD,
+                    row_idx=curr_state.hands[curr_state.curr_player].face_down_indices[
+                        0
+                    ][0],
+                    col_idx=curr_state.hands[curr_state.curr_player].face_down_indices[
+                        0
+                    ][1],
+                )
+            )
+
+        # check round ending attributes set correctly
+        self.assertEqual(curr_state.is_round_ending, True)
+        self.assertEqual(curr_state.round_ending_player, 0)
+
+        end_round_state = curr_state.take_action(
+            sj.SkyjoAction(
+                action_type=sj.SkyjoActionType.PLACE_FROM_DISCARD,
+                row_idx=curr_state.hands[curr_state.curr_player].face_down_indices[0][
+                    0
+                ],
+                col_idx=curr_state.hands[curr_state.curr_player].face_down_indices[0][
+                    1
+                ],
+            )
+        )
+        # check round ending attributes correctly reset after finishing round
+        self.assertEqual(end_round_state.is_round_ending, False)
+        self.assertEqual(end_round_state.round_ending_player is None, True)
+
+    def test_compute_round_scores_basic(self):
+        hand_size = sj.NUM_COLUMNS * sj.NUM_ROWS
+        hands = [
+            sj.Hand(
+                cards=np.zeros(hand_size),
+                is_flipped=np.ones(hand_size),
+                is_cleared=np.zeros(hand_size),
+            ),
+            sj.Hand(
+                cards=np.ones(hand_size),
+                is_flipped=np.ones(hand_size),
+                is_cleared=np.zeros(hand_size),
+            ),
+        ]
+        round_scores = sj.ImmutableSkyjoState.compute_round_scores(hands, 0)
+        npt.assert_allclose(round_scores, np.array([0, hand_size]))
+
+        # test that score gets doubled for round ender if not lowest score
+        round_scores = sj.ImmutableSkyjoState.compute_round_scores(hands, 1)
+        npt.assert_allclose(round_scores, np.array([0, hand_size * 2]))
+
+    def test_compute_round_scores_tie(self):
+        hand_size = sj.NUM_COLUMNS * sj.NUM_ROWS
+        hands = [
+            sj.Hand(
+                cards=np.ones(hand_size),
+                is_flipped=np.ones(hand_size),
+                is_cleared=np.zeros(hand_size),
+            ),
+            sj.Hand(
+                cards=np.ones(hand_size),
+                is_flipped=np.ones(hand_size),
+                is_cleared=np.zeros(hand_size),
+            ),
+        ]
+        round_scores = sj.ImmutableSkyjoState.compute_round_scores(hands, 0)
+        npt.assert_allclose(round_scores, np.array([hand_size * 2, hand_size]))
+
+        round_scores = sj.ImmutableSkyjoState.compute_round_scores(hands, 1)
+        npt.assert_allclose(round_scores, np.array([hand_size, hand_size * 2]))
 
 
 if __name__ == "__main__":
