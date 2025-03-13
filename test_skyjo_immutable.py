@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 import numpy.testing as npt
+
 import skyjo_immutable as sj
 
 
@@ -212,7 +213,7 @@ class TestImmutableSkyjoState(unittest.TestCase):
         setup_state = sj.ImmutableSkyjoState(
             num_players=2, player_scores=np.zeros(2), deck=sj.Deck(_cards=sj.DECK)
         ).setup_round()
-        drawn_state = setup_state.take_action(
+        drawn_state = setup_state.next_state(
             sj.SkyjoAction(action_type=sj.SkyjoActionType.DRAW)
         )
         self.assertTrue(drawn_state.drawn_card is not None)
@@ -221,11 +222,11 @@ class TestImmutableSkyjoState(unittest.TestCase):
         setup_state = sj.ImmutableSkyjoState(
             num_players=2, player_scores=np.zeros(2), deck=sj.Deck(_cards=sj.DECK)
         ).setup_round()
-        drawn_state = setup_state.take_action(
+        drawn_state = setup_state.next_state(
             sj.SkyjoAction(action_type=sj.SkyjoActionType.DRAW)
         )
         face_down_idxs = drawn_state.hands[drawn_state.curr_player].face_down_indices
-        discard_state = drawn_state.take_action(
+        discard_state = drawn_state.next_state(
             sj.SkyjoAction(
                 sj.SkyjoActionType.DISCARD_AND_FLIP,
                 face_down_idxs[0][0],
@@ -254,7 +255,7 @@ class TestImmutableSkyjoState(unittest.TestCase):
         ).setup_round()
         face_down_idxs = setup_state.hands[setup_state.curr_player].face_down_indices
 
-        replace_state = setup_state.take_action(
+        replace_state = setup_state.next_state(
             sj.SkyjoAction(
                 sj.SkyjoActionType.PLACE_FROM_DISCARD,
                 face_down_idxs[0][0],
@@ -277,12 +278,18 @@ class TestImmutableSkyjoState(unittest.TestCase):
             ],
         )
 
+        # Check old top card count is decremented unless it was replaced with same value
+        old_top_card = setup_state.discard_pile.top_card
+        replaced_face_down_card = setup_state.hands[setup_state.curr_player].cards[
+            sj.Hand.flat_index(face_down_idxs[0][0], face_down_idxs[0][1])
+        ]
+        expected_count = 1 if old_top_card == replaced_face_down_card else 0
         self.assertEqual(
-            replace_state.discard_pile.discarded_card_counts[
-                setup_state.discard_pile.top_card + 2
-            ],
-            0,
+            replace_state.discard_pile.discarded_card_counts[old_top_card + 2],
+            expected_count,
         )
+
+        # Check new top card count is incremented
         self.assertEqual(
             replace_state.discard_pile.discarded_card_counts[
                 replace_state.discard_pile.top_card + 2
@@ -302,7 +309,7 @@ class TestImmutableSkyjoState(unittest.TestCase):
             len(curr_state.hands[(curr_state.curr_player + 1) % 2].face_down_indices)
             >= 1
         ):
-            curr_state = curr_state.take_action(
+            curr_state = curr_state.next_state(
                 sj.SkyjoAction(
                     action_type=sj.SkyjoActionType.PLACE_FROM_DISCARD,
                     row_idx=curr_state.hands[curr_state.curr_player].face_down_indices[
@@ -318,7 +325,7 @@ class TestImmutableSkyjoState(unittest.TestCase):
         self.assertEqual(curr_state.is_round_ending, True)
         self.assertEqual(curr_state.round_ending_player, 0)
 
-        end_round_state = curr_state.take_action(
+        end_round_state = curr_state.next_state(
             sj.SkyjoAction(
                 action_type=sj.SkyjoActionType.PLACE_FROM_DISCARD,
                 row_idx=curr_state.hands[curr_state.curr_player].face_down_indices[0][
