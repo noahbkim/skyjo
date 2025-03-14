@@ -1,15 +1,24 @@
+"""
+Implementation of the Skyjo game
+
+Key features:
+- Immutable game state
+- Abstracts random events (e.g. drawing a card from the deck) by taking
+  results of random events as arguments
+- Numpy representation of game state and actions
+"""
+
 import dataclasses
 import enum
 import logging
-import random
 import typing
-from typing import Self
 
 import numpy as np
+import numpy.typing as npt
 
 import abstract as abstract
 
-NUM_CARD_TYPES = 15
+GAME_END_SCORE = 100
 NUM_ROWS = 3
 NUM_COLUMNS = 4
 DECK_SIZE = 150
@@ -30,14 +39,27 @@ DECK = (
     + (11,) * 10
     + (12,) * 10
 )
-ACTION_SHAPE = (4, 12)
+ACTION_SHAPE = (7, NUM_ROWS, NUM_COLUMNS)  # 6 action types, rows, columns
+CARD_TYPES = 15 + 2  # +2 for face-down and cleared
+HAND_SHAPE = (
+    NUM_COLUMNS,
+    NUM_ROWS,
+    CARD_TYPES,
+)  # Each column is independent so we index based on column
 
 
 class SkyjoActionType(enum.Enum):
+    # Enum values are used as indices in numpy representation
     DRAW = 0
     PLACE_DRAWN = 1
     PLACE_FROM_DISCARD = 2
     DISCARD_AND_FLIP = 3
+    # These are "dummy" actions
+    # that are used to help transition from a decision state to an after state
+    # during simulation since we need an "action" to be associated with the game state for afterstates
+    END_ROUND = 4
+    START_ROUND = 5
+    INITIAL_FLIP = 6
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
@@ -54,322 +76,457 @@ class SkyjoAction(abstract.AbstractGameAction):
             return self.__hash__() == other.__hash__()
         return False
 
-    def numpy(self) -> np.array:
-        # TODO: change represtation index to be more tightly coupled with enum def
-        np_repr = np.zeros((4, 12))
-        if self.action_type == SkyjoActionType.DRAW:
-            np_repr[self.action_type.value, :] = 1
-        elif self.action_type == SkyjoActionType.PLACE_DRAWN:
-            np_repr[
-                self.action_type.value, Hand.flat_index(self.row_idx, self.col_idx)
-            ] = 1
-        elif self.action_type == SkyjoActionType.PLACE_FROM_DISCARD:
-            np_repr[
-                self.action_type.value, Hand.flat_index(self.row_idx, self.col_idx)
-            ] = 1
+    @classmethod
+    def from_numpy(cls, numpy_repr: npt.NDArray[np.int8]) -> typing.Self:
+        assert numpy_repr.shape == ACTION_SHAPE, (
+            f"Invalid action shape, expected: {ACTION_SHAPE}, got: {numpy_repr.shape}"
+        )
+        if numpy_repr.dtype != np.int8:
+            logging.warning("Casting action numpy array to int8")
+        numpy_repr = numpy_repr.astype(np.int8)
+        assert np.sum(numpy_repr) == 1, (
+            f"Action must be one-hot encoded, got: {numpy_repr}"
+        )
+
+        if numpy_repr[SkyjoActionType.DRAW.value].sum() == 1:
+            return cls(SkyjoActionType.DRAW)
+        elif numpy_repr[SkyjoActionType.END_ROUND.value].sum() == 1:
+            return cls(SkyjoActionType.END_ROUND)
+        elif numpy_repr[SkyjoActionType.PLACE_DRAWN.value].sum() == 1:
+            action_type = SkyjoActionType.PLACE_DRAWN
+        elif numpy_repr[SkyjoActionType.PLACE_FROM_DISCARD.value].sum() == 1:
+            action_type = SkyjoActionType.PLACE_FROM_DISCARD
+        elif numpy_repr[SkyjoActionType.DISCARD_AND_FLIP.value].sum() == 1:
+            action_type = SkyjoActionType.DISCARD_AND_FLIP
         else:
-            np_repr[
-                self.action_type.value, Hand.flat_index(self.row_idx, self.col_idx)
-            ] = 1
+            raise ValueError(f"Invalid action: {numpy_repr}")
+        row_idx = np.where(numpy_repr[action_type.value, :] == 1)[0].item()
+        col_idx = np.where(numpy_repr[action_type.value, :] == 1)[1].item()
+        return cls(action_type, row_idx, col_idx)
+
+    def numpy(self) -> npt.NDArray[np.int8]:
+        np_repr = np.zeros(ACTION_SHAPE, dtype=np.int8)
+        match self.action_type:
+            case SkyjoActionType.DRAW:
+                np_repr[self.action_type.value, 0, 0] = 1
+            case SkyjoActionType.END_ROUND:
+                np_repr[self.action_type.value, 0, 0] = 1
+            case SkyjoActionType.INITIAL_FLIP:
+                np_repr[self.action_type.value, self.row_idx, self.col_idx] = 1
+            case _:
+                np_repr[self.action_type.value, self.row_idx, self.col_idx] = 1
         return np_repr
 
+
+class Card(enum.Enum):
+    # Value is index of card in one-hot encoding
+    NEGATIVE_TWO = -2
+    NEGATIVE_ONE = -1
+    ZERO = 0
+    ONE = 1
+    TWO = 2
+    THREE = 3
+    FOUR = 4
+    FIVE = 5
+    SIX = 6
+    SEVEN = 7
+    EIGHT = 8
+    NINE = 9
+    TEN = 10
+    ELEVEN = 11
+    TWELVE = 12
+    FACE_DOWN = 13
+    CLEARED = 14
+
+    def __str__(self) -> str:
+        match self:
+            case Card.FACE_DOWN:
+                return ""
+            case Card.CLEARED:
+                return "X"
+            case _:
+                return str(self.value)
+
     @classmethod
-    def from_numpy(cls, numpy_repr: np.ndarray) -> Self:
-        if numpy_repr[0, :].sum() > 0:
-            return cls(SkyjoActionType.DRAW)
-        elif numpy_repr[1, :].sum() > 0:
-            return cls(
-                SkyjoActionType.PLACE_DRAWN,
-                row_idx=np.where(numpy_repr[1, :] == 1)[0][0] // NUM_COLUMNS,
-                col_idx=np.where(numpy_repr[1, :] == 1)[0][0] % NUM_COLUMNS,
-            )
-        elif numpy_repr[2, :].sum() > 0:
-            return cls(
-                SkyjoActionType.PLACE_FROM_DISCARD,
-                row_idx=np.where(numpy_repr[2, :] == 1)[0][0] // NUM_COLUMNS,
-                col_idx=np.where(numpy_repr[2, :] == 1)[0][0] % NUM_COLUMNS,
-            )
-        return cls(
-            SkyjoActionType.DISCARD_AND_FLIP,
-            row_idx=np.where(numpy_repr[3, :] == 1)[0][0] // NUM_COLUMNS,
-            col_idx=np.where(numpy_repr[3, :] == 1)[0][0] % NUM_COLUMNS,
+    def from_one_hot_encoding_index(cls, index: int) -> typing.Self:
+        return cls(index - 2)
+
+    @classmethod
+    def from_one_hot_encoding(cls, one_hot: npt.NDArray[np.int8]) -> typing.Self:
+        assert np.sum(one_hot) == 1, (
+            f"One-hot encoding must be a single 1, got: {one_hot}"
         )
-
-
-@dataclasses.dataclass(slots=True, frozen=True)
-class Hand:
-    is_cleared: np.array = dataclasses.field(
-        default_factory=lambda: np.zeros(NUM_ROWS * NUM_COLUMNS, dtype=int)
-    )
-    is_flipped: np.array = dataclasses.field(
-        default_factory=lambda: np.zeros(NUM_ROWS * NUM_COLUMNS, dtype=int)
-    )
-    cards: np.array = dataclasses.field(
-        default_factory=lambda: np.zeros(NUM_ROWS * NUM_COLUMNS, dtype=int)
-    )
-
-    @property
-    def face_down_indices(self) -> list[tuple[int, int]]:
-        return [
-            (i // NUM_COLUMNS, i % NUM_COLUMNS)
-            for i in np.where((self.is_cleared == 0) & (self.is_flipped == 0))[0]
-        ]
-
-    @property
-    def visible_indices(self) -> list[tuple[int, int]]:
-        return [
-            (i // NUM_COLUMNS, i % NUM_COLUMNS)
-            for i in np.where((self.is_cleared == 0) & (self.is_flipped == 1))[0]
-        ]
-
-    @property
-    def valid_discard_and_flip_actions(self) -> list[SkyjoAction]:
-        actions = [
-            SkyjoAction(SkyjoActionType.DISCARD_AND_FLIP, row_idx, col_idx)
-            for row_idx, col_idx in self.face_down_indices
-        ]
-        return actions
-
-    @property
-    def valid_place_from_discard_actions(self) -> list[SkyjoAction]:
-        actions = [
-            SkyjoAction(SkyjoActionType.PLACE_FROM_DISCARD, row_idx, col_idx)
-            for row_idx, col_idx in self.visible_indices + self.face_down_indices
-        ]
-        return actions
-
-    @property
-    def valid_place_drawn_actions(self) -> list[SkyjoAction]:
-        actions = [
-            SkyjoAction(SkyjoActionType.PLACE_DRAWN, row_idx, col_idx)
-            for row_idx, col_idx in self.visible_indices + self.face_down_indices
-        ]
-        return actions
+        assert one_hot.shape == (CARD_TYPES,), (
+            f"One-hot encoding must be of shape (CARD_TYPES,), but got {one_hot.shape}"
+        )
+        idx = np.argmax(one_hot)
+        return cls.from_one_hot_encoding_index(idx)
 
     @staticmethod
-    def clearable(cards: np.array, is_flipped: np.array, col_idx: int):
-        """This is a static method so we can check whether the updated Hand
-        we are about to create needs to have any cleared columns, preventing us
-        from creating any intermediate Hands with incorrect is_cleared values."""
-        all_same = True
-        for r in range(NUM_ROWS):
-            all_same = (
-                all_same
-                and is_flipped[Hand.flat_index(r, col_idx)]
-                and cards[Hand.flat_index(0, col_idx)]
-                == cards[Hand.flat_index(r, col_idx)]
-            )
-        return all_same
+    def point_values() -> npt.NDArray[np.int8]:
+        return np.array([card.point_value for card in Card], dtype=np.int8)
 
-    def has_all_revealed(self) -> bool:
-        # To be cleared the is_flipped value would also be set to 1, so we can just
-        # count how many flipped cards there are without worrying about cleared counts.
-        return self.is_flipped.all()
+    @property
+    def one_hot_encoding_index(self) -> int:
+        return self.value + 2
 
-    def flat_index(row_idx: int, col_idx: int) -> int:
-        assert row_idx < NUM_ROWS and row_idx >= 0, "row index out of range"
-        assert col_idx < NUM_COLUMNS and col_idx >= 0, "col index out of range"
-        return row_idx * NUM_COLUMNS + col_idx
+    @property
+    def point_value(self) -> int:
+        match self:
+            case Card.FACE_DOWN:
+                return 0
+            case Card.CLEARED:
+                return 0
+            case _:
+                return self.value
 
-    def copy(self) -> Self:
-        return Hand(
-            is_cleared=self.is_cleared.copy(),
-            is_flipped=self.is_flipped.copy(),
-            cards=self.cards.copy(),
-        )
+    @property
+    def is_clearable(self) -> bool:
+        return self != Card.CLEARED and self != Card.FACE_DOWN
 
-    def flip(self, row_idx: int, col_idx: int) -> Self:
-        assert self.is_flipped[Hand.flat_index(row_idx, col_idx)] != 1, (
-            "Cannot flip already flipped card"
-        )
-        assert self.is_cleared[Hand.flat_index(row_idx, col_idx)] != 1, (
-            "Cannot flipped cleared card"
-        )
-        flipped = self.is_flipped.copy()
-        cleared = self.is_cleared.copy()
-        flipped[Hand.flat_index(row_idx, col_idx)] = 1
-
-        # Check if flipping led to clearable column
-        if Hand.clearable(self.cards, flipped, col_idx):
-            for r in range(NUM_ROWS):
-                cleared[Hand.flat_index(r, col_idx)] = 1
-        return Hand(is_flipped=flipped, is_cleared=cleared, cards=self.cards.copy())
-
-    def replace(self, row_idx: int, col_idx: int, card: int) -> tuple[int, Self]:
-        flipped = self.is_flipped.copy()
-        cleared = self.is_cleared.copy()
-        flat_idx = Hand.flat_index(row_idx, col_idx)
-        cards = self.cards.copy()
-        replaced_card = cards[flat_idx]
-        cards[flat_idx] = card
-        flipped[flat_idx] = 1
-
-        if Hand.clearable(cards, flipped, col_idx):
-            for r in range(NUM_ROWS):
-                cleared[Hand.flat_index(r, col_idx)] = 1
-
-        return replaced_card, Hand(is_flipped=flipped, is_cleared=cleared, cards=cards)
-
-    def visible_points(self) -> int:
-        return self.cards[
-            np.where((self.is_cleared == 0) & (self.is_flipped == 1))
-        ].sum()
-
-    def total_points(self) -> int:
-        """Returns the value of the hand after revealing all cards.
-        This includes any previously undiscovered clearing columns"""
-        assert self.is_cleared.sum() % NUM_ROWS == 0, (
-            f"somehow cleared cards not a multiple of {NUM_ROWS}"
-        )
-        revealed_hand = self.copy()
-        while len(revealed_hand.face_down_indices) > 0:
-            revealed_hand = revealed_hand.flip(*revealed_hand.face_down_indices[0])
-        return revealed_hand.cards[np.where(revealed_hand.is_cleared == 0)].sum()
-
-    def initial_flips(self) -> Self:
-        """This is just a temporary solution.
-        So that we don't have to additionally code initial flip action/decisions"""
-        assert len(self.face_down_indices) == NUM_COLUMNS * NUM_ROWS, (
-            "Cannot run initial_flips() when there are already flipped cards"
-        )
-        return self.flip(0, 0).flip(0, 1)
-
-    def _render(self, xray: bool = False) -> list[str]:
-        card_width = max(max(len(str(card)) for card in self.cards), 2)
-        empty = " " * card_width
-        divider = ("+" + "-" * card_width) * NUM_COLUMNS + "+"
-        template = f"|{{:>{card_width}}}" * NUM_COLUMNS + "|"
-        lines = [divider] * (NUM_ROWS * 2 + 1)
-        lines[1::2] = (
-            template.format(
-                *(
-                    str(card)
-                    if (
-                        self.is_flipped[r * NUM_COLUMNS + c]
-                        and not self.is_cleared[r * NUM_COLUMNS + c]
-                    )
-                    or xray
-                    else empty
-                    for c, card in enumerate(
-                        self.cards[r * NUM_COLUMNS : (r + 1) * NUM_COLUMNS]
-                    )
-                )
-            )
-            for r in range(NUM_ROWS)
-        )
-        return lines
-
-    def card_ones_hot_idx(
-        self, row_or_flat_idx: int, col_idx: int | None = None
-    ) -> int:
-        flat_idx = row_or_flat_idx
-        if col_idx is not None:
-            flat_idx = self.flat_index(row_or_flat_idx, col_idx)
-        if self.is_cleared[flat_idx]:
-            return NUM_CARD_TYPES
-        if not self.is_flipped[flat_idx]:
-            return NUM_CARD_TYPES + 1
-        return self.cards[flat_idx] + 2
-
-    # TODO: Change to use cards and converting to ones-hot int values
-    def numpy(self) -> np.ndarray:
-        ones_hot = np.zeros((len(self.cards), NUM_CARD_TYPES + 2), dtype=int)
-        ones_hot[
-            np.arange(len(self.cards)),
-            [self.card_ones_hot_idx(i) for i in range(len(self.cards))],
-        ] = 1
-        return ones_hot
+    def one_hot_encoding(self) -> npt.NDArray[np.int8]:
+        """Returns a shape (CARD_TYPES,) numpy array one-hot encoded representation of the card"""
+        one_hot = np.zeros(len(Card), dtype=np.int8)
+        one_hot[self.one_hot_encoding_index] = 1
+        return one_hot
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
-class Deck:
-    _cards: typing.Collection[int] = dataclasses.field(default=None)
-    _rng: random.Random = dataclasses.field(default_factory=random.Random)
+class CardCounts:
+    # Shape (CARD_TYPES,)
+    _counts: npt.NDArray[np.int8]
 
-    def deal_hands(self, num_hands: int) -> tuple[list[Hand], Self]:
-        hands = []
-        for i in range(num_hands):
-            hands.append(
-                Hand(
-                    cards=np.array(
-                        self._cards[
-                            i * NUM_ROWS * NUM_COLUMNS : (i + 1)
-                            * NUM_ROWS
-                            * NUM_COLUMNS
-                        ]
-                    )
-                )
-            )
-        next_cards = self._cards[num_hands * NUM_ROWS * NUM_COLUMNS :]
-        return hands, Deck(_cards=next_cards, _rng=self._rng)
+    @classmethod
+    def create_initial_deck_counts(cls) -> typing.Self:
+        _initial_counts = np.ones(CARD_TYPES, dtype=np.int8) * 10
+        _initial_counts[Card.ZERO.one_hot_encoding_index] = 15
+        _initial_counts[Card.NEGATIVE_ONE.one_hot_encoding_index] = 10
+        _initial_counts[Card.NEGATIVE_TWO.one_hot_encoding_index] = 5
+        _initial_counts[Card.FACE_DOWN.one_hot_encoding_index] = 0
+        _initial_counts[Card.CLEARED.one_hot_encoding_index] = 0
+        return CardCounts(_counts=_initial_counts)
 
-    def draw_top_card(self) -> tuple[int, Self]:
-        if len(self._cards) == 1:
-            next_cards = list(DECK)
-            self._rng.shuffle(next_cards)
-        else:
-            next_cards = list(self._cards[1:])
-        return self._cards[0], Deck(_cards=next_cards, _rng=self._rng)
+    def __post_init__(self):
+        assert self._counts.shape == (CARD_TYPES,), (
+            f"Counts must be of shape (CARD_TYPES,), but got {self._counts.shape}"
+        )
 
-    def shuffle(self) -> Self:
-        next_cards = list(self._cards)
-        self._rng.shuffle(next_cards)
-        return Deck(_cards=next_cards, _rng=self._rng)
+    @property
+    def num_cards(self) -> int:
+        return np.sum(self._counts).item()
 
-    def copy(self) -> Self:
-        return Deck(_cards=list(self._cards), _rng=self._rng)
+    @property
+    def total_points(self) -> int:
+        return np.dot(
+            self._counts.astype(np.int16),  # counts of visible card types,
+            Card.point_values(),  # point value of card types
+        )
+
+    @property
+    def expected_value(self) -> float:
+        return self.total_points / self.num_cards
+
+    def copy(self) -> typing.Self:
+        return CardCounts(self._counts.copy())
+
+    def get_card_count(self, card: Card) -> int:
+        return self._counts[card.one_hot_encoding_index]
+
+    def remove_card(self, card: Card) -> typing.Self:
+        new_counts = self._counts.copy()
+        new_counts[card.one_hot_encoding_index] -= 1
+        return CardCounts(_counts=new_counts)
+
+    def remove_cards(self, cards: list[Card]) -> typing.Self:
+        new_counts = self._counts.copy()
+        for card in cards:
+            new_counts[card.one_hot_encoding_index] -= 1
+        return CardCounts(_counts=new_counts)
+
+    def add_card(self, card: Card) -> typing.Self:
+        new_counts = self._counts.copy()
+        new_counts[card.one_hot_encoding_index] += 1
+        return CardCounts(_counts=new_counts)
+
+    def numpy(self) -> npt.NDArray[np.int8]:
+        """Returns a numpy array representation of shape (CARD_TYPES, )"""
+        return self._counts.copy()
+
+    def generate_random_card(self) -> Card:
+        card_one_hot_idx = np.random.choice(
+            np.arange(CARD_TYPES), p=self._counts / self._counts.sum()
+        )
+        card = Card.from_one_hot_encoding_index(card_one_hot_idx)
+        return card
+
+    def generate_random_cards(self, num_cards: int) -> list[Card]:
+        assert num_cards <= self.num_cards, (
+            f"Cannot generate {num_cards} cards when only {self.num_cards} remain"
+        )
+        # Create list of all possible cards weighted by their counts
+        all_cards = []
+        for card in Card:
+            count = self.get_card_count(card)
+            all_cards.extend([card] * count)
+        card_one_hot_idxs = np.random.choice(len(all_cards), num_cards, replace=False)
+        return [all_cards[idx] for idx in card_one_hot_idxs]
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class DiscardPile:
-    discarded_card_counts: np.array = dataclasses.field(
-        default_factory=lambda: np.zeros(NUM_CARD_TYPES, dtype=int)
+    discarded_card_counts: CardCounts = dataclasses.field(
+        default_factory=lambda: CardCounts(_counts=np.zeros(CARD_TYPES, dtype=np.int8))
     )
-    top_card: typing.Optional[int] = None
+    top_card: Card | None = None
 
-    def copy(self) -> Self:
+    def copy(self) -> typing.Self:
         return DiscardPile(
             discarded_card_counts=self.discarded_card_counts.copy(),
             top_card=self.top_card,
         )
 
-    def discard(self, card: int) -> Self:
-        next_discarded_card_counts = self.discarded_card_counts.copy()
-        next_discarded_card_counts[card + 2] += 1
-        return dataclasses.replace(
-            self, discarded_card_counts=next_discarded_card_counts, top_card=card
+    def discard(self, card: Card) -> typing.Self:
+        next_discarded_card_counts = self.discarded_card_counts.add_card(card)
+        return DiscardPile(
+            discarded_card_counts=next_discarded_card_counts, top_card=card
         )
 
-    def replace_top_card(self, card: int) -> Self:
-        next_discarded_card_counts = self.discarded_card_counts.copy()
-        next_discarded_card_counts[self.top_card + 2] -= 1
-        next_discarded_card_counts[card + 2] += 1
-        return dataclasses.replace(
-            self, discarded_card_counts=next_discarded_card_counts, top_card=card
+    def replace_top_card(self, card: Card) -> typing.Self:
+        next_discarded_card_counts = self.discarded_card_counts.remove_card(
+            self.top_card
+        ).add_card(card)
+        return DiscardPile(
+            discarded_card_counts=next_discarded_card_counts, top_card=card
+        )
+
+    def numpy(self) -> npt.NDArray[np.int8]:
+        return np.concatenate(
+            [
+                self.discarded_card_counts.numpy(),
+                self.top_card.one_hot_encoding()
+                if self.top_card is not None
+                else np.zeros(CARD_TYPES, dtype=np.int8),
+            ]
         )
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
-class ImmutableSkyjoState(abstract.AbstractImmutableGameState):
+class Hand:
+    # Array of one-hot encoded cards with shape (NUM_COLUMNS, NUM_ROWS, CARD_TYPES)
+    _card_one_hots: npt.NDArray[np.int8]
+    # One-hot encoded cards that have been cleared (NUM_COLUMNS, CARD_TYPES)
+    _cleared_one_hots: npt.NDArray[np.int8]
+    # Only not None if a column was just cleared before creation
+    cleared_card: Card | None = None
+
+    @classmethod
+    def create_initial_hand(cls) -> typing.Self:
+        return cls(
+            _card_one_hots=np.array(
+                [
+                    Card.FACE_DOWN.one_hot_encoding()
+                    for _ in range(NUM_ROWS * NUM_COLUMNS)
+                ]
+            ).reshape(NUM_COLUMNS, NUM_ROWS, CARD_TYPES),
+            _cleared_one_hots=np.zeros((NUM_COLUMNS, CARD_TYPES), dtype=np.int8),
+        )
+
+    @staticmethod
+    def clearable_columns(board_as_card_one_hots: npt.NDArray[np.int8]) -> list[int]:
+        """Returns list of columns that are clearable"""
+        assert board_as_card_one_hots.shape == HAND_SHAPE, (
+            f"Invalid cards shape: {board_as_card_one_hots.shape}, but expected: {HAND_SHAPE}"
+        )
+        # find all columns with 3 of the same card type
+        clearable_indices = np.argwhere(board_as_card_one_hots.sum(axis=1) == 3)
+        return [
+            col_idx
+            for col_idx, card_one_hot_idx in clearable_indices
+            if Card.from_one_hot_encoding_index(
+                card_one_hot_idx
+            ).is_clearable  # if not face-down or already cleared
+        ]
+
+    @property
+    def cards(self) -> list[list[Card]]:
+        """Returns a list of lists of cards of shape (NUM_ROWS, NUM_COLUMNS)"""
+        return [
+            [
+                Card.from_one_hot_encoding_index(
+                    np.argwhere(self._card_one_hots[col_idx, row_idx, :] == 1)
+                )
+                for col_idx in range(self._card_one_hots.shape[0])
+            ]
+            for row_idx in range(self._card_one_hots.shape[1])
+        ]
+
+    @property
+    def num_face_down_cards(self) -> int:
+        # To be cleared the is_flipped value would also be set to 1, so we can just
+        # count how many flipped cards there are without worrying about cleared counts.
+        return self.visible_card_types.get_card_count(Card.FACE_DOWN)
+
+    @property
+    def visible_card_types(self) -> CardCounts:
+        return CardCounts(np.sum(self._card_one_hots, axis=(0, 1), dtype=np.int8))
+
+    @property
+    def visible_points(self) -> int:
+        return self.visible_card_types.total_points
+
+    @property
+    def face_down_indices(self) -> list[tuple[int, int]]:
+        return [
+            (row_idx, col_idx)
+            for col_idx in range(NUM_COLUMNS)
+            for row_idx in range(NUM_ROWS)
+            if Card.from_one_hot_encoding(self._card_one_hots[col_idx, row_idx])
+            == Card.FACE_DOWN
+        ]
+
+    @property
+    def cleared_indices(self) -> list[tuple[int, int]]:
+        return [
+            (row_idx, col_idx)
+            for col_idx in range(NUM_COLUMNS)
+            for row_idx in range(NUM_ROWS)
+            if Card.from_one_hot_encoding(self._card_one_hots[col_idx, row_idx])
+            == Card.CLEARED
+        ]
+
+    @property
+    def non_cleared_indices(self) -> list[tuple[int, int]]:
+        return [
+            (row_idx, col_idx)
+            for col_idx in range(NUM_COLUMNS)
+            for row_idx in range(NUM_ROWS)
+            if Card.from_one_hot_encoding(self._card_one_hots[col_idx, row_idx])
+            != Card.CLEARED
+        ]
+
+    def _put_card_and_check_clear(
+        self, card: Card, row_idx: int, col_idx: int
+    ) -> typing.Self:
+        """Helper that handles checking whether column can be cleared after a Card is "put" into position.
+        Note: that a card can be "put" from both a replace, and also a flip. As conceptually even on a flip the flipped
+        card is "put" into position of the face-down card."""
+        card_one_hots = self._card_one_hots.copy()
+        card_one_hots[col_idx, row_idx] = card.one_hot_encoding()
+        cleared_one_hots = self._cleared_one_hots.copy()
+        cleared_card = None
+        if col_idx in Hand.clearable_columns(card_one_hots):
+            card_one_hots[col_idx] = np.zeros((NUM_ROWS, CARD_TYPES), dtype=np.int8)
+            card_one_hots[col_idx, :, Card.CLEARED.one_hot_encoding_index] = 1
+            cleared_one_hots[col_idx] = card.one_hot_encoding()
+            cleared_card = card
+        return Hand(card_one_hots, cleared_one_hots, cleared_card=cleared_card)
+
+    def _render(self) -> list[str]:
+        card_width = max(
+            max(max(len(str(card)) for card in row) for row in self.cards),
+            2,
+        )
+        empty = " " * card_width
+        divider = ("+" + "-" * card_width) * NUM_COLUMNS + "+"
+        template = f"|{{:>{card_width}}}" * NUM_COLUMNS + "|"
+        lines = [divider] * (NUM_ROWS * 2 + 1)
+        lines[1::2] = (
+            template.format(*(str(self.cards[r][c]) for c in range(NUM_COLUMNS)))
+            for r in range(NUM_ROWS)
+        )
+        return lines
+
+    def copy(self) -> typing.Self:
+        return Hand(
+            self._card_one_hots.copy(),
+            self._cleared_one_hots.copy(),
+            self.cleared_card,
+        )
+
+    def numpy(self) -> npt.NDArray[np.int8]:
+        return self._card_one_hots
+
+    def get_card(self, row_idx: int, col_idx: int) -> Card:
+        assert row_idx < NUM_ROWS and row_idx >= 0, (
+            f"row index: {row_idx} out of range, for board with {NUM_ROWS} rows"
+        )
+        assert col_idx < NUM_COLUMNS and col_idx >= 0, (
+            f"col index: {col_idx} out of range, for board with {NUM_COLUMNS} columns"
+        )
+        return Card.from_one_hot_encoding(self._card_one_hots[col_idx, row_idx])
+
+    def flip(self, card: Card, row_idx: int, col_idx: int) -> typing.Self:
+        assert self.get_card(row_idx, col_idx) == Card.FACE_DOWN, (
+            f"Cannot flip already flipped card at row_idx: {row_idx}, col_idx: {col_idx}"
+        )
+        return Hand._put_card_and_check_clear(self, card, row_idx, col_idx)
+
+    def replace(
+        self,
+        row_idx: int,
+        col_idx: int,
+        card: Card,
+    ) -> tuple[typing.Self, Card]:
+        assert self.get_card(row_idx, col_idx) != Card.CLEARED, (
+            f"Cannot replace cleared card at row_idx: {row_idx}, col_idx: {col_idx}"
+        )
+        return Hand._put_card_and_check_clear(
+            self, card, row_idx, col_idx
+        ), self.get_card(row_idx, col_idx)
+
+    def reveal_all_face_down_cards(self, revealed_cards: list[Card]) -> typing.Self:
+        """Returns the value of the hand after revealing all cards.
+        This includes any previously undiscovered clearing columns"""
+        assert (
+            self._card_one_hots[:, :, Card.CLEARED.one_hot_encoding_index].sum()
+            // NUM_ROWS
+            == self._cleared_one_hots.sum()
+        ), f"somehow cleared cards not a multiple of {NUM_ROWS}"
+        revealed_hand = self
+        for i, (row_idx, col_idx) in enumerate(self.face_down_indices):
+            revealed_hand = revealed_hand.flip(revealed_cards[i], row_idx, col_idx)
+        return revealed_hand
+
+    def compute_valid_place_from_discard_actions(self) -> list[SkyjoAction]:
+        return [
+            SkyjoAction(SkyjoActionType.PLACE_FROM_DISCARD, row_idx, col_idx)
+            for row_idx, col_idx in self.non_cleared_indices
+        ]
+
+    def compute_valid_discard_and_flip_actions(self) -> list[SkyjoAction]:
+        return [
+            SkyjoAction(SkyjoActionType.DISCARD_AND_FLIP, row_idx, col_idx)
+            for row_idx, col_idx in self.face_down_indices
+        ]
+
+    def compute_valid_place_drawn_actions(self) -> list[SkyjoAction]:
+        return [
+            SkyjoAction(SkyjoActionType.PLACE_DRAWN, row_idx, col_idx)
+            for row_idx, col_idx in self.non_cleared_indices
+        ]
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
+class ImmutableState:
     num_players: int
     """Number of players in the game"""
-    player_scores: np.array
+    player_scores: npt.NDArray[np.int16]  # shape (NUM_PLAYERS,)
     """Current player scores"""
-    hands: list[Hand] = dataclasses.field(default=None)
+    remaining_card_counts: CardCounts
+    """Counts of remaining cards in the deck"""
+    hands: list[Hand] = dataclasses.field(default_factory=list)
     """The list of participating players."""
-    deck: Deck = dataclasses.field(default=None)
-    """Deck of cards"""
     discard_pile: DiscardPile = dataclasses.field(default_factory=DiscardPile)
     """Discard Pile Object"""
-    drawn_card: int | None = None
+    drawn_card: Card | None = None
     """Card drawn (if applicable)"""
     curr_player: int = 0
     """Index of current player"""
     turn_count: int = 0
-    """Number of turns taken so far"""
-    round_count: int = 0
-    """Number of rounds so far"""
-    is_round_ending: bool = 0
+    """Number of turns taken in this round"""
+    round_turn_counts: list[int] = dataclasses.field(default_factory=list)
+    """Number of turns taken in each round"""
+    is_round_ending: bool = False
     """If this is the last turn for each player"""
     round_ending_player: int | None = None
     """Index of player who has ended the game"""
@@ -381,213 +538,551 @@ class ImmutableSkyjoState(abstract.AbstractImmutableGameState):
     def __hash__(self):
         return hash(self.numpy().tobytes())
 
-    def __eq__(self, other):
-        if isinstance(other, ImmutableSkyjoState):
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ImmutableState):
             return self.__hash__() == other.__hash__()
         return False
 
+    def __post_init__(self):
+        assert 2 <= self.num_players <= 8, "Number of players must be between 2 and 8"
+        assert self.player_scores.shape == (self.num_players,), (
+            "Player scores must be a 1D array of length num_players"
+        )
+
+    @classmethod
+    def from_numpy(cls, numpy_array: npt.NDArray[np.int8]) -> typing.Self:
+        raise NotImplementedError()
+
     @staticmethod
     def compute_round_scores(
-        hands: list[Hand], round_ending_player_idx: int
-    ) -> np.array:
-        round_scores = np.zeros(len(hands), dtype=int)
+        hands: list[Hand],
+        round_ending_player_idx: int,
+    ) -> tuple[npt.NDArray[np.int16], CardCounts]:
+        assert sum([hand.num_face_down_cards for hand in hands]) == 0, (
+            "All cards must be revealed before computing round scores"
+        )
+        round_scores = np.zeros(len(hands), dtype=np.int16)
         for player_idx in range(len(hands)):
-            round_scores[player_idx] += hands[player_idx].total_points()
+            round_score = hands[player_idx].visible_points
+            round_scores[player_idx] += round_score
         if (
             round_scores[round_ending_player_idx]
-            >= np.concat(
-                [
-                    round_scores[:round_ending_player_idx],
-                    round_scores[round_ending_player_idx + 1 :],
-                ],
-            ).min()
+            >= np.delete(round_scores, round_ending_player_idx).min()
         ):
             round_scores[round_ending_player_idx] *= 2
         return round_scores
 
-    def setup_round(self) -> Self:
-        next_deck = Deck(_cards=DECK, _rng=self.deck._rng).shuffle()
-        next_hands, next_deck = next_deck.deal_hands(self.num_players)
-        top_card, next_deck = next_deck.draw_top_card()
-        next_hands = [hand.initial_flips() for hand in next_hands]
-        starting_player = self.round_ending_player
-        # if first round of game set starting player to player with highest showing value
-        if self.round_ending_player is None:
-            hand_values = [hand.visible_points() for hand in next_hands]
-            starting_player = hand_values.index(max(hand_values))
-        next_valid_actions = next_hands[
-            starting_player
-        ].valid_place_from_discard_actions + [SkyjoAction(SkyjoActionType.DRAW)]
-        next_state = dataclasses.replace(
-            self,
-            player_scores=self.player_scores.copy(),
-            hands=next_hands,
-            deck=next_deck,
-            discard_pile=DiscardPile().discard(top_card),
-            drawn_card=None,
-            curr_player=starting_player,
-            turn_count=1,
-            round_count=self.round_count + 1,
-            is_round_ending=False,
-            round_ending_player=None,
-            valid_actions=next_valid_actions,
-        )
-        return next_state
-
-    def next_state(self, action: SkyjoAction) -> Self:
-        next_player_scores = self.player_scores.copy()
-        next_hands = [hand.copy() for hand in self.hands]
-        next_deck = self.deck.copy()
-        next_drawn_card = None
-        next_round_count = self.round_count
-        next_turn_count = self.turn_count + 1
-        next_player = (self.curr_player + 1) % self.num_players
-
-        if action.action_type == SkyjoActionType.DRAW:
-            next_discard_pile = self.discard_pile.copy()
-            next_drawn_card, next_deck = self.deck.draw_top_card()
-            next_turn_count = self.turn_count
-            next_player = self.curr_player
-            next_valid_actions = (
-                self.hands[self.curr_player].valid_discard_and_flip_actions
-                + self.hands[self.curr_player].valid_place_drawn_actions
-            )
-
-        elif action.action_type == SkyjoActionType.PLACE_DRAWN:
-            replaced_card, next_hand = next_hands[self.curr_player].replace(
-                action.row_idx, action.col_idx, self.drawn_card
-            )
-            next_hands[self.curr_player] = next_hand
-            next_discard_pile = self.discard_pile.discard(replaced_card)
-            next_valid_actions = next_hands[
-                next_player
-            ].valid_place_from_discard_actions + [SkyjoAction(SkyjoActionType.DRAW)]
-
-        elif action.action_type == SkyjoActionType.DISCARD_AND_FLIP:
-            next_discard_pile = self.discard_pile.discard(self.drawn_card)
-            next_hands[self.curr_player] = next_hands[self.curr_player].flip(
-                action.row_idx, action.col_idx
-            )
-            next_valid_actions = next_hands[
-                next_player
-            ].valid_place_from_discard_actions + [SkyjoAction(SkyjoActionType.DRAW)]
-
-        elif action.action_type == SkyjoActionType.PLACE_FROM_DISCARD:
-            replaced_card, next_hand = next_hands[self.curr_player].replace(
-                action.row_idx, action.col_idx, self.discard_pile.top_card
-            )
-            next_hands[self.curr_player] = next_hand
-            next_discard_pile = self.discard_pile.replace_top_card(replaced_card)
-            next_valid_actions = next_hands[
-                next_player
-            ].valid_place_from_discard_actions + [SkyjoAction(SkyjoActionType.DRAW)]
-
+    @property
+    def round_count(self) -> int:
+        if self.game_has_ended:
+            return len(self.round_turn_counts)
         else:
-            raise ValueError("This is not a supported action type")
+            return len(self.round_turn_counts) + 1
 
-        has_all_revealed = next_hands[self.curr_player].has_all_revealed()
-        next_round_ending_player = self.round_ending_player
+    @property
+    def total_turn_count(self) -> int:
+        return sum(self.round_turn_counts)
+
+    @property
+    def game_has_ended(self) -> bool:
+        return self.winning_player is not None
+
+    def _create_next_state(self, **kwargs) -> typing.Self:
+        """
+        Create a new ImmutableState with updated fields, automatically copying mutable attributes.
+        Also checks and handles round ending logic automatically.
+
+        This is a safer alternative to dataclasses.replace() as it ensures all mutable
+        attributes are properly copied even when not explicitly provided, and it handles
+        round ending logic automatically.
+
+        Args:
+            **kwargs: Attributes to explicitly set in the new instance
+
+        Returns:
+            A new ImmutableState instance with the requested changes and round ending logic applied
+        """
+        #
+        next_turn_count = kwargs.get("turn_count", self.turn_count)
+        next_winning_player = kwargs.get("winning_player", self.winning_player)
+
+        # Copy mutable attributes not explicitly provided in kwargs
+        next_player_scores = kwargs.get("player_scores", self.player_scores.copy())
+        next_hands = kwargs.get("hands", [hand.copy() for hand in self.hands])
+        next_round_turn_counts = kwargs.get(
+            "round_turn_counts", self.round_turn_counts.copy()
+        )
+        next_discard_pile = kwargs.get("discard_pile", self.discard_pile.copy())
+        next_remaining_card_counts = kwargs.get(
+            "remaining_card_counts", self.remaining_card_counts.copy()
+        )
+        next_drawn_card = kwargs.get("drawn_card")
+        next_curr_player = kwargs.get("curr_player", self.curr_player)
+        next_is_round_ending = kwargs.get("is_round_ending", self.is_round_ending)
+        next_round_ending_player = kwargs.get(
+            "round_ending_player", self.round_ending_player
+        )
+        next_valid_actions = kwargs.get("valid_actions", [])
+
+        # Handle round ending logic
+        # Check if current player has all cards revealed
+        has_all_revealed = len(next_hands[self.curr_player].face_down_indices) == 0
+
+        # If player revealed all cards and round wasn't ending before, set ending player
         if has_all_revealed and not self.is_round_ending:
+            next_is_round_ending = True
             next_round_ending_player = self.curr_player
+        # Round is over if round was already ending
+        # and next player is the round ending player
+        # and current player is not the round ending player
+        # last clause is needed since END_ROUND action will
+        # still maintain curr_player as round_ending_player
+        if (
+            self.is_round_ending
+            and next_curr_player == self.round_ending_player
+            and next_curr_player != self.curr_player
+            and max(next_player_scores) < GAME_END_SCORE
+        ):
+            next_valid_actions = [SkyjoAction(SkyjoActionType.END_ROUND)]
+            # Keep turn count the same since END_ROUND action is not an actual turn
+            next_turn_count = self.turn_count
 
-        next_state = dataclasses.replace(
-            self,
+        # Use dataclasses.replace to create the new instance
+        return ImmutableState(
+            num_players=self.num_players,
             player_scores=next_player_scores,
             hands=next_hands,
-            deck=next_deck,
-            discard_pile=next_discard_pile,
-            drawn_card=next_drawn_card,
-            curr_player=next_player,
             turn_count=next_turn_count,
-            round_count=next_round_count,
-            is_round_ending=(self.is_round_ending or has_all_revealed),
+            round_turn_counts=next_round_turn_counts,
+            discard_pile=next_discard_pile,
+            remaining_card_counts=next_remaining_card_counts,
+            drawn_card=next_drawn_card,
+            curr_player=next_curr_player,
+            is_round_ending=next_is_round_ending,
             round_ending_player=next_round_ending_player,
+            valid_actions=next_valid_actions,
+            winning_player=next_winning_player,
+        )
+
+    def _create_initial_hands(self, num_players: int) -> list[Hand]:
+        return [Hand.create_initial_hand() for _ in range(num_players)]
+
+    def start_round(self, top_card: Card) -> typing.Self:
+        # For first round just have initial player go first with initial flips
+        next_player = (
+            self.round_ending_player if self.round_ending_player is not None else 0
+        )
+        next_hands = self._create_initial_hands(self.num_players)
+        return self._create_next_state(
+            num_players=self.num_players,
+            hands=next_hands,
+            remaining_card_counts=CardCounts.create_initial_deck_counts().remove_card(
+                top_card
+            ),
+            discard_pile=DiscardPile().discard(top_card),
+            drawn_card=None,
+            curr_player=next_player,
+            turn_count=1,
+            is_round_ending=False,
+            round_ending_player=None,
+            valid_actions=[
+                SkyjoAction(SkyjoActionType.INITIAL_FLIP, row_idx, col_idx)
+                for row_idx, col_idx in next_hands[next_player].face_down_indices
+            ],
+        )
+
+    # Game Actions
+    def initial_flip(
+        self, flipped_card: Card, row_idx: int, col_idx: int
+    ) -> typing.Self:
+        assert SkyjoActionType.INITIAL_FLIP in {
+            action.action_type for action in self.valid_actions
+        }, "Initial flip is not a valid action from this state"
+        next_hands = [hand.copy() for hand in self.hands]
+        next_hands[self.curr_player] = next_hands[self.curr_player].flip(
+            flipped_card, row_idx, col_idx
+        )
+        next_remaining_card_counts = self.remaining_card_counts.remove_card(
+            flipped_card
+        )
+        next_player = (self.curr_player + 1) % self.num_players
+        next_valid_actions = [
+            SkyjoAction(SkyjoActionType.INITIAL_FLIP, row_idx, col_idx)
+            for row_idx, col_idx in self.hands[next_player].face_down_indices
+        ]
+        # start round
+        if all(
+            [
+                hand.num_face_down_cards == NUM_ROWS * NUM_COLUMNS - 2
+                for hand in next_hands
+            ]
+        ):
+            # for first round player with most points goes first
+            if len(self.round_turn_counts) == 0:
+                next_player = np.argmax([hand.visible_points for hand in next_hands])
+            next_valid_actions = next_hands[
+                next_player
+            ].compute_valid_place_from_discard_actions() + [
+                SkyjoAction(SkyjoActionType.DRAW)
+            ]
+
+        return self._create_next_state(
+            remaining_card_counts=next_remaining_card_counts,
+            hands=next_hands,
+            curr_player=next_player,
             valid_actions=next_valid_actions,
         )
 
-        if (
-            next_state.is_round_ending
-            and next_state.curr_player == next_state.round_ending_player
-        ):
-            round_scores = ImmutableSkyjoState.compute_round_scores(
-                next_state.hands, next_state.round_ending_player
-            )
-            next_state = dataclasses.replace(
-                next_state, player_scores=(next_state.player_scores + round_scores)
-            ).setup_round()
-            if max(next_state.player_scores) >= 100:
-                next_state = dataclasses.replace(
-                    next_state, winning_player=np.argmin(next_state.player_scores)
-                )
-
-        return next_state
-
-    # TODO: Change to use cards and converting to ones-hot int values
-    def numpy(self) -> np.ndarray:
-        """Returns a numpy array representation of the state from the perspective of the current player"""
-        curr_score_numpy = np.pad(
-            self.player_scores,
-            (0, NUM_CARD_TYPES + 2 - self.num_players),
-            constant_values=0,
-        ).reshape((1, -1))
-        hands_numpy = np.concatenate(
-            [
-                self.hands[(self.curr_player + i) % self.num_players].numpy()
-                for i in range(self.num_players)
-            ]
+    def draw_card(self, drawn_card: Card) -> typing.Self:
+        assert SkyjoActionType.DRAW in {
+            action.action_type for action in self.valid_actions
+        }, "Draw is not a valid action from this state"
+        assert self.drawn_card is None, "Must not have a drawn card to draw a new card"
+        next_drawn_card = drawn_card
+        next_remaining_card_counts = self.remaining_card_counts.remove_card(drawn_card)
+        next_valid_actions = (
+            self.hands[self.curr_player].compute_valid_place_drawn_actions()
+            + self.hands[self.curr_player].compute_valid_discard_and_flip_actions()
         )
-        discard_counts_numpy = np.pad(
-            self.discard_pile.discarded_card_counts, (0, 2), constant_values=0
-        ).reshape((1, -1))
-        top_card_numpy = np.zeros((1, NUM_CARD_TYPES + 2), dtype=int)
-        top_card_numpy[0, self.discard_pile.top_card + 2] = 1
-        drawn_card_numpy = np.zeros((1, NUM_CARD_TYPES + 2), dtype=int)
-        if self.drawn_card is None:
-            drawn_card_numpy[0, NUM_CARD_TYPES] = 1
+
+        return self._create_next_state(
+            drawn_card=next_drawn_card,
+            remaining_card_counts=next_remaining_card_counts,
+            valid_actions=next_valid_actions,
+        )
+
+    def place_drawn(
+        self, row_idx: int, col_idx: int, face_down_card: Card | None = None
+    ) -> typing.Self:
+        assert SkyjoActionType.PLACE_DRAWN in {
+            action.action_type for action in self.valid_actions
+        }, "Place drawn is not a valid action from this state"
+        assert self.drawn_card is not None, "Must have a drawn card to place it"
+        next_hands = [hand.copy() for hand in self.hands]
+        next_hands[self.curr_player], replaced_card = next_hands[
+            self.curr_player
+        ].replace(row_idx, col_idx, self.drawn_card)
+        if replaced_card == Card.FACE_DOWN:
+            assert face_down_card is not None, (
+                "Must provide a face down card when replacing a face down card"
+            )
+            replaced_card = face_down_card
+            next_remaining_card_counts = self.remaining_card_counts.remove_card(
+                replaced_card
+            )
         else:
-            drawn_card_numpy[0, self.drawn_card + 2] = 1
+            next_remaining_card_counts = self.remaining_card_counts.copy()
+        next_discard_pile = self.discard_pile.discard(replaced_card)
+
+        # Update player + turn count
+        next_player = (self.curr_player + 1) % self.num_players
+        next_turn_count = self.turn_count + 1
+        next_valid_actions = next_hands[
+            next_player
+        ].compute_valid_place_from_discard_actions() + [
+            SkyjoAction(SkyjoActionType.DRAW)
+        ]
+        return self._create_next_state(
+            hands=next_hands,
+            discard_pile=next_discard_pile,
+            remaining_card_counts=next_remaining_card_counts,
+            drawn_card=None,
+            curr_player=next_player,
+            turn_count=next_turn_count,
+            valid_actions=next_valid_actions,
+        )
+
+    def place_from_discard(
+        self, row_idx: int, col_idx: int, face_down_card: Card | None = None
+    ) -> typing.Self:
+        assert SkyjoActionType.PLACE_FROM_DISCARD in {
+            action.action_type for action in self.valid_actions
+        }, "Place from discard is not a valid action from this state"
+        assert self.drawn_card is None, (
+            "Must not have a drawn card to place from discard"
+        )
+        next_hands = [hand.copy() for hand in self.hands]
+        # Replace card and update discard pile
+        next_hands[self.curr_player], replaced_card = next_hands[
+            self.curr_player
+        ].replace(row_idx, col_idx, self.discard_pile.top_card)
+        if replaced_card == Card.FACE_DOWN:
+            assert face_down_card is not None, (
+                "Must provide a face down card when replacing a face down card"
+            )
+            replaced_card = face_down_card
+            next_remaining_card_counts = self.remaining_card_counts.remove_card(
+                replaced_card
+            )
+        else:
+            next_remaining_card_counts = self.remaining_card_counts.copy()
+        next_discard_pile = self.discard_pile.replace_top_card(replaced_card)
+
+        # Update player + turn count
+        next_player = (self.curr_player + 1) % self.num_players
+        next_turn_count = self.turn_count + 1
+        next_valid_actions = next_hands[
+            next_player
+        ].compute_valid_place_from_discard_actions() + [
+            SkyjoAction(SkyjoActionType.DRAW)
+        ]
+        return self._create_next_state(
+            hands=next_hands,
+            discard_pile=next_discard_pile,
+            drawn_card=None,
+            curr_player=next_player,
+            turn_count=next_turn_count,
+            remaining_card_counts=next_remaining_card_counts,
+            valid_actions=next_valid_actions,
+        )
+
+    def discard_and_flip(
+        self, flipped_card: Card, row_idx: int, col_idx: int
+    ) -> typing.Self:
+        assert SkyjoActionType.DISCARD_AND_FLIP in {
+            action.action_type for action in self.valid_actions
+        }, "Discard and flip is not a valid action from this state"
+        assert self.drawn_card is not None, "Must have a drawn card to discard and flip"
+        assert (
+            self.hands[self.curr_player].get_card(row_idx, col_idx) == Card.FACE_DOWN
+        ), (
+            f"Must provide a face down card index to discard and flip, got: {self.hands[self.curr_player].get_card(row_idx, col_idx)}"
+        )
+        next_remaining_card_counts = self.remaining_card_counts.remove_card(
+            flipped_card
+        )
+        next_discard_pile = self.discard_pile.discard(self.drawn_card)
+        next_hands = [hand.copy() for hand in self.hands]
+        next_hands[self.curr_player] = next_hands[self.curr_player].flip(
+            flipped_card, row_idx, col_idx
+        )
+
+        # Update player + turn count
+        next_player = (self.curr_player + 1) % self.num_players
+        next_turn_count = self.turn_count + 1
+        next_drawn_card = None
+        next_valid_actions = next_hands[
+            next_player
+        ].compute_valid_place_from_discard_actions() + [
+            SkyjoAction(SkyjoActionType.DRAW)
+        ]
+        return self._create_next_state(
+            drawn_card=next_drawn_card,
+            remaining_card_counts=next_remaining_card_counts,
+            hands=next_hands,
+            discard_pile=next_discard_pile,
+            curr_player=next_player,
+            turn_count=next_turn_count,
+            valid_actions=next_valid_actions,
+        )
+
+    def end_round(self, cards_revealed: list[Card]) -> typing.Self:
+        assert SkyjoActionType.END_ROUND in {
+            action.action_type for action in self.valid_actions
+        }, "End round is not a valid action from this state"
+        assert self.curr_player == self.round_ending_player, (
+            "Must be the last player to reveal hands"
+        )
+        assert len(cards_revealed) == sum(
+            [hand.num_face_down_cards for hand in self.hands]
+        ), "Number of cards revealed must match number of face down cards in hands"
+        next_hands = []
+        cards_flipped = 0
+        next_player_scores = self.player_scores.copy()
+        for hand in self.hands:
+            next_hands.append(
+                hand.reveal_all_face_down_cards(
+                    cards_revealed[
+                        cards_flipped : cards_flipped + len(hand.face_down_indices)
+                    ]
+                )
+            )
+            cards_flipped += len(hand.face_down_indices)
+        next_remaining_card_counts = self.remaining_card_counts.remove_cards(
+            cards_revealed
+        )
+        next_player_scores = self.player_scores.copy()
+        round_scores = self.compute_round_scores(next_hands, self.round_ending_player)
+        next_player_scores += round_scores
+        next_round_turn_counts = self.round_turn_counts.copy() + [self.turn_count]
+        if max(next_player_scores) >= GAME_END_SCORE:
+            next_valid_actions = []
+            next_winning_player = np.argmin(next_player_scores)
+        else:
+            next_valid_actions = [SkyjoAction(SkyjoActionType.START_ROUND)]
+            next_winning_player = None
+        return self._create_next_state(
+            player_scores=next_player_scores,
+            hands=next_hands,
+            remaining_card_counts=next_remaining_card_counts,
+            drawn_card=None,
+            curr_player=self.round_ending_player,
+            valid_actions=next_valid_actions,
+            winning_player=next_winning_player,
+            round_turn_counts=next_round_turn_counts,
+        )
+
+    def involves_chance(self, action: SkyjoAction) -> bool:
+        match action.action_type:
+            case SkyjoActionType.DRAW:
+                return True
+            case SkyjoActionType.INITIAL_FLIP:
+                return True
+            case SkyjoActionType.DISCARD_AND_FLIP:
+                return True
+            case SkyjoActionType.PLACE_DRAWN:
+                if (
+                    self.hands[self.curr_player].get_card(
+                        action.row_idx, action.col_idx
+                    )
+                    == Card.FACE_DOWN
+                ):
+                    return True
+                else:
+                    return False
+            case SkyjoActionType.PLACE_FROM_DISCARD:
+                if (
+                    self.hands[self.curr_player].get_card(
+                        action.row_idx, action.col_idx
+                    )
+                    == Card.FACE_DOWN
+                ):
+                    return True
+                else:
+                    return False
+            case SkyjoActionType.END_ROUND:
+                return True
+            case SkyjoActionType.START_ROUND:
+                return True
+            case _:
+                raise ValueError(f"Invalid action: {action}")
+
+    def apply_action(self, action: SkyjoAction) -> typing.Self:
+        match action.action_type:
+            case SkyjoActionType.DRAW:
+                drawn_card = self.remaining_card_counts.generate_random_card()
+                return self.draw_card(drawn_card)
+            case SkyjoActionType.PLACE_DRAWN:
+                face_down_card = None
+                if (
+                    self.hands[self.curr_player].get_card(
+                        action.row_idx, action.col_idx
+                    )
+                    == Card.FACE_DOWN
+                ):
+                    face_down_card = self.remaining_card_counts.generate_random_card()
+                return self.place_drawn(action.row_idx, action.col_idx, face_down_card)
+            case SkyjoActionType.PLACE_FROM_DISCARD:
+                face_down_card = None
+                if (
+                    self.hands[self.curr_player].get_card(
+                        action.row_idx, action.col_idx
+                    )
+                    == Card.FACE_DOWN
+                ):
+                    face_down_card = self.remaining_card_counts.generate_random_card()
+                return self.place_from_discard(
+                    action.row_idx, action.col_idx, face_down_card
+                )
+            case SkyjoActionType.DISCARD_AND_FLIP:
+                flipped_card = self.remaining_card_counts.generate_random_card()
+                return self.discard_and_flip(
+                    flipped_card, action.row_idx, action.col_idx
+                )
+            case SkyjoActionType.END_ROUND:
+                cards_revealed = self.remaining_card_counts.generate_random_cards(
+                    sum([hand.num_face_down_cards for hand in self.hands])
+                )
+                return self.end_round(cards_revealed)
+            case SkyjoActionType.START_ROUND:
+                top_card = self.remaining_card_counts.generate_random_card()
+                return self.start_round(top_card)
+            case SkyjoActionType.INITIAL_FLIP:
+                flipped_card = self.remaining_card_counts.generate_random_card()
+                return self.initial_flip(flipped_card, action.row_idx, action.col_idx)
+            case _:
+                raise ValueError(f"Invalid action: {action}")
+
+    def spatial_numpy(self) -> npt.NDArray[np.int8]:
+        """Returns a numpy array representation of the player hands.
+        The representation is from the perspective of the current player.
+
+        OUTPUT SHAPE: (NUM_PLAYERS, CARD_TYPES, NUM_COLUMNS, NUM_ROWS)
+        """
+        return np.stack(
+            [hand.numpy() for hand in np.roll(self.hands, -self.curr_player)],
+            dtype=np.int8,
+            axis=0,
+        )
+
+    def non_spatial_numpy(self) -> npt.NDArray[np.int16]:
+        """Returns a numpy array representation of the non-spatial features of the state.
+
+        OUTPUT SHAPE: sum(
+            NUM_PLAYERS,
+            NUM_CARD_TYPES * 2, (discard counts + top card)
+            NUM_CARD_TYPES, (remaining counts)
+            NUM_CARD_TYPES, (drawn card)
+            1, (round ending)
+        ,)
+        """
+        curr_score_numpy = np.roll(self.player_scores, -self.curr_player)
+        discard_pile_numpy = self.discard_pile.numpy()
+        remaining_card_counts_numpy = self.remaining_card_counts.numpy()
+        drawn_card_numpy = np.zeros(CARD_TYPES, dtype=np.int8)
+        if self.drawn_card is not None:
+            drawn_card_numpy = self.drawn_card.one_hot_encoding()
+        round_ending_numpy = np.zeros(1, dtype=np.int8)
         if self.is_round_ending:
-            round_ending_numpy = np.ones((1, NUM_CARD_TYPES + 2), dtype=int)
-        else:
-            round_ending_numpy = np.zeros((1, NUM_CARD_TYPES + 2), dtype=int)
+            round_ending_numpy += 1
         return np.concatenate(
             [
                 curr_score_numpy,
-                hands_numpy,
-                discard_counts_numpy,
-                top_card_numpy,
+                remaining_card_counts_numpy,
+                discard_pile_numpy,
                 drawn_card_numpy,
                 round_ending_numpy,
-            ]
+            ],
+            dtype=np.int16,
         )
 
-    @classmethod
-    def from_numpy(cls, numpy_array: np.array) -> Self:
-        raise NotImplementedError()
+    def numpy(self) -> tuple[npt.NDArray[np.int16]]:
+        """Returns a numpy array representation of the state from the perspective of the current player"""
 
-    def create_valid_actions_mask(self) -> np.ndarray:
-        if len(self.valid_actions) == 0:
-            logging.warning("No valid actions, returning all zeros mask")
-            return np.zeros(self.output_shape)
-        mask = self.valid_actions[0].numpy()
-        for action in self.valid_actions[1:]:
-            mask += action.numpy()
-        return mask
+        return np.concatenate(
+            [
+                self.non_spatial_numpy(),
+                self.spatial_numpy().reshape(-1, 1).squeeze(),
+            ],
+            dtype=np.int16,
+        )
 
-    def _render(self, xray: bool = False) -> list[str]:
+    def create_valid_actions_mask(self) -> npt.NDArray[np.int8]:
+        raise NotImplementedError("Not implemented")
+
+    # Methods to display the current state
+    def _render(self) -> list[str]:
         first_line = (
             f"discard: {self.discard_pile.top_card}"
             f" drawn card: {self.drawn_card}"
             f"  round: {self.round_count}"
             f"  turn: {self.turn_count}"
             f" player_scores: {self.player_scores}"
-            + ("  (ending)" if self.is_round_ending else "")
-            + (f"  ({self.round_ending_player})" if self.is_round_ending else "")
+            + (
+                f"  (player {self.round_ending_player} ended)"
+                if self.is_round_ending
+                else ""
+            )
+            + (
+                f"  (WINNER: {self.winning_player})"
+                if self.winning_player is not None
+                else ""
+            )
         )
 
         hands_render = [""]
         for player_idx in range(self.num_players):
-            hand_render = self.hands[player_idx]._render(xray=xray)
+            hand_render = self.hands[player_idx]._render()
             base_length = len(
                 hands_render[0]
             )  # needed to shift ^ player turn indicator by correct number of spaces
@@ -605,53 +1100,24 @@ class ImmutableSkyjoState(abstract.AbstractImmutableGameState):
             *hands_render,
         ]
 
-    def display_str(self, xray: bool = False) -> str:
-        return "# " + "\n".join(self._render(xray))
+    def display_str(self) -> str:
+        return "# " + "\n".join(self._render())
 
-    def display(self, xray: bool = False) -> None:
-        # symbol = "#"
-        # for line in self._render(xray):
-        #     print(symbol, line)
-        #     symbol = ""
-        print(self.display_str(xray))
-
-    def game_ended(self) -> bool:
-        return self.winning_player is not None
+    def display(self) -> None:
+        print(self.display_str())
 
 
-class RandomPlayer:
-    def __init__(self, name):
-        self.name = name
-
-    def decide_action(self, state: ImmutableSkyjoState) -> SkyjoAction:
-        if len(state.valid_actions) == 0:
-            raise RuntimeError("no valid actions")
-        return state.valid_actions[random.randint(0, len(state.valid_actions) - 1)]
-
-
-@dataclasses.dataclass(slots=True)
-class GameStateValue:
-    _values: np.ndarray
-    curr_player: int
-
-    @property
-    def num_players(self) -> int:
-        return len(self._values)
-
-    def player_value(self, player: int):
-        return self._values[(player - self.curr_player) % self.num_players]
-
-    def value_from_perspective_of(self, player: int) -> np.ndarray:
-        return np.roll(self._values, (player - self.curr_player) % self.num_players)
-
-    @classmethod
-    def from_winning_player(
-        cls, winning_player: int, curr_player: int, num_players: int
-    ):
-        _values = np.zeros(num_players)
-        _values[(winning_player - curr_player) % num_players] = 1.0
-        return cls(_values, curr_player)
-
-    @classmethod
-    def from_numpy(cls, values_array: np.ndarray, curr_player: int):
-        return cls(values_array.squeeze(), curr_player)
+if __name__ == "__main__":
+    # Simulate a single game
+    initial_counts = CardCounts.create_initial_deck_counts()
+    state = ImmutableState(
+        num_players=2,
+        player_scores=np.array([0, 0]),
+        remaining_card_counts=initial_counts,
+    ).start_round(initial_counts.generate_random_card())
+    state.display()
+    while not state.game_is_over():
+        action = state.valid_actions[np.random.randint(0, len(state.valid_actions))]
+        state = state.apply_action(action)
+        state.display()
+    print(state.round_turn_counts)

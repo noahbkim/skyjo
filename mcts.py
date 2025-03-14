@@ -1,84 +1,207 @@
+from __future__ import annotations
+
+import abc
 import dataclasses
 import logging
 import typing
 
 import numpy as np
-import torch
 
 import abstract
 import skyjo_immutable as sj
 import skynet
 
 
+class AbstractGameTreeNode(abc.ABC):
+    """Abstract base class for nodes in the game tree"""
+
+    @property
+    @abc.abstractmethod
+    def is_expanded(self) -> bool:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def parent(self) -> typing.Self | None:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def children(self) -> typing.Iterable[typing.Self]:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def game_state(self) -> abstract.AbstractImmutableGameState:
+        pass
+
+
 @dataclasses.dataclass(slots=True)
-class MCTSNode:
+class TerminalStateNode(AbstractGameTreeNode):
+    outcome: abstract.AbstractGameOutcome
     game_state: abstract.AbstractImmutableGameState
-    parent: typing.Self | None
-    children: dict[abstract.AbstractGameAction, typing.Self]
-    number_of_visits: int
-    average_visit_value: float
+    parent: MCTSNode | None
     is_expanded: bool = False
-    normalized_policy: skynet.PolicyOutput | None = None
-    model_value: skynet.ValueOutput | None = None
+
+    @property
+    def children(self) -> typing.Iterable[typing.Self]:
+        return []
+
+
+@dataclasses.dataclass(slots=True)
+class AfterStateNode(AbstractGameTreeNode):
+    action: abstract.AbstractGameAction
+    game_state: abstract.AbstractImmutableGameState
+    parent: MCTSNode | None
+    is_expanded: bool = False
+    average_visit_value: float = 0.0
+    number_of_visits: int = 0
+
+    @property
+    def children(self) -> typing.Iterable[typing.Self]:
+        assert self.is_expanded, "Must expand node before accessing children"
+        return self.children_map.values()
+
+    def __hash__(self) -> int:
+        return hash((hash(self.game_state), hash(self.action)))
+
+    def create_child(
+        self, game_state: abstract.AbstractImmutableGameState
+    ) -> typing.Self:
+        if game_state.game_has_ended:
+            return TerminalStateNode(
+                game_state=game_state,
+                outcome=game_state.game_outcome(),
+                parent=self,
+            )
+        return DecisionStateNode(
+            game_state=game_state,
+            parent=self,
+        )
 
     def expand(self, model: abstract.AbstractModel):
-        assert not self.is_expanded, "Node already expanded"
-        with torch.no_grad():
-            model_output = model.predict(self.game_state.numpy())
-        valid_actions_mask = self.game_state.create_valid_actions_mask().reshape(
-            -1, *sj.ACTION_SHAPE
-        )
-        self.normalized_policy = (
-            model_output.policy_output.mask_invalid_and_renormalize(valid_actions_mask)
-        )
-        self.model_value = model_output.value_output
-
-        for action in self.game_state.valid_actions:
-            self.children[action] = MCTSNode(
-                game_state=self.game_state.next_state(action),
-                parent=self,
-                children={},
-                number_of_visits=0,
-                average_visit_value=0,
-            )
+        self.model_output = model.afterstate_predict(self.game_state, self.action)
+        self.children_map = {}
         self.is_expanded = True
 
-    def select_highest_ucb_child(self, c_puct: float) -> typing.Self:
-        max_ucb = -float("inf")
-        best_child = None
-        for action, child in self.children.items():
-            child_ucb = (
-                child.average_visit_value
-                + c_puct
-                * self.normalized_policy.get_action_probability(action)
-                * np.sqrt(self.number_of_visits)
-                / (1 + child.number_of_visits)
+    def sample_probabilities(self) -> dict[MCTSNode, float]:
+        total_visit_count = sum(child.number_of_visits for child in self.children)
+        return {
+            child: child.number_of_visits / total_visit_count for child in self.children
+        }
+
+    def actual_probabilities(self) -> dict[MCTSNode, float]:
+        """Optionally, implement an exact probability distribution for the children"""
+        raise NotImplementedError
+
+    def select_child(self, c_puct: float):
+        realized_next_state = self.game_state.apply_action(self.action)
+        if realized_next_state in self.children_map:
+            return self.children_map[realized_next_state]
+        child = self.create_child(realized_next_state)
+        self.children_map[realized_next_state] = child
+        return child
+
+
+@dataclasses.dataclass(slots=True)
+class DecisionStateNode(AbstractGameTreeNode):
+    game_state: abstract.AbstractImmutableGameState
+    parent: MCTSNode | None
+    action: abstract.AbstractGameAction | None = None
+    is_expanded: bool = False
+    average_visit_value: float = 0.0
+    number_of_visits: int = 0
+
+    @property
+    def children(self) -> typing.Iterable[typing.Self]:
+        assert self.is_expanded, "Must expand node before accessing children"
+        return self.children_map.values()
+
+    def __hash__(self) -> int:
+        return hash(self.game_state)
+
+    def create_child(
+        self,
+        game_state: abstract.AbstractImmutableGameState,
+        action: abstract.AbstractGameAction,
+    ) -> typing.Self:
+        if game_state.involves_chance(action):
+            return AfterStateNode(
+                game_state=game_state,
+                action=action,
+                parent=self,
             )
-            if child_ucb > max_ucb:
-                max_ucb = child_ucb
-                best_child = child
+        next_game_state = game_state.apply_action(action)
+        if next_game_state.game_has_ended:
+            return TerminalStateNode(
+                game_state=next_game_state,
+                outcome=next_game_state.game_outcome(),
+                parent=self,
+            )
+        return DecisionStateNode(
+            game_state=next_game_state,
+            action=action,
+            parent=self,
+        )
+
+    def expand(self, model: abstract.AbstractModel):
+        self.model_output = model.predict(self.game_state)
+        # may need to normalize model output here (e.g. masking invalid actions)
+
+        # create child nodes
+        self.children_map = {
+            action: self.create_child(self.game_state, action)
+            for action in self.game_state.valid_actions
+        }
+        self.is_expanded = True
+
+    def select_child(self, c_puct: float) -> float:
+        """Selects a child node based on the child node with the highest Upper Confidence Bound (UCB)"""
+        best_action, best_child = max(
+            self.children_map.items(),
+            key=lambda action_child: action_child[1].average_visit_value
+            + c_puct
+            * self.model_output.policy_output.get_action_probability(action_child[0])
+            * np.sqrt(self.number_of_visits)
+            / (1 + action_child[1].number_of_visits),
+        )
         return best_child
 
-    def action_probabilities(
+    def sample_child_probabilities(self, temperature: float) -> dict[MCTSNode, float]:
+        if temperature == 0:
+            max_visit_count = max(child.number_of_visits for child in self.children)
+            visit_counts = {
+                child: 1 if child.number_of_visits == max_visit_count else 0
+                for child in self.children
+            }
+        else:
+            visit_counts = {
+                child: child.number_of_visits ** (1 / temperature)
+                for child in self.children
+            }
+        total_temp_scaled_visit_count = sum(visit_counts.values())
+        return {
+            child: visit_count / total_temp_scaled_visit_count
+            for child, visit_count in visit_counts.items()
+        }
+
+    def sample_action_probabilities(
         self, temperature: float
     ) -> dict[abstract.AbstractGameAction, float]:
-        actions = [action for action, _ in self.children.items()]
-        counts = np.array(
-            [child.number_of_visits for _, child in self.children.items()]
-        )
-        if temperature == 0:
-            prob_mass = np.where(counts == np.max(counts), 1, 0)
-        else:
-            prob_mass = counts ** (1 / temperature)
-        prob_mass = prob_mass / np.sum(prob_mass)
-        return {action: prob_mass for action, prob_mass in zip(actions, prob_mass)}
+        child_probabilities = self.sample_child_probabilities(temperature)
+        return {
+            child.action: probability
+            for child, probability in child_probabilities.items()
+        }
 
 
-class MCTS:
+MCTSNode = DecisionStateNode | AfterStateNode | TerminalStateNode
+
+
+class Tree:
     """Class for running and storing Monte Carlo Tree Search information for a game"""
 
-    def __init__(self, c_puct: float = 1.0):
-        self.nodes = {}
+    def __init__(self, c_puct: float):
         self.c_puct = c_puct
 
     def run(
@@ -87,49 +210,59 @@ class MCTS:
         model: abstract.AbstractModel,
         iterations: int,
     ) -> float:
-        root_node = MCTSNode(
+        root_node = DecisionStateNode(
             game_state=game_state,
             parent=None,
-            children={},
-            number_of_visits=0,
-            average_visit_value=0,
         )
         root_node.expand(model)
         logging.debug(
             f"Starting search from state:\n{root_node.game_state.display_str()}"
         )
         for _ in range(iterations):
-            self.search(root_node, model, self.c_puct)
+            self.search(root_node, model)
 
         return root_node
 
-    def search(self, node, model, c_puct: float):
+    def search(self, node: MCTSNode, model: abstract.AbstractModel):
         search_path = [node]
         while node.is_expanded:
-            node = node.select_highest_ucb_child(c_puct)
+            node = node.select_child(self.c_puct)
             search_path.append(node)
-        if node.game_state.game_ended():
+        if node.game_state.game_has_ended:
             logging.debug(f"Found terminal node:\n{node.game_state.display_str()}")
-            value = sj.GameStateValue.from_winning_player(
-                node.game_state.winning_player,
-                node.game_state.curr_player,
-                node.game_state.num_players,
-            )
+            value = node.outcome
         else:
             logging.debug(
                 f"Found leaf node to expand:\n{node.game_state.display_str()}"
             )
             node.expand(model)
-            value = sj.GameStateValue.from_numpy(
-                node.model_value.values, node.game_state.curr_player
-            )
+            value = node.model_output.value_output.game_state_value
         logging.debug(f"Updating searchpath node values: {value}")
         self.update_node_values(search_path, value)
 
-    def update_node_values(self, search_path, value: sj.GameStateValue):
+    def update_node_values(
+        self, search_path: list[MCTSNode], value: abstract.AbstractGameStateValue
+    ):
         for node in reversed(search_path):
             node.number_of_visits += 1
             node.average_visit_value = (
                 node.number_of_visits * node.average_visit_value
-                + value.player_value(node.game_state.curr_player)
+                + value.value_from_perspective_of(node.game_state.curr_player)
             ) / (node.number_of_visits + 1)
+
+
+if __name__ == "__main__":
+    # logging.basicConfig(level=logging.DEBUG)
+    tree = Tree(c_puct=1.0)
+    game_state = sj.ImmutableState(
+        num_players=2,
+        player_scores=np.array([0, 0], dtype=np.int16),
+        remaining_card_counts=sj.CardCounts.create_initial_deck_counts(),
+        valid_actions=[sj.SkyjoAction(sj.SkyjoActionType.START_ROUND)],
+    ).apply_action(sj.SkyjoAction(sj.SkyjoActionType.START_ROUND))
+    model = skynet.SkyNet(
+        spatial_input_channels=sj.CARD_TYPES,
+        non_spatial_features=game_state.non_spatial_numpy().shape[0],
+        num_players=game_state.num_players,
+    )
+    tree.run(game_state, model, iterations=1600)

@@ -69,12 +69,13 @@ def selfplay_game(
 ) -> list[tuple[np.array, np.array, float]]:
     """Runs a selfplay game and returns training data generated.
     Training data is a list of tuples of the form (numpy_state, mcts_action_probs, canonical_outcome_value)"""
-    mcts_simulator = mcts.MCTS(c_puct=c_puct)
-    state = sj.ImmutableSkyjoState(
+    mcts_simulator = mcts.Tree(c_puct=c_puct)
+    state = sj.ImmutableState(
         num_players=num_players,
-        player_scores=np.zeros(num_players),
-        deck=sj.Deck(_cards=sj.DECK),
-    ).setup_round()
+        player_scores=np.zeros(num_players, dtype=np.int16),
+        remaining_card_counts=sj.CardCounts.create_initial_deck_counts(),
+        valid_actions=[sj.SkyjoAction(sj.SkyjoActionType.START_ROUND)],
+    ).apply_action(sj.SkyjoAction(sj.SkyjoActionType.START_ROUND))
     training_data = []
     episode_step = 0
     while state.winning_player is None:
@@ -83,7 +84,7 @@ def selfplay_game(
         # (i.e. always oriented with the current player's perspective)
         numpy_state = state.numpy()
         root_node = mcts_simulator.run(state, model, iterations=mcts_iterations)
-        mcts_action_probs = root_node.action_probabilities(temperature)
+        mcts_action_probs = root_node.sample_action_probabilities(temperature)
         policy_target = sum(
             [
                 action.numpy() * prob / action.numpy().sum()
@@ -97,12 +98,12 @@ def selfplay_game(
 
         # Move to next state based on sampled action
         random_action = sample_action(mcts_action_probs)
-        state = state.next_state(random_action)
+        state = state.apply_action(random_action)
 
         # Game is over
         if state.winning_player is not None:
-            outcome = sj.GameStateValue.from_winning_player(
-                state.winning_player, state.curr_player, state.num_players
+            outcome = skynet.GameStateValue.from_winning_player(
+                state.winning_player, state.num_players
             )
             return [
                 DataPoint(
@@ -153,7 +154,17 @@ def train(
 # Simple example of training from a single selfplay game
 if __name__ == "__main__":
     logging_config.setup_logging("train", logging.INFO)
-    model = skynet.SkyNet(in_channels=29)
+    example_game_state = sj.ImmutableState(
+        num_players=2,
+        player_scores=np.array([0, 0], dtype=np.int16),
+        remaining_card_counts=sj.CardCounts.create_initial_deck_counts(),
+        valid_actions=[sj.SkyjoAction(sj.SkyjoActionType.START_ROUND)],
+    )
+    model = skynet.SkyNet(
+        spatial_input_channels=sj.CARD_TYPES,
+        non_spatial_features=example_game_state.non_spatial_numpy().shape[0],
+        num_players=example_game_state.num_players,
+    )
     training_data = []
     for num_episodes in range(1):
         training_data += selfplay_game(model, 2)
