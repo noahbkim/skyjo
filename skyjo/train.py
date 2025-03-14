@@ -6,10 +6,10 @@ import typing
 import numpy as np
 import torch
 
-import logging_config
-import mcts
-import skyjo_immutable as sj
-import skynet
+import skyjo.logging_config as logging_config
+import skyjo.mcts as mcts
+import skyjo.skyjo_immutable as sj
+import skyjo.skynet as skynet
 
 
 @dataclasses.dataclass(slots=True)

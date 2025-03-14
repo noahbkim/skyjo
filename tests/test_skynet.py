@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 import torch
 
-import skyjo_immutable as sj
-import skynet
+import skyjo.skyjo_immutable as sj
+import skyjo.skynet as skynet
 
 
 class TestPolicyOutput(unittest.TestCase):

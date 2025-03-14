@@ -1,7 +1,7 @@
 [project]
 name = "skyjo"
 version = "0.1.0"
-description = "Add your description here"
+description = "A superhuman AI for Skyjo"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,4 +13,9 @@ dependencies = [
 dev = [
     "jupyter>=1.1.1",
     "pytest>=8.3.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
 ]

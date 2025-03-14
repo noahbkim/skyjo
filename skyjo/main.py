@@ -3,7 +3,7 @@ import importlib
 import multiprocessing
 import random
 
-import skyjo
+import skyjo.skyjo as skyjo
 
 
 class DrawPlayer(skyjo.Player):

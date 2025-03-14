@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from skyjo import *
+from skyjo.skyjo import *
 
 
 class TestAverage(unittest.TestCase):
@@ -88,19 +88,20 @@ class TestCards(unittest.TestCase):
         self.assertEqual(cards._replace_discard_card(0), DECK[0])
         self.assertEqual(cards.last_discard, 0)
 
+
 class TestFinger(unittest.TestCase):
     def test__flipped_visible(self) -> None:
-        finger = Finger(_card = 0)
+        finger = Finger(_card=0)
         finger._flip_card()
         self.assertEqual(finger.is_visible, True)
 
     def test__init_not_visible(self) -> None:
-        finger = Finger(_card = 0)
+        finger = Finger(_card=0)
         self.assertEqual(finger.is_flipped, False)
         self.assertEqual(finger.is_visible, False)
 
     def test__flipped_cleared_card_not_visible(self) -> None:
-        finger = Finger(_card = 0)
+        finger = Finger(_card=0)
         finger._flip_card()
         finger._clear()
         self.assertEqual(finger.is_visible, False)

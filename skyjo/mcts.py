@@ -5,9 +5,9 @@ import typing
 import numpy as np
 import torch
 
-import abstract
-import skyjo_immutable as sj
-import skynet
+import skyjo.abstract as abstract
+import skyjo.skyjo_immutable as sj
+import skyjo.skynet as skynet
 
 
 @dataclasses.dataclass(slots=True)
@@ -78,7 +78,6 @@ class MCTS:
     """Class for running and storing Monte Carlo Tree Search information for a game"""
 
     def __init__(self, c_puct: float = 1.0):
-        self.nodes = {}
         self.c_puct = c_puct
 
     def run(

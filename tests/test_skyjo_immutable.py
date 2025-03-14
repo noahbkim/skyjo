@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import numpy.testing as npt
 
-import skyjo_immutable as sj
+import skyjo.skyjo_immutable as sj
 
 
 class TestHand(unittest.TestCase):

@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-import skyjo_immutable as sj
+import skyjo.skyjo_immutable as sj
 
 
 ## LOSS FUNCTIONS

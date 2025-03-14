@@ -7,7 +7,7 @@ from typing import Self
 
 import numpy as np
 
-import abstract as abstract
+import skyjo.abstract as abstract
 
 NUM_CARD_TYPES = 15
 NUM_ROWS = 3
