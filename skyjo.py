@@ -13,8 +13,6 @@ import traceback
 from dataclasses import dataclass, field
 from typing import ClassVar, Collection, Final, Iterator, TypeVar
 
-import torch
-
 T = TypeVar("T")
 
 DECK_SIZE = 150
@@ -248,7 +246,7 @@ class Finger:
     @property
     def is_flippable(self) -> bool:
         return not self.is_cleared and not self.is_flipped
-            
+
     def _flip_card(self) -> None:
         assert not self.is_flipped, "Cannot flip already-flipped card!"
         assert not self.is_cleared, "Cannot flip already cleared card"
@@ -264,16 +262,6 @@ class Finger:
         assert not self.is_cleared, "This card has already been cleared"
         self.is_cleared = True
 
-    def tensor_repr(self) -> torch.Tensor:
-        card_tensor = torch.zeros((1, 17))
-        if self.is_cleared:
-            card_tensor[0, -1] = 1
-        elif not self.is_flipped:
-            card_tensor[0, -2] = 1
-        else:
-            card_tensor[0, self.card + 2] = 1
-        return card_tensor
-    
 
 @dataclass(slots=True)
 class Hand:
@@ -323,7 +311,7 @@ class Hand:
         """The number of cards in this hand."""
 
         return self.row_count * self.column_count
-    
+
     @property
     def original_card_count(self) -> int:
         """The original number of cards dealt to this hand."""
@@ -470,12 +458,6 @@ class Hand:
             row_or_index = row_or_index * self.column_count + column
 
         return row_or_index
-
-    def tensor_repr(self) -> torch.Tensor:
-        finger_tensors = []
-        for finger in self:
-            finger_tensors.append(finger.tensor_repr())
-        return torch.cat(finger_tensors, dim=0)
 
     def _reset(self):
         self.flipped_card_count = 0
@@ -1214,7 +1196,7 @@ class State:
             f"discard: {self.cards.last_discard}"
             f"  draw: ({self.cards._next_draw_card})"
             f"  round: {self.round_index}"
-            f"  turn: {self.turn_index}/{self.turn_index%self.player_count}"
+            f"  turn: {self.turn_index}/{self.turn_index % self.player_count}"
             + ("  (ending)" if self.is_round_ending else "")
         )
 
