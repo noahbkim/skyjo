@@ -1,12 +1,11 @@
 import dataclasses
 import logging
-import random
+import time
 import typing
 
 import numpy as np
 import torch
 
-import logging_config
 import mcts
 import skyjo_immutable as sj
 import skynet
@@ -153,7 +152,8 @@ def train(
 
 # Simple example of training from a single selfplay game
 if __name__ == "__main__":
-    logging_config.setup_logging("train", logging.INFO)
+    np.random.seed(0)
+    torch.manual_seed(0)
     example_game_state = sj.ImmutableState(
         num_players=2,
         player_scores=np.array([0, 0], dtype=np.int16),
@@ -166,18 +166,22 @@ if __name__ == "__main__":
         num_players=example_game_state.num_players,
     )
     training_data = []
+    start_time = time.perf_counter()
     for num_episodes in range(1):
         training_data += selfplay_game(model, 2)
+    end_time = time.perf_counter()
+    duration = end_time - start_time
+    print(f"Finished 1 selfplay games in {duration:.2f} seconds")
 
-    random.shuffle(training_data)
-    batches = [
-        DataBatch.from_data_points(
-            [
-                training_data[data_idx]
-                for data_idx in np.random.randint(len(training_data), size=64)
-            ],
-            torch.device("cpu"),
-        )
-        for _ in range(len(training_data) // 64)
-    ]
-    train(model, 10, batches)
+    # random.shuffle(training_data)
+    # batches = [
+    #     DataBatch.from_data_points(
+    #         [
+    #             training_data[data_idx]
+    #             for data_idx in np.random.randint(len(training_data), size=64)
+    #         ],
+    #         torch.device("cpu"),
+    #     )
+    #     for _ in range(len(training_data) // 64)
+    # ]
+    # train(model, 10, batches)

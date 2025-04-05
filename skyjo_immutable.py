@@ -1028,20 +1028,21 @@ class ImmutableState:
         """
         curr_score_numpy = np.roll(self.player_scores, -self.curr_player)
         discard_pile_numpy = self.discard_pile.numpy()
-        remaining_card_counts_numpy = self.remaining_card_counts.numpy()
+        # TODO: Correctly discard cleared cards
+        # remaining_card_counts_numpy = self.remaining_card_counts.numpy()
         drawn_card_numpy = np.zeros(CARD_TYPES, dtype=np.int8)
         if self.drawn_card is not None:
             drawn_card_numpy = self.drawn_card.one_hot_encoding()
-        round_ending_numpy = np.zeros(1, dtype=np.int8)
-        if self.is_round_ending:
-            round_ending_numpy += 1
+        # round_ending_numpy = np.zeros(1, dtype=np.int8)
+        # if self.is_round_ending:
+        #     round_ending_numpy += 1
         return np.concatenate(
             [
                 curr_score_numpy,
-                remaining_card_counts_numpy,
+                # remaining_card_counts_numpy,
                 discard_pile_numpy,
                 drawn_card_numpy,
-                round_ending_numpy,
+                # round_ending_numpy,
             ],
             dtype=np.int16,
         )

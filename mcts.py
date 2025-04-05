@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-import logging
 import typing
 
 import numpy as np
@@ -215,9 +214,6 @@ class Tree:
             parent=None,
         )
         root_node.expand(model)
-        logging.debug(
-            f"Starting search from state:\n{root_node.game_state.display_str()}"
-        )
         for _ in range(iterations):
             self.search(root_node, model)
 
@@ -229,15 +225,10 @@ class Tree:
             node = node.select_child(self.c_puct)
             search_path.append(node)
         if node.game_state.game_has_ended:
-            logging.debug(f"Found terminal node:\n{node.game_state.display_str()}")
             value = node.outcome
         else:
-            logging.debug(
-                f"Found leaf node to expand:\n{node.game_state.display_str()}"
-            )
             node.expand(model)
             value = node.model_output.value_output.game_state_value
-        logging.debug(f"Updating searchpath node values: {value}")
         self.update_node_values(search_path, value)
 
     def update_node_values(
@@ -252,7 +243,6 @@ class Tree:
 
 
 if __name__ == "__main__":
-    # logging.basicConfig(level=logging.DEBUG)
     tree = Tree(c_puct=1.0)
     game_state = sj.ImmutableState(
         num_players=2,
