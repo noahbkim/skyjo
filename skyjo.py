@@ -125,6 +125,8 @@ def _push_top(game: Game, card: int) -> None:
 
     # Get the current top and add it to permanent discards
     top = _pop_top(game)
+    assert top is not None, "Tried to push top with no discard"
+
     game[GAME_TOP + card] = 1
     game[GAME_DISCARDS + top] += 1
 
@@ -144,7 +146,8 @@ def _replace_action(game: Game, action: int) -> None:
 
     for i in range(ACTION_SIZE):
         if game[GAME_ACTION + i]:
-            game[i] = 0
+            game[GAME_ACTION + i] = 0
+            break
 
     game[GAME_ACTION + action] = 1
 
@@ -153,8 +156,9 @@ def _rotate_scores(game: Game, players: int) -> None:
     """Rotate the player scores once left."""
 
     swap = game[GAME_SCORES]
-    for i in range(players - 1):
-        game[GAME_SCORES + i] = game[GAME_SCORES + i + 1]
+    game[GAME_SCORES : GAME_SCORES + players - 1] = game[
+        GAME_SCORES + 1 : GAME_SCORES + players
+    ]
     game[GAME_SCORES + players - 1] = swap
 
 
@@ -162,8 +166,7 @@ def _rotate_table(table: Table, players: int) -> None:
     """Copy `table`, rotating all hands left by one."""
 
     swap = table[0].copy()
-    for i in range(players - 1):
-        table[i] = table[i + 1]
+    table[0 : players - 1] = table[1:players]
     table[players - 1] = swap
 
 
@@ -182,8 +185,8 @@ def _choose_card(deck: Deck, rng: Random) -> int:
 
     choice = math.floor(rng.random() * np.sum(deck))
     for i in range(CARD_SIZE):
-        remaining = CARD_COUNTS[i] - deck[GAME_DISCARDS + i]
-        if remaining > choice:
+        remaining = deck[i]
+        if deck[i] > choice:
             return i
         choice -= remaining
 
@@ -206,12 +209,18 @@ def new(*, players: int) -> Skyjo:
     """Generate a fresh game with no visible discard."""
 
     game = np.ndarray((GAME_SIZE,), dtype=np.uint8)
+    game.fill(0)
     game[GAME_ACTION + ACTION_FLIP_SECOND] = 1
+
     table_shape = (PLAYER_COUNT, ROW_COUNT, COLUMN_COUNT, FINGER_SIZE)
     table = np.ndarray(table_shape, dtype=np.uint8, order="C")
+    table.fill(0)
     table[:players, :, :, FINGER_HIDDEN] = 1
+
     deck = np.ndarray((CARD_SIZE,), dtype=np.uint8)
+    deck.fill(0)
     deck[:] = CARD_COUNTS
+
     return game, table, deck, players, 0, None
 
 
@@ -276,7 +285,7 @@ def get_is_visible(skyjo: Skyjo, player: int = 0) -> bool:
 
     table = skyjo[1]
 
-    return any(table[player, :, :, FINGER_HIDDEN])
+    return table[player, :, :, FINGER_HIDDEN].any()
 
 
 def get_score(skyjo: Skyjo, player: int = 0) -> int:
@@ -307,6 +316,52 @@ def get_turn(skyjo: Skyjo) -> int:
     """Get the index of the player taking a turn, zero for the first."""
 
     return skyjo[4]
+
+
+# MARK: Validation
+
+
+def validate(skyjo: Skyjo) -> bool:
+    """Validate the consistency of a `Skyjo` state.
+
+    Always returns `True` for use with `assert`. Validation errors are
+    raised internally.
+    """
+
+    game = skyjo[0]
+    table = skyjo[1]
+    deck = skyjo[2]
+    players = skyjo[3]
+
+    # Game
+    assert game.shape == (GAME_SIZE,)
+    assert np.sum(game[GAME_ACTION : GAME_ACTION + ACTION_SIZE]) == 1
+    if game[GAME_ACTION + ACTION_FLIP_SECOND]:
+        assert np.sum(game[GAME_TOP : GAME_TOP + CARD_SIZE]) == 0
+        assert np.sum(game[GAME_DISCARDS : GAME_DISCARDS + CARD_SIZE]) == 0
+    else:
+        assert np.sum(game[GAME_TOP : GAME_TOP + CARD_SIZE]) == 1
+
+    # Table
+    assert table.shape == (PLAYER_COUNT, ROW_COUNT, COLUMN_COUNT, FINGER_SIZE)
+    fingers = np.zeros((FINGER_SIZE,), dtype=np.uint8)
+    for i in range(players):
+        for row in range(ROW_COUNT):
+            for column in range(COLUMN_COUNT):
+                assert np.sum(table[i, row, column]) == 1
+                fingers += table[i, row, column]
+    assert np.sum(table[players:]) == 0
+    assert np.sum(fingers) == players * FINGER_COUNT, f"{np.sum(fingers)=}"
+
+    # Deck
+    assert deck.shape == (CARD_SIZE,)
+    card_top = game[GAME_TOP : GAME_TOP + CARD_SIZE]
+    cards_dealt = fingers[:CARD_SIZE]
+    cards_discarded = game[GAME_DISCARDS : GAME_DISCARDS + CARD_SIZE]
+
+    assert ((deck + card_top + cards_dealt + cards_discarded) == CARD_COUNTS).all()
+
+    return True
 
 
 # MARK: Actions
@@ -343,10 +398,8 @@ def begin(skyjo: Skyjo) -> Skyjo:
     player = skyjo[4]
     card = skyjo[5]
 
-    action = _get_action(game)
-
     assert _get_top(game) is None
-    assert action in {
+    assert _get_action(game) in {
         ACTION_FLIP_SECOND,
         ACTION_FLIP_OR_REPLACE,
         ACTION_REPLACE,
@@ -356,13 +409,11 @@ def begin(skyjo: Skyjo) -> Skyjo:
         raise ValueError("Expected a randomly-drawn card")
 
     new_game = game.copy()
-    top = _swap_top(new_game, card)
+    _swap_top(new_game, card)
     _replace_action(new_game, ACTION_DRAW_OR_TAKE)
 
     new_deck = deck.copy()
     _remove_card(new_deck, card)
-
-    assert top is None
 
     return new_game, table, new_deck, players, player, None
 
@@ -550,14 +601,15 @@ def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.uint8]:
     table = skyjo[1]
 
     mask = np.ndarray((MASK_SIZE,), dtype=np.uint8)
+    mask.fill(0)
 
-    if game[ACTION_FLIP_SECOND]:
+    if game[GAME_ACTION + ACTION_FLIP_SECOND]:
         mask[MASK_FLIP_SECOND_BELOW] = 1
         mask[MASK_FLIP_SECOND_RIGHT] = 1
-    elif game[ACTION_DRAW_OR_TAKE]:
+    elif game[GAME_ACTION + ACTION_DRAW_OR_TAKE]:
         mask[MASK_DRAW] = 1
         mask[MASK_TAKE] = 1
-    elif game[ACTION_FLIP_OR_REPLACE]:
+    elif game[GAME_ACTION + ACTION_FLIP_OR_REPLACE]:
         for i in range(FINGER_COUNT):
             row, column = divmod(i, COLUMN_COUNT)
             if table[0, row, column, FINGER_HIDDEN]:
@@ -565,11 +617,13 @@ def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.uint8]:
                 mask[MASK_REPLACE + i] = 1
             elif not table[0, row, column, FINGER_CLEARED]:
                 mask[MASK_REPLACE + i] = 1  # You can only replace
-    elif game[ACTION_REPLACE]:
+    elif game[GAME_ACTION + ACTION_REPLACE]:
         for i in range(FINGER_COUNT):
             row, column = divmod(i, COLUMN_COUNT)
             if not table[0, row, column, FINGER_CLEARED]:
                 mask[MASK_REPLACE + i] = 1  # You can only replace
+    else:
+        raise ValueError(f"No action specified by state {skyjo!r}")
 
     return mask
 
@@ -583,17 +637,18 @@ def greedy(skyjo: Skyjo) -> int:
     game = skyjo[0]
     table = skyjo[1]
 
-    if game[ACTION_FLIP_SECOND]:
+    if game[GAME_ACTION + ACTION_FLIP_SECOND]:
         return MASK_FLIP_SECOND_BELOW
-    if game[ACTION_DRAW_OR_TAKE]:
+    if game[GAME_ACTION + ACTION_DRAW_OR_TAKE]:
         return MASK_DRAW
-    if game[ACTION_FLIP_OR_REPLACE]:
+    if game[GAME_ACTION + ACTION_FLIP_OR_REPLACE]:
         for index in range(FINGER_COUNT):
             row, column = divmod(index, COLUMN_COUNT)
             if table[0, row, column, FINGER_HIDDEN]:
                 return MASK_REPLACE + index
+        raise ValueError("No card to replace!")
 
-    raise ValueError("Unexpected action!")
+    raise ValueError(f"Unexpected action {get_action(skyjo)}!")
 
 
 def selfplay(
@@ -605,47 +660,60 @@ def selfplay(
     """Self-play a model until a game finishes."""
 
     skyjo = new(players=players)
+    assert validate(skyjo)
 
     for _ in range(players):
         skyjo = randomize(skyjo, rng=rng)
+        assert validate(skyjo)
+
         skyjo = flip(skyjo, 0, 0, rotate=False, turn=False)
+        assert validate(skyjo)
 
         mask = actions(skyjo)
-        action = model(skyjo)
-        assert mask[action]
+        choice = model(skyjo)
+        assert mask[choice], f"{mask=}, {choice=}"
 
-        randomize(skyjo, rng=rng)
-        if action == MASK_FLIP_SECOND_BELOW:
+        skyjo = randomize(skyjo, rng=rng)
+        if choice == MASK_FLIP_SECOND_BELOW:
             skyjo = flip(skyjo, 1, 0, rotate=True, turn=False)
-        elif action == MASK_FLIP_SECOND_BELOW:
+        elif choice == MASK_FLIP_SECOND_BELOW:
             skyjo = flip(skyjo, 0, 1, rotate=True, turn=False)
         else:
-            raise ValueError(f"Invalid action {action!r}")
+            raise ValueError(f"Invalid action {choice!r}")
+        assert validate(skyjo)
 
+    skyjo = randomize(skyjo)
     skyjo = begin(skyjo)  # Reveal discard and set action
+    assert validate(skyjo)
+
     countdown = None
 
     while countdown != 0:
         mask = actions(skyjo)
-        action = model(skyjo)
-        assert mask[action]
+        choice = model(skyjo)
+        assert mask[choice]
 
-        if action == MASK_DRAW:
+        if choice == MASK_DRAW:
             skyjo = randomize(skyjo, rng=rng)
+            assert validate(skyjo)
             skyjo = draw(skyjo)
-        elif action == MASK_TAKE:
+            assert validate(skyjo)
+        elif choice == MASK_TAKE:
             skyjo = take(skyjo)
-        elif MASK_FLIP <= action < MASK_FLIP + FINGER_COUNT:
-            row, column = divmod(action - MASK_FLIP, COLUMN_COUNT)
+            assert validate(skyjo)
+        elif MASK_FLIP <= choice < MASK_FLIP + FINGER_COUNT:
+            row, column = divmod(choice - MASK_FLIP, COLUMN_COUNT)
             skyjo = randomize(skyjo, rng=rng)
             skyjo = flip(skyjo, row, column)
-        elif MASK_REPLACE <= action < MASK_REPLACE + FINGER_COUNT:
-            row, column = divmod(action - MASK_REPLACE, COLUMN_COUNT)
+            assert validate(skyjo)
+        elif MASK_REPLACE <= choice < MASK_REPLACE + FINGER_COUNT:
+            row, column = divmod(choice - MASK_REPLACE, COLUMN_COUNT)
             if skyjo[1][0, row, column, FINGER_HIDDEN]:
                 skyjo = randomize(skyjo, rng=rng)
             skyjo = replace(skyjo, row, column)
+            assert validate(skyjo)
         else:
-            raise ValueError(f"Invalid action {action!r}")
+            raise ValueError(f"Invalid action {choice!r}")
 
         # Decrement endgame counter if set.
         if countdown is not None:
@@ -662,6 +730,7 @@ def selfplay(
                 if get_finger(skyjo, row, column, player=player) == FINGER_HIDDEN:
                     skyjo = randomize(skyjo, rng=rng)
                     skyjo = flip(skyjo, row, column, rotate=False, turn=False)
+                    assert validate(skyjo)
 
     winner = (get_winner(skyjo) + get_turn(skyjo)) % players
     print(winner)
