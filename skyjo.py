@@ -43,6 +43,7 @@ ACTION_FLIP_OR_REPLACE = 2  # After draw, whether to discard and flip or replace
 ACTION_REPLACE = 3  # After take discard, which card to replace
 ACTION_SIZE = 4
 
+# Action mask index cutoffs
 MASK_FLIP_SECOND_BELOW = 0
 MASK_FLIP_SECOND_RIGHT = 1
 MASK_DRAW = 2
@@ -77,6 +78,17 @@ Deck: TypeAlias = np.ndarray[tuple[int], np.uint8]
 Skyjo: TypeAlias = tuple[Game, Table, Deck, int, int, int | None]
 """A lightweight representation of a Skyjo game."""
 
+SkyjoAction: TypeAlias = int
+"""Integer representing an action in the Skyjo game."""
+
+StateValue: TypeAlias = np.ndarray[tuple[int], np.float32]
+"""A vector representing the value of a Skyjo game for each player.
+
+IMPORTANT: This is from a fixed perspective and not relative to the current player
+    i.e. the first element is always the value of player 0, the second is for player 1, etc.
+
+This can also be used to represent the outcome of the game where all entries are 0 except for the winner.
+"""
 
 # MARK: Random
 
@@ -312,10 +324,45 @@ def get_winner(skyjo: Skyjo) -> int:
     return min(range(players), key=lambda i: get_score(skyjo, player=i))
 
 
+def get_fixed_perspective_winner(skyjo: Skyjo) -> int:
+    """Get the index of the winner not from perspective of current player."""
+
+    players = skyjo[3]
+    winner = (get_winner(skyjo) + get_turn(skyjo)) % players
+    return winner
+
+
 def get_turn(skyjo: Skyjo) -> int:
-    """Get the index of the player taking a turn, zero for the first."""
+    """Get current turn count."""
 
     return skyjo[4]
+
+
+def get_player(skyjo: Skyjo) -> int:
+    """Get the index of the player taking a turn, zero for the first."""
+
+    return skyjo[4] % skyjo[3]
+
+
+def get_game_over(skyjo: Skyjo) -> bool:
+    """Whether the game is over.
+    If there are any face-down cards game is not over"""
+    table = skyjo[1]
+    return not table[:, :, :, FINGER_HIDDEN].any()
+
+
+def hash_skyjo(skyjo: Skyjo) -> int:
+    """Hash the `skyjo` state."""
+    return hash(
+        (
+            skyjo[0].tobytes(),
+            skyjo[1].tobytes(),
+            skyjo[2].tobytes(),
+            skyjo[3],
+            skyjo[4],
+            skyjo[5],
+        )
+    )
 
 
 # MARK: Validation
@@ -597,35 +644,71 @@ def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.uint8]:
         `divmod(index - 16, ROW_COUNT)`.
     """
 
-    game = skyjo[0]
-    table = skyjo[1]
-
     mask = np.ndarray((MASK_SIZE,), dtype=np.uint8)
     mask.fill(0)
 
+    mask[actions_list(skyjo)] = 1
+    return mask
+
+
+def actions_list(skyjo: Skyjo) -> list[SkyjoAction]:
+    """List of all possible actions."""
+    valid_actions = []
+    game = skyjo[0]
+    table = skyjo[1]
+
     if game[GAME_ACTION + ACTION_FLIP_SECOND]:
-        mask[MASK_FLIP_SECOND_BELOW] = 1
-        mask[MASK_FLIP_SECOND_RIGHT] = 1
+        valid_actions.append(MASK_FLIP_SECOND_BELOW)
+        valid_actions.append(MASK_FLIP_SECOND_RIGHT)
     elif game[GAME_ACTION + ACTION_DRAW_OR_TAKE]:
-        mask[MASK_DRAW] = 1
-        mask[MASK_TAKE] = 1
+        valid_actions.append(MASK_DRAW)
+        valid_actions.append(MASK_TAKE)
     elif game[GAME_ACTION + ACTION_FLIP_OR_REPLACE]:
         for i in range(FINGER_COUNT):
             row, column = divmod(i, COLUMN_COUNT)
             if table[0, row, column, FINGER_HIDDEN]:
-                mask[MASK_FLIP + i] = 1  # You both flip or replace
-                mask[MASK_REPLACE + i] = 1
+                valid_actions.append(MASK_FLIP + i)
+                valid_actions.append(MASK_REPLACE + i)
             elif not table[0, row, column, FINGER_CLEARED]:
-                mask[MASK_REPLACE + i] = 1  # You can only replace
+                valid_actions.append(MASK_REPLACE + i)
     elif game[GAME_ACTION + ACTION_REPLACE]:
         for i in range(FINGER_COUNT):
             row, column = divmod(i, COLUMN_COUNT)
             if not table[0, row, column, FINGER_CLEARED]:
-                mask[MASK_REPLACE + i] = 1  # You can only replace
+                valid_actions.append(MASK_REPLACE + i)
     else:
         raise ValueError(f"No action specified by state {skyjo!r}")
 
-    return mask
+    return valid_actions
+
+
+def winner_to_state_value(skyjo: Skyjo) -> StateValue:
+    """Get the outcome of the game from the perspective of the current player."""
+    players = skyjo[3]
+    outcome = np.zeros((players,), dtype=np.float32)
+    outcome[get_fixed_perspective_winner(skyjo)] = 1.0
+    return outcome
+
+
+def state_value_for_player(state_value: StateValue, player: int) -> float:
+    """Get the value of the game for a given player."""
+    state_value = state_value.squeeze()
+    assert len(state_value.shape) == 1, "Expected a 1D state value"
+    return state_value[player].item()
+
+
+def is_action_random(action: SkyjoAction, skyjo: Skyjo) -> bool:
+    """Whether the action involves a random outcome."""
+    table = skyjo[1]
+    if action in {MASK_FLIP_SECOND_BELOW, MASK_FLIP_SECOND_RIGHT}:
+        return True
+    if action == MASK_DRAW:
+        return True
+    # TAKE
+    if MASK_FLIP <= action < MASK_FLIP + FINGER_COUNT:
+        return True
+    row, column = divmod(action - MASK_REPLACE, COLUMN_COUNT)
+    return table[0, row, column, FINGER_HIDDEN]
 
 
 # MARK: Selfplay
@@ -649,6 +732,42 @@ def greedy(skyjo: Skyjo) -> int:
         raise ValueError("No card to replace!")
 
     raise ValueError(f"Unexpected action {get_action(skyjo)}!")
+
+
+def start_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
+    """Take skyjo state an start round by flipping first card for each player."""
+    players = skyjo[3]
+    for _ in range(players):
+        skyjo = randomize(skyjo, rng=rng)
+        assert validate(skyjo)
+        skyjo = flip(skyjo, 0, 0, rotate=True, turn=False)
+        assert validate(skyjo)
+    return skyjo
+
+
+def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Skyjo:
+    skyjo = randomize(skyjo, rng=rng)
+    if action == MASK_FLIP_SECOND_BELOW:
+        skyjo = flip(skyjo, 1, 0, rotate=True, turn=False)
+    elif action == MASK_FLIP_SECOND_RIGHT:
+        skyjo = flip(skyjo, 0, 1, rotate=True, turn=False)
+    elif action == MASK_DRAW:
+        skyjo = draw(skyjo)
+    elif action == MASK_TAKE:
+        skyjo = take(skyjo)
+    elif MASK_FLIP <= action < MASK_FLIP + FINGER_COUNT:
+        row, column = divmod(action - MASK_FLIP, COLUMN_COUNT)
+        skyjo = flip(skyjo, row, column)
+    elif MASK_REPLACE <= action < MASK_REPLACE + FINGER_COUNT:
+        row, column = divmod(action - MASK_REPLACE, COLUMN_COUNT)
+        if skyjo[1][0, row, column, FINGER_HIDDEN]:
+            skyjo = randomize(skyjo, rng=rng)
+        skyjo = replace(skyjo, row, column)
+        assert validate(skyjo)
+    else:
+        raise ValueError(f"Invalid action {action!r}")
+    assert validate(skyjo)
+    return skyjo
 
 
 def selfplay(
@@ -732,5 +851,5 @@ def selfplay(
                     skyjo = flip(skyjo, row, column, rotate=False, turn=False)
                     assert validate(skyjo)
 
-    winner = (get_winner(skyjo) + get_turn(skyjo)) % players
+    winner = get_fixed_perspective_winner(skyjo)
     print(winner)
