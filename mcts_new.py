@@ -161,16 +161,20 @@ MCTSNode = DecisionStateNode | AfterStateNode | TerminalStateNode
 def ucb_score(child: MCTSNode, parent: MCTSNode) -> float:
     if isinstance(child, TerminalStateNode):
         return sj.state_value_for_player(child.outcome, sj.get_player(parent.state))
-    elif isinstance(child, DecisionStateNode):
+    elif isinstance(parent, DecisionStateNode):
+        if isinstance(child, AfterStateNode):
+            action = child.action
+        else:
+            action = child.prev_action
         return (
             child.average_visit_value
-            + parent.model_output.policy_output.get_action_probability(
-                child.prev_action
-            )
+            + parent.model_output.policy_output.get_action_probability(action)
             * np.sqrt(parent.num_visits)
             / (1 + child.num_visits)
         )
-    elif isinstance(child, AfterStateNode):
+
+    # Child node must be DecisionStateNode since After-> Decision | Terminal and Terminal returns earlier
+    elif isinstance(parent, AfterStateNode):
         # For unvisited nodes, return 1 to force exploration
         if child.num_visits == 0:
             return 1
@@ -180,10 +184,7 @@ def ucb_score(child: MCTSNode, parent: MCTSNode) -> float:
             [
                 # empirical probability of realized state
                 child.realized_outcome_probability(realized_decision_node.state)
-                * sj.state_value_for_player(
-                    realized_decision_node.model_output.value_output.state_value(),
-                    sj.get_player(parent.state),
-                )
+                * ucb_score(realized_decision_node, child)
                 for realized_decision_node in child.children.values()
             ]
         )
