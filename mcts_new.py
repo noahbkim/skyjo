@@ -5,6 +5,7 @@ import enum
 
 import einops
 import numpy as np
+import torch
 
 import skyjo as sj
 import skynet
@@ -77,7 +78,9 @@ class DecisionStateNode:
         self, temperature: float = 1.0
     ) -> np.ndarray[tuple[int], np.float32]:
         """Sample visit probabilities for children nodes."""
-        visit_counts = np.array([child.num_visits for child in self.children.values()])
+        visit_counts = np.zeros((sj.MASK_SIZE,))
+        for action, child in self.children.items():
+            visit_counts[action] = child.num_visits
         visit_probabilities = visit_counts ** (1 / temperature)
         visit_probabilities = visit_probabilities / visit_probabilities.sum()
         return visit_probabilities
@@ -117,6 +120,7 @@ class AfterStateNode:
             return TerminalStateNode(
                 state=realized_next_state,
                 parent=self,
+                prev_action=self.action,
             )
         realized_next_state_hash = sj.hash_skyjo(realized_next_state)
         if realized_next_state_hash not in self.children:
@@ -144,14 +148,14 @@ class TerminalStateNode:
     prev_action: sj.SkyjoAction
     num_visits: int = 0
     average_visit_value: float = 1
-    is_expanded: bool = True
+    is_expanded: bool = False
 
     @property
     def outcome(self) -> sj.StateValue:
         return sj.winner_to_state_value(self.state)
 
     def expand(self, model: skynet.SkyNet):
-        self.is_expanded = True
+        raise ValueError("Terminal nodes should not need to be expanded")
 
 
 MCTSNode = DecisionStateNode | AfterStateNode | TerminalStateNode
@@ -217,11 +221,15 @@ def search(node: MCTSNode, model: skynet.SkyNet):
         node = node.select_child(model)
         search_path.append(node)
     leaf = node
-    if isinstance(leaf, TerminalStateNode):
-        value = leaf.outcome
+
     if isinstance(leaf, AfterStateNode):
         # realize an outcome and propogate value back up tree
+        leaf.expand(model)
         leaf = leaf.select_child(model)
+    if isinstance(leaf, TerminalStateNode):
+        value = leaf.outcome
+        backpropagate(search_path, value)
+        return
     leaf.expand(model)
     value = leaf.model_output.value_output.state_value()
 
@@ -240,7 +248,10 @@ def backpropagate(search_path: list[MCTSNode], value: sj.StateValue):
 
 
 if __name__ == "__main__":
-    game_state = sj.new(players=2)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    players = 2
+    game_state = sj.new(players=players)
     players = game_state[3]
     model = skynet.SkyNet1D(
         spatial_input_shape=(8, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
@@ -249,5 +260,72 @@ if __name__ == "__main__":
         policy_output_shape=(sj.MASK_SIZE,),
     )
     game_state = sj.start_round(game_state)
-    root_node = run_mcts(game_state, model, iterations=1600)
-    print(root_node.sample_child_visit_probabilities(temperature=1.0))
+
+    training_data = []
+
+    # Initial flips
+    for _ in range(players):
+        root_node = run_mcts(game_state, model, iterations=100)
+        mcts_probs = root_node.sample_child_visit_probabilities(temperature=1.0)
+        action = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
+        training_data.append((game_state, mcts_probs))
+        game_state = sj.apply_action(game_state, sj.SkyjoAction(action))
+        assert sj.validate(game_state)
+
+    # Play round
+    countdown = None
+
+    # simulate game
+    while countdown != 0:
+        root_node = run_mcts(game_state, model, iterations=100)
+        mcts_probs = root_node.sample_child_visit_probabilities(temperature=1.0)
+        training_data.append((game_state, mcts_probs))
+        choice = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
+        assert sj.actions(game_state)[choice]
+
+        if choice == sj.MASK_DRAW:
+            game_state = sj.randomize(game_state)
+            assert sj.validate(game_state)
+            game_state = sj.draw(game_state)
+            assert sj.validate(game_state)
+        elif choice == sj.MASK_TAKE:
+            game_state = sj.take(game_state)
+            assert sj.validate(game_state)
+        elif sj.MASK_FLIP <= choice < sj.MASK_FLIP + sj.FINGER_COUNT:
+            row, column = divmod(choice - sj.MASK_FLIP, sj.COLUMN_COUNT)
+            game_state = sj.randomize(game_state)
+            game_state = sj.flip(game_state, row, column)
+            assert sj.validate(game_state)
+        elif sj.MASK_REPLACE <= choice < sj.MASK_REPLACE + sj.FINGER_COUNT:
+            row, column = divmod(choice - sj.MASK_REPLACE, sj.COLUMN_COUNT)
+            if game_state[1][0, row, column, sj.FINGER_HIDDEN]:
+                game_state = sj.randomize(game_state)
+            game_state = sj.replace(game_state, row, column)
+            assert sj.validate(game_state)
+        else:
+            raise ValueError(f"Invalid action {choice!r}")
+
+        # Decrement endgame counter if set.
+        if countdown is not None:
+            countdown -= 1
+
+        # Rotated, also this only needs to happen in the latter two ifs
+        # but whatever.
+        if sj.get_is_visible(game_state, player=players - 1):
+            countdown = (players - 1) * 2  # Each player gets two decisions
+
+    for player in range(players):
+        for row in range(sj.ROW_COUNT):
+            for column in range(sj.COLUMN_COUNT):
+                if (
+                    sj.get_finger(game_state, row, column, player=player)
+                    == sj.FINGER_HIDDEN
+                ):
+                    game_state = sj.randomize(game_state)
+                    game_state = sj.flip(
+                        game_state, row, column, rotate=False, turn=False
+                    )
+                    assert sj.validate(game_state)
+
+    winner = sj.get_fixed_perspective_winner(game_state)
+    print(winner)

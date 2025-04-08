@@ -126,6 +126,7 @@ def _pop_top(game: Game) -> int | None:
 
 def _swap_top(game: Game, card: int) -> int | None:
     """Switch out the discard without adding to the pile."""
+    assert card is not None, "Tried to swap top with no discard"
 
     top = _pop_top(game)
     game[GAME_TOP + card] = 1
@@ -134,7 +135,7 @@ def _swap_top(game: Game, card: int) -> int | None:
 
 def _push_top(game: Game, card: int) -> None:
     """Draw a card or place a new discard on the pile."""
-
+    assert card is not None, "Tried to add a None card top of discard"
     # Get the current top and add it to permanent discards
     top = _pop_top(game)
     assert top is not None, "Tried to push top with no discard"
@@ -182,7 +183,7 @@ def _rotate_table(table: Table, players: int) -> None:
     table[players - 1] = swap
 
 
-def _clear_columns(table: Table) -> None:
+def _clear_columns(table: Table, game: Game) -> int | None:
     """Clear any columns where all values match."""
 
     for i in range(COLUMN_COUNT):
@@ -190,6 +191,10 @@ def _clear_columns(table: Table) -> None:
             if table[0, 0, i, j] and table[0, 1, i, j] and table[0, 2, i, j]:
                 table[0, :, i, j] = 0
                 table[0, :, i, FINGER_CLEARED] = 1
+                # Add cleared cards to discard pile
+                _push_top(game, j)
+                _push_top(game, j)
+                _push_top(game, j)
 
 
 def _choose_card(deck: Deck, rng: Random) -> int:
@@ -207,7 +212,7 @@ def _choose_card(deck: Deck, rng: Random) -> int:
 
 def _remove_card(deck: Deck, card: int) -> None:
     """Remove `card` from `deck`."""
-
+    assert card is not None, "Tried to remove None card"
     if deck[card] == 0:
         raise ValueError(f"{deck!r} has no card {card} remaining")
 
@@ -551,7 +556,7 @@ def flip(
     new_table = table.copy()
     new_table[0, row, column, FINGER_HIDDEN] = 0
     new_table[0, row, column, card] = 1
-    _clear_columns(new_table)
+    _clear_columns(new_table, new_game)
     if rotate:
         _rotate_table(new_table, players)
 
@@ -599,7 +604,10 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
 
     # Replace the current discard with `card`
     new_game = game.copy()
-    top = _swap_top(new_game, card)
+    if card is not None:
+        top = _swap_top(new_game, card)
+    else:
+        top = _swap_top(new_game, finger)
     _rotate_scores(new_game, players)
     _replace_action(new_game, ACTION_DRAW_OR_TAKE)
 
@@ -608,12 +616,13 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     new_table = table.copy()
     new_table[0, row, column, finger] = 0
     new_table[0, row, column, top] = 1
-    _clear_columns(new_table)
+    _clear_columns(new_table, new_game)
     _rotate_table(new_table, players)
 
     # Remove the card from the deck for the next iteration.
     new_deck = deck.copy()
-    _remove_card(new_deck, card)
+    if card is not None:
+        _remove_card(new_deck, card)
 
     return new_game, new_table, new_deck, players, player + 1, None
 
@@ -704,6 +713,8 @@ def is_action_random(action: SkyjoAction, skyjo: Skyjo) -> bool:
         return True
     if action == MASK_DRAW:
         return True
+    if action == MASK_TAKE:
+        return False
     # TAKE
     if MASK_FLIP <= action < MASK_FLIP + FINGER_COUNT:
         return True
@@ -746,24 +757,48 @@ def start_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
 
 
 def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Skyjo:
-    skyjo = randomize(skyjo, rng=rng)
     if action == MASK_FLIP_SECOND_BELOW:
+        skyjo = randomize(skyjo, rng=rng)
+        assert validate(skyjo)
         skyjo = flip(skyjo, 1, 0, rotate=True, turn=False)
+        assert validate(skyjo)
+        # All players have flipped initial cards, start round
+        if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == skyjo[3] * 2:
+            skyjo = randomize(skyjo, rng=rng)
+            skyjo = begin(skyjo)
     elif action == MASK_FLIP_SECOND_RIGHT:
+        skyjo = randomize(skyjo, rng=rng)
+        assert validate(skyjo)
         skyjo = flip(skyjo, 0, 1, rotate=True, turn=False)
+        assert validate(skyjo)
+        # All players have flipped initial cards, start round
+        if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == skyjo[3] * 2:
+            skyjo = randomize(skyjo, rng=rng)
+            skyjo = begin(skyjo)
     elif action == MASK_DRAW:
+        skyjo = randomize(skyjo, rng=rng)
+        assert validate(skyjo)
         skyjo = draw(skyjo)
+        assert validate(skyjo)
     elif action == MASK_TAKE:
         skyjo = take(skyjo)
+        assert validate(skyjo)
     elif MASK_FLIP <= action < MASK_FLIP + FINGER_COUNT:
         row, column = divmod(action - MASK_FLIP, COLUMN_COUNT)
+        skyjo = randomize(skyjo, rng=rng)
+        assert validate(skyjo)
         skyjo = flip(skyjo, row, column)
+        assert validate(skyjo)
+
     elif MASK_REPLACE <= action < MASK_REPLACE + FINGER_COUNT:
         row, column = divmod(action - MASK_REPLACE, COLUMN_COUNT)
         if skyjo[1][0, row, column, FINGER_HIDDEN]:
             skyjo = randomize(skyjo, rng=rng)
+            assert validate(skyjo)
+
         skyjo = replace(skyjo, row, column)
         assert validate(skyjo)
+
     else:
         raise ValueError(f"Invalid action {action!r}")
     assert validate(skyjo)
@@ -853,3 +888,7 @@ def selfplay(
 
     winner = get_fixed_perspective_winner(skyjo)
     print(winner)
+
+
+if __name__ == "__main__":
+    selfplay(greedy, players=2)
