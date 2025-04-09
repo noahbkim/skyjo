@@ -25,6 +25,32 @@ t,T = action_type
 f,F = feature space
 """
 
+# TYPE ALIASES
+StateValue: typing.TypeAlias = np.ndarray[tuple[int], np.float32]
+"""A vector representing the value of a Skyjo game for each player.
+
+IMPORTANT: This is from a fixed perspective and not relative to the current player
+    i.e. the first element is always the value of player 0, the second is for player 1, etc.
+
+This can also be used to represent the outcome of the game where all entries are 0 except for the winner.
+"""
+
+
+# State value convenience functions
+def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
+    """Get the outcome of the game from the perspective of the current player."""
+    players = skyjo[3]
+    outcome = np.zeros((players,), dtype=np.float32)
+    outcome[sj.get_fixed_perspective_winner(skyjo)] = 1.0
+    return outcome
+
+
+def state_value_for_player(state_value: StateValue, player: int) -> float:
+    """Get the value of the game for a given player."""
+    state_value = state_value.squeeze()
+    assert len(state_value.shape) == 1, "Expected a 1D state value"
+    return state_value[player].item()
+
 
 ## LOSS FUNCTIONS
 def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -393,15 +419,15 @@ class SkyNet1D(nn.Module):
         self.value_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
 
-        self.final_embedding_dim = 64
+        self.final_embedding_dim = 32
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
             hand_embedding_features=32,
-            out_features=64,
+            out_features=32,
         )
         self.non_spatial_input_head = NonSpatialInputHead(
             in_features=non_spatial_input_shape[0],
-            out_features=64,
+            out_features=32,
         )
         self.mlp = nn.Sequential(
             nn.Linear(
@@ -450,7 +476,8 @@ class SkyNet1D(nn.Module):
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         game, table, players = skyjo[0], skyjo[1], skyjo[3]
         spatial_tensor = torch.tensor(
-            einops.rearrange(table, "p h w c -> 1 p h w c"), dtype=torch.float32
+            einops.rearrange(table[:players], "p h w c -> 1 p h w c"),
+            dtype=torch.float32,
         )
         non_spatial_tensor = torch.tensor(
             einops.rearrange(game, "f -> 1 f"), dtype=torch.float32
@@ -472,12 +499,13 @@ SkyNet: typing.TypeAlias = SkyNet1D
 if __name__ == "__main__":
     np.random.seed(0)
     torch.manual_seed(0)
-    game_state = sj.new(players=2)
+    players = 2
+    game_state = sj.new(players=players)
     players = game_state[3]
     model = SkyNet1D(
-        spatial_input_shape=(8, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(8,),
+        value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
     )
     game_state = sj.start_round(game_state)

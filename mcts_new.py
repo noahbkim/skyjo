@@ -14,8 +14,8 @@ import skynet
 # MARK: Enums
 class MCTSSelectionMethod(enum.Enum):
     UCB = "UCB"  # AlphaZero UCB
-    # Lots of different research ideas to explore here with other
-    # selection methods
+    # Lots of different research ideas to explore here
+    # with other selection methods
 
 
 # MARK: Dataclasses
@@ -151,8 +151,8 @@ class TerminalStateNode:
     is_expanded: bool = False
 
     @property
-    def outcome(self) -> sj.StateValue:
-        return sj.winner_to_state_value(self.state)
+    def outcome(self) -> skynet.StateValue:
+        return skynet.skyjo_to_state_value(self.state)
 
     def expand(self, model: skynet.SkyNet):
         raise ValueError("Terminal nodes should not need to be expanded")
@@ -164,7 +164,7 @@ MCTSNode = DecisionStateNode | AfterStateNode | TerminalStateNode
 # MARK: Node Scoring
 def ucb_score(child: MCTSNode, parent: MCTSNode) -> float:
     if isinstance(child, TerminalStateNode):
-        return sj.state_value_for_player(child.outcome, sj.get_player(parent.state))
+        return skynet.state_value_for_player(child.outcome, sj.get_player(parent.state))
     elif isinstance(parent, DecisionStateNode):
         if isinstance(child, AfterStateNode):
             action = child.action
@@ -177,7 +177,8 @@ def ucb_score(child: MCTSNode, parent: MCTSNode) -> float:
             / (1 + child.num_visits)
         )
 
-    # Child node must be DecisionStateNode since After-> Decision | Terminal and Terminal returns earlier
+    # Child node must be DecisionStateNode since
+    # After -> Decision | Terminal and Terminal returns earlier
     elif isinstance(parent, AfterStateNode):
         # For unvisited nodes, return 1 to force exploration
         if child.num_visits == 0:
@@ -236,13 +237,13 @@ def search(node: MCTSNode, model: skynet.SkyNet):
     backpropagate(search_path, value)
 
 
-def backpropagate(search_path: list[MCTSNode], value: sj.StateValue):
+def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue):
     # Update each node's visited cound and average value
     # to be value of leaf node from that player's perspective
     for node in search_path:
         node.average_visit_value = (
             node.average_visit_value * (node.num_visits)
-            + sj.state_value_for_player(value, sj.get_player(node.state))
+            + skynet.state_value_for_player(value, sj.get_player(node.state))
         ) / (node.num_visits + 1)
         node.num_visits += 1
 
@@ -254,26 +255,15 @@ if __name__ == "__main__":
     game_state = sj.new(players=players)
     players = game_state[3]
     model = skynet.SkyNet1D(
-        spatial_input_shape=(8, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(8,),
+        value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
     )
     game_state = sj.start_round(game_state)
-
     training_data = []
-
-    # Initial flips
-    for _ in range(players):
-        root_node = run_mcts(game_state, model, iterations=100)
-        mcts_probs = root_node.sample_child_visit_probabilities(temperature=1.0)
-        action = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
-        training_data.append((game_state, mcts_probs))
-        game_state = sj.apply_action(game_state, sj.SkyjoAction(action))
-        assert sj.validate(game_state)
-
     # Play round
-    countdown = None
+    countdown = game_state[6]
 
     # simulate game
     while countdown != 0:
@@ -283,49 +273,8 @@ if __name__ == "__main__":
         choice = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
         assert sj.actions(game_state)[choice]
 
-        if choice == sj.MASK_DRAW:
-            game_state = sj.randomize(game_state)
-            assert sj.validate(game_state)
-            game_state = sj.draw(game_state)
-            assert sj.validate(game_state)
-        elif choice == sj.MASK_TAKE:
-            game_state = sj.take(game_state)
-            assert sj.validate(game_state)
-        elif sj.MASK_FLIP <= choice < sj.MASK_FLIP + sj.FINGER_COUNT:
-            row, column = divmod(choice - sj.MASK_FLIP, sj.COLUMN_COUNT)
-            game_state = sj.randomize(game_state)
-            game_state = sj.flip(game_state, row, column)
-            assert sj.validate(game_state)
-        elif sj.MASK_REPLACE <= choice < sj.MASK_REPLACE + sj.FINGER_COUNT:
-            row, column = divmod(choice - sj.MASK_REPLACE, sj.COLUMN_COUNT)
-            if game_state[1][0, row, column, sj.FINGER_HIDDEN]:
-                game_state = sj.randomize(game_state)
-            game_state = sj.replace(game_state, row, column)
-            assert sj.validate(game_state)
-        else:
-            raise ValueError(f"Invalid action {choice!r}")
-
-        # Decrement endgame counter if set.
-        if countdown is not None:
-            countdown -= 1
-
-        # Rotated, also this only needs to happen in the latter two ifs
-        # but whatever.
-        if sj.get_is_visible(game_state, player=players - 1):
-            countdown = (players - 1) * 2  # Each player gets two decisions
-
-    for player in range(players):
-        for row in range(sj.ROW_COUNT):
-            for column in range(sj.COLUMN_COUNT):
-                if (
-                    sj.get_finger(game_state, row, column, player=player)
-                    == sj.FINGER_HIDDEN
-                ):
-                    game_state = sj.randomize(game_state)
-                    game_state = sj.flip(
-                        game_state, row, column, rotate=False, turn=False
-                    )
-                    assert sj.validate(game_state)
-
+        game_state = sj.apply_action(game_state, choice)
+        countdown = game_state[6]
     winner = sj.get_fixed_perspective_winner(game_state)
     print(winner)
+    print(sj.get_round_scores(game_state, 0))
