@@ -911,60 +911,14 @@ def selfplay(
 
     skyjo = new(players=players)
     assert validate(skyjo)
-
-    for _ in range(players):
-        skyjo = randomize(skyjo, rng=rng)
-        assert validate(skyjo)
-
-        skyjo = flip(skyjo, 0, 0, rotate=False, turn=False)
-        assert validate(skyjo)
-
-        mask = actions(skyjo)
-        choice = model(skyjo)
-        assert mask[choice], f"{mask=}, {choice=}"
-
-        skyjo = randomize(skyjo, rng=rng)
-        if choice == MASK_FLIP_SECOND_BELOW:
-            skyjo = flip(skyjo, 1, 0, rotate=True, turn=False)
-        elif choice == MASK_FLIP_SECOND_BELOW:
-            skyjo = flip(skyjo, 0, 1, rotate=True, turn=False)
-        else:
-            raise ValueError(f"Invalid action {choice!r}")
-        assert validate(skyjo)
-
-    skyjo = randomize(skyjo)
-    skyjo = begin(skyjo)  # Reveal discard and set action
-    assert validate(skyjo)
-
+    skyjo = start_round(skyjo, rng=rng)
     countdown = skyjo[6]
 
     while countdown != 0:
         mask = actions(skyjo)
         choice = model(skyjo)
         assert mask[choice]
-
-        if choice == MASK_DRAW:
-            skyjo = randomize(skyjo, rng=rng)
-            assert validate(skyjo)
-            skyjo = draw(skyjo)
-            assert validate(skyjo)
-        elif choice == MASK_TAKE:
-            skyjo = take(skyjo)
-            assert validate(skyjo)
-        elif MASK_FLIP <= choice < MASK_FLIP + FINGER_COUNT:
-            row, column = divmod(choice - MASK_FLIP, COLUMN_COUNT)
-            skyjo = randomize(skyjo, rng=rng)
-            skyjo = flip(skyjo, row, column)
-            assert validate(skyjo)
-        elif MASK_REPLACE <= choice < MASK_REPLACE + FINGER_COUNT:
-            row, column = divmod(choice - MASK_REPLACE, COLUMN_COUNT)
-            if skyjo[1][0, row, column, FINGER_HIDDEN]:
-                skyjo = randomize(skyjo, rng=rng)
-            skyjo = replace(skyjo, row, column)
-            assert validate(skyjo)
-        else:
-            raise ValueError(f"Invalid action {choice!r}")
-
+        skyjo = apply_action(skyjo, choice, rng=rng)
         countdown = skyjo[6]
     winner = get_fixed_perspective_winner(skyjo)
     print(winner)
