@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import pathlib
 import typing
 
 import einops
@@ -54,7 +56,9 @@ def state_value_for_player(state_value: StateValue, player: int) -> float:
 
 ## LOSS FUNCTIONS
 def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    loss = -(target * torch.log(predicted)).sum(dim=1)
+    loss = -(target * torch.log(predicted + 1e-9)).sum(
+        dim=1
+    )  # add small epsilon to avoid log(0)
     return loss.mean()
 
 
@@ -62,14 +66,24 @@ def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.T
     return torch.sum((target - predicted) ** 2) / target.size()[0]
 
 
+def compute_point_differential_loss(
+    predicted: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
+    return torch.sum((target / 100 - predicted / 100) ** 2) / target.size()[0]
+
+
 # OUTPUT DATACLASSES
 @dataclasses.dataclass(slots=True)
 class PolicyOutput:
-    probabilities: np.ndarray
+    probabilities: np.ndarray[tuple[int], np.float32]
     is_renormalized: bool = False
 
     @classmethod
-    def from_tensor_output(cls, output: torch.Tensor) -> typing.Self:
+    def from_tensor_output(
+        cls, output: torch.Tensor, device: torch.device
+    ) -> typing.Self:
+        if device != torch.device("cpu"):
+            output = output.cpu()
         return cls(output.detach().numpy(), is_renormalized=False)
 
     def __post_init__(self):
@@ -125,7 +139,11 @@ class ValueOutput:
     curr_player: int
 
     @classmethod
-    def from_tensor_output(cls, output: torch.Tensor, curr_player: int) -> typing.Self:
+    def from_tensor_output(
+        cls, output: torch.Tensor, curr_player: int, device: torch.device
+    ) -> typing.Self:
+        if device != torch.device("cpu"):
+            output = output.cpu()
         return cls(
             np.roll(output.detach().numpy(), -curr_player, axis=1),
             curr_player,
@@ -141,7 +159,11 @@ class PointDifferentialOutput:
     curr_player: int
 
     @classmethod
-    def from_tensor_output(cls, output: torch.Tensor, curr_player: int) -> typing.Self:
+    def from_tensor_output(
+        cls, output: torch.Tensor, curr_player: int, device: torch.device
+    ) -> typing.Self:
+        if device != torch.device("cpu"):
+            output = output.cpu()
         return cls(
             np.roll(output.detach().numpy(), -curr_player, axis=1),
             curr_player,
@@ -412,13 +434,16 @@ class SkyNet1D(nn.Module):
         non_spatial_input_shape: tuple[int],
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
+        device: torch.device = torch.device("cpu"),
+        dropout_rate: float = 0.3,
     ):
         super(SkyNet1D, self).__init__()
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
-
+        self.dropout_rate = dropout_rate
+        self.device = device
         self.final_embedding_dim = 32
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
@@ -442,6 +467,7 @@ class SkyNet1D(nn.Module):
             ),
             nn.ReLU(inplace=True),
         )
+        self.dropout = nn.Dropout(self.dropout_rate)
         self.value_tail = ValueTail(
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
@@ -454,6 +480,10 @@ class SkyNet1D(nn.Module):
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
         )
+
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
 
     def forward(
         self,
@@ -468,30 +498,44 @@ class SkyNet1D(nn.Module):
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
         mlp_out = self.mlp(combined_out)
-        value_out = self.value_tail(mlp_out)
-        policy_out = self.policy_tail(mlp_out)
-        point_difference_out = self.point_difference_tail(mlp_out)
-        return value_out, policy_out, point_difference_out
+        dropped_out = self.dropout(mlp_out)
+        value_out = self.value_tail(dropped_out)
+        policy_out = self.policy_tail(dropped_out)
+        point_difference_out = self.point_difference_tail(dropped_out)
+        return value_out, point_difference_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         game, table, players = skyjo[0], skyjo[1], skyjo[3]
         spatial_tensor = torch.tensor(
             einops.rearrange(table[:players], "p h w c -> 1 p h w c"),
             dtype=torch.float32,
+            device=self.device,
         )
         non_spatial_tensor = torch.tensor(
-            einops.rearrange(game, "f -> 1 f"), dtype=torch.float32
+            einops.rearrange(game, "f -> 1 f"), dtype=torch.float32, device=self.device
         )
-        value_out, policy_out, point_difference_out = self.forward(
+        value_out, point_difference_out, policy_out = self.forward(
             spatial_tensor, non_spatial_tensor
         )
+
         return SkyNetPrediction(
-            policy_output=PolicyOutput.from_tensor_output(policy_out),
-            value_output=ValueOutput.from_tensor_output(value_out, sj.get_turn(skyjo)),
+            policy_output=PolicyOutput.from_tensor_output(policy_out, self.device),
+            value_output=ValueOutput.from_tensor_output(
+                value_out, sj.get_player(skyjo), self.device
+            ),
             point_differential_output=PointDifferentialOutput.from_tensor_output(
-                point_difference_out, sj.get_turn(skyjo)
+                point_difference_out, sj.get_turn(skyjo), self.device
             ),
         )
+
+    def save(self, dir: pathlib.Path) -> pathlib.Path:
+        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
+        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
+        torch.save(
+            self.state_dict(),
+            model_path,
+        )
+        return model_path
 
 
 SkyNet: typing.TypeAlias = SkyNet1D
@@ -508,6 +552,31 @@ if __name__ == "__main__":
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
     )
+    model.set_device(torch.device("mps"))
     game_state = sj.start_round(game_state)
     prediction = model.predict(game_state)
     print(prediction)
+
+    model_path = model.save(pathlib.Path("models/"))
+    loaded_model = SkyNet1D(
+        spatial_input_shape=model.spatial_input_shape,
+        non_spatial_input_shape=model.non_spatial_input_shape,
+        value_output_shape=model.value_output_shape,
+        policy_output_shape=model.policy_output_shape,
+    )
+    loaded_model.load_state_dict(torch.load(model_path, weights_only=True))
+    loaded_model.set_device(model.device)
+    loaded_prediction = loaded_model.predict(game_state)
+    print(loaded_prediction)
+    assert np.allclose(
+        prediction.policy_output.probabilities,
+        loaded_prediction.policy_output.probabilities,
+    )
+    assert np.allclose(
+        prediction.value_output.state_values,
+        loaded_prediction.value_output.state_values,
+    )
+    assert np.allclose(
+        prediction.point_differential_output.point_differentials,
+        loaded_prediction.point_differential_output.point_differentials,
+    )

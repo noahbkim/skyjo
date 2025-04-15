@@ -81,6 +81,10 @@ class DecisionStateNode:
         visit_counts = np.zeros((sj.MASK_SIZE,))
         for action, child in self.children.items():
             visit_counts[action] = child.num_visits
+        if temperature == 0:
+            visit_probabilities = np.zeros(visit_counts.shape)
+            visit_probabilities[visit_counts.argmax().item()] = 1
+            return visit_probabilities
         visit_probabilities = visit_counts ** (1 / temperature)
         visit_probabilities = visit_probabilities / visit_probabilities.sum()
         return visit_probabilities
@@ -107,9 +111,19 @@ class AfterStateNode:
         )
         return outcome_state
 
-    def expand(self, model: skynet.SkyNet):
+    def expand(self, model: skynet.SkyNet, num_outcomes: int = 10):
         # Placeholder for now we may want to simulate many random outcomes here
         self.is_expanded = True
+        # TODO: probably more efficient to rng all at once then create children once
+        for _ in range(num_outcomes):
+            realized_outcome = self._realize_outcome()
+            outcome_state_hash = sj.hash_skyjo(realized_outcome)
+            if outcome_state_hash not in self.children:
+                self.children[outcome_state_hash] = DecisionStateNode(
+                    state=realized_outcome,
+                    parent=self,
+                    prev_action=self.action,
+                )
 
     def select_child(
         self, model: skynet.SkyNet
@@ -202,6 +216,7 @@ def run_mcts(
     game_state: sj.Skyjo,
     model: skynet.SkyNet,
     iterations: int,
+    num_afterstate_outcomes: int = 10,
 ) -> MCTSNode:
     root_node = DecisionStateNode(
         state=game_state,
@@ -211,12 +226,16 @@ def run_mcts(
     )
 
     for _ in range(iterations):
-        search(root_node, model)
+        search(root_node, model, num_afterstate_outcomes=num_afterstate_outcomes)
 
     return root_node
 
 
-def search(node: MCTSNode, model: skynet.SkyNet):
+def search(
+    node: MCTSNode,
+    model: skynet.SkyNet,
+    num_afterstate_outcomes: int = 10,
+):
     search_path = [node]
     while node.is_expanded:
         node = node.select_child(model)
@@ -225,7 +244,7 @@ def search(node: MCTSNode, model: skynet.SkyNet):
 
     if isinstance(leaf, AfterStateNode):
         # realize an outcome and propogate value back up tree
-        leaf.expand(model)
+        leaf.expand(model, num_outcomes=num_afterstate_outcomes)
         leaf = leaf.select_child(model)
     if isinstance(leaf, TerminalStateNode):
         value = leaf.outcome
