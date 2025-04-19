@@ -211,7 +211,7 @@ def _rotate_skyjo(skyjo: Skyjo) -> Skyjo:
     )
 
 
-def _clear_columns(table: Table, game: Game) -> int | None:
+def _clear_columns(game: Game, table: Table) -> int | None:
     """Clear any columns where all values match."""
 
     for i in range(COLUMN_COUNT):
@@ -361,12 +361,12 @@ def get_is_visible(skyjo: Skyjo, player: int = 0) -> bool:
 def get_score(skyjo: Skyjo, player: int = 0) -> int:
     """Get the score of visible cards on a player's board."""
 
-    table = skyjo[1]
+    table = skyjo[1].astype(np.int16)
 
     return (
         (
             # get all card index of card ignoring cleared and face-down
-            np.argwhere(table[player, :, :, :15] == 1)[:, 2]
+            np.argwhere(table[player, :, :, :CARD_SIZE] == 1)[:, 2]
             - 2  # since card index starts with -2
         )
         .sum()
@@ -377,11 +377,18 @@ def get_score(skyjo: Skyjo, player: int = 0) -> int:
 def get_round_scores(
     skyjo: Skyjo, round_ending_player: int = 0
 ) -> np.ndarray[tuple[int], np.uint8]:
-    """Get the scores of all players for the current round."""
+    """Get the scores of all players for the current round.
+
+        This method accounts for the round ending player's score being doubled,
+    if they are not the lowest round score winner.
+
+    Round ending player parameter is relative to current perspective."""
     players = skyjo[3]
     base_scores = np.array([get_score(skyjo, player=i) for i in range(players)])
     round_ender_score = base_scores[round_ending_player]
-    base_scores[round_ending_player] = 1000  # larger than any other possible score
+    base_scores[round_ending_player] = float(
+        "inf"
+    )  # larger than any other possible score
     if round_ender_score >= min(base_scores):
         base_scores[round_ending_player] = 2 * round_ender_score
     else:
@@ -637,7 +644,7 @@ def flip(
     new_table = table.copy()
     new_table[0, row, column, FINGER_HIDDEN] = 0
     new_table[0, row, column, card] = 1
-    _clear_columns(new_table, new_game)
+    _clear_columns(new_game, new_table)
     if rotate:
         _rotate_table(new_table, players)
 
@@ -701,7 +708,7 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     new_table = table.copy()
     new_table[0, row, column, finger] = 0
     new_table[0, row, column, top] = 1
-    _clear_columns(new_table, new_game)
+    _clear_columns(new_game, new_table)
     _rotate_table(new_table, players)
 
     # Remove the card from the deck for the next iteration.
@@ -752,21 +759,22 @@ def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.uint8]:
         for i in range(FINGER_COUNT):
             row, column = divmod(i, COLUMN_COUNT)
             if table[0, row, column, FINGER_HIDDEN]:
-                mask[MASK_FLIP + i] = 1
-                mask[MASK_REPLACE + i] = 1
+                mask[MASK_FLIP + i] = mask[MASK_REPLACE + i] = (
+                    1  # You can both flip and replace
+                )
             elif not table[0, row, column, FINGER_CLEARED]:
-                mask[MASK_REPLACE + i] = 1
+                mask[MASK_REPLACE + i] = 1  # You can only replace
     elif game[GAME_ACTION + ACTION_REPLACE]:
         for i in range(FINGER_COUNT):
             row, column = divmod(i, COLUMN_COUNT)
             if not table[0, row, column, FINGER_CLEARED]:
-                mask[MASK_REPLACE + i] = 1
+                mask[MASK_REPLACE + i] = 1  # You can only replace
     else:
         raise ValueError(f"No action specified by state {skyjo!r}")
     return mask
 
 
-def actions_list(skyjo: Skyjo) -> Iterable[SkyjoAction]:
+def get_actions(skyjo: Skyjo) -> Iterable[SkyjoAction]:
     """List of all possible actions."""
     mask = actions(skyjo)
     return np.argwhere(mask == 1).squeeze()

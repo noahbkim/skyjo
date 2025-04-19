@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import typing
 
 import einops
 import numpy as np
@@ -23,10 +24,10 @@ class MCTSSelectionMethod(enum.Enum):
 class DecisionStateNode:
     state: sj.Skyjo
     parent: AfterStateNode | None
-    prev_action: sj.SkyjoAction | None
+    previous_action: sj.SkyjoAction | None
     model_output: skynet.SkyNetOutput | None = None
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
-    num_visits: int = 0
+    visit_count: int = 0
     average_visit_value: float = 1  # initialize to 1 to force initial exploration
     is_expanded: bool = False
 
@@ -44,7 +45,7 @@ class DecisionStateNode:
                 einops.rearrange(sj.actions(self.state), "a -> 1 a")
             )
         )
-        for action in sj.actions_list(self.state):
+        for action in sj.get_actions(self.state):
             self.children[action] = self.create_child_node(action, model)
         self.is_expanded = True
 
@@ -66,11 +67,13 @@ class DecisionStateNode:
             return AfterStateNode(state=self.state, action=action, parent=self)
         next_state = sj.apply_action(self.state, action)
         if sj.get_game_over(next_state):
-            return TerminalStateNode(state=next_state, parent=self, prev_action=action)
+            return TerminalStateNode(
+                state=next_state, parent=self, previous_action=action
+            )
         return DecisionStateNode(
             state=next_state,
             parent=self,
-            prev_action=action,
+            previous_action=action,
             model_output=model.predict(next_state),
         )
 
@@ -80,7 +83,7 @@ class DecisionStateNode:
         """Sample visit probabilities for children nodes."""
         visit_counts = np.zeros((sj.MASK_SIZE,))
         for action, child in self.children.items():
-            visit_counts[action] = child.num_visits
+            visit_counts[action] = child.visit_count
         visit_probabilities = visit_counts ** (1 / temperature)
         visit_probabilities = visit_probabilities / visit_probabilities.sum()
         return visit_probabilities
@@ -95,7 +98,7 @@ class AfterStateNode:
         default_factory=dict
     )
     realized_counts: dict[sj.Skyjo, int] = dataclasses.field(default_factory=dict)
-    num_visits: int = 0
+    visit_count: int = 0
     average_visit_value: float = 1
     is_expanded: bool = False
 
@@ -120,14 +123,14 @@ class AfterStateNode:
             return TerminalStateNode(
                 state=realized_next_state,
                 parent=self,
-                prev_action=self.action,
+                previous_action=self.action,
             )
         realized_next_state_hash = sj.hash_skyjo(realized_next_state)
         if realized_next_state_hash not in self.children:
             self.children[realized_next_state_hash] = DecisionStateNode(
                 state=realized_next_state,
                 parent=self,
-                prev_action=self.action,
+                previous_action=self.action,
                 model_output=model.predict(realized_next_state),
             )
 
@@ -145,8 +148,8 @@ class AfterStateNode:
 class TerminalStateNode:
     state: sj.Skyjo
     parent: AfterStateNode | DecisionStateNode
-    prev_action: sj.SkyjoAction
-    num_visits: int = 0
+    previous_action: sj.SkyjoAction
+    visit_count: int = 0
     average_visit_value: float = 1
     is_expanded: bool = False
 
@@ -158,7 +161,7 @@ class TerminalStateNode:
         raise ValueError("Terminal nodes should not need to be expanded")
 
 
-MCTSNode = DecisionStateNode | AfterStateNode | TerminalStateNode
+MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | TerminalStateNode
 
 
 # MARK: Node Scoring
@@ -169,19 +172,19 @@ def ucb_score(child: MCTSNode, parent: MCTSNode) -> float:
         if isinstance(child, AfterStateNode):
             action = child.action
         else:
-            action = child.prev_action
+            action = child.previous_action
         return (
             child.average_visit_value
             + parent.model_output.policy_output.get_action_probability(action)
-            * np.sqrt(parent.num_visits)
-            / (1 + child.num_visits)
+            * np.sqrt(parent.visit_count)
+            / (1 + child.visit_count)
         )
 
     # Child node must be DecisionStateNode since
     # After -> Decision | Terminal and Terminal returns earlier
     elif isinstance(parent, AfterStateNode):
         # For unvisited nodes, return 1 to force exploration
-        if child.num_visits == 0:
+        if child.visit_count == 0:
             return 1
         # Probability weighted average of value of realized decision nodes
         # as evaluated by model from current player's perspective
@@ -206,7 +209,7 @@ def run_mcts(
     root_node = DecisionStateNode(
         state=game_state,
         parent=None,
-        prev_action=None,
+        previous_action=None,
         model_output=model.predict(game_state),
     )
 
@@ -242,10 +245,10 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue):
     # to be value of leaf node from that player's perspective
     for node in search_path:
         node.average_visit_value = (
-            node.average_visit_value * (node.num_visits)
+            node.average_visit_value * (node.visit_count)
             + skynet.state_value_for_player(value, sj.get_player(node.state))
-        ) / (node.num_visits + 1)
-        node.num_visits += 1
+        ) / (node.visit_count + 1)
+        node.visit_count += 1
 
 
 if __name__ == "__main__":
