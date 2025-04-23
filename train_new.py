@@ -2,6 +2,7 @@ import dataclasses
 import itertools
 import logging
 import multiprocessing as mp
+import pickle as pkl
 import random
 import typing
 
@@ -11,6 +12,7 @@ import torch.nn as nn
 
 import explain
 import mcts_new as mcts
+import player
 import skyjo as sj
 import skynet
 
@@ -159,13 +161,14 @@ def multiprocessed_selfplay(
 
 
 def train(model: skynet.SkyNet, training_epochs: int, batches: list[list[tuple]]):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
     policy_losses = []
     value_losses = []
     points_losses = []
-    for _ in range(training_epochs):
-        model.train()
+    total_losses = []
+    model.train()
 
+    for _ in range(training_epochs):
         for i, batch in enumerate(batches):
             (
                 torch_predicted_value,
@@ -194,19 +197,65 @@ def train(model: skynet.SkyNet, training_epochs: int, batches: list[list[tuple]]
             policy_losses.append(policy_loss.item())
             value_losses.append(value_loss_scale * value_loss.item())
             points_losses.append(points_loss_scale * points_loss.item())
-
+            total_losses.append(total_loss.item())
             # compute gradient and do SGD step
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
 
-            if i % 100 == 0:
-                logging.info(
-                    f"value loss: {value_loss_scale * value_loss.item()} "
-                    f"points loss: {points_loss_scale * points_loss.item()} "
-                    f"policy loss: {policy_loss.item()} "
-                    f"total loss: {total_loss.item()} "
-                )
+        logging.info(
+            f"value loss: {sum(value_losses) / len(value_losses)} "
+            f"points loss: {sum(points_losses) / len(points_losses)} "
+            f"policy loss: {sum(policy_losses) / len(policy_losses)} "
+            f"total loss: {sum(total_losses) / len(total_losses)} "
+        )
+
+
+def single_game_faceoff(
+    players: list[player.AbstractPlayer],
+):
+    game_state = sj.new(players=len(players))
+    game_state = sj.start_round(game_state)
+    while not sj.get_game_over(game_state):
+        # print(sj.visualize_state(game_state))
+        player = players[sj.get_player(game_state)]
+        action = player.get_action(game_state)
+        # print(sj.get_action_name(action))
+        assert sj.actions(game_state)[action]
+        game_state = sj.apply_action(game_state, action)
+        assert sj.validate(game_state)
+    # print(sj.visualize_state(game_state))
+    return skynet.skyjo_to_state_value(
+        game_state
+    ), sj.get_fixed_perspective_round_scores(game_state)
+
+
+def gen_single_game_data(players: list[player.AbstractPlayer]):
+    states_data = []
+    game_state = sj.new(players=len(players))
+    game_state = sj.start_round(game_state)
+    while not sj.get_game_over(game_state):
+        player = players[sj.get_player(game_state)]
+        action = player.get_action(game_state)
+        greedy_ev_policy = np.zeros(sj.MASK_SIZE)
+        greedy_ev_policy[action] = 1
+        states_data.append((game_state, greedy_ev_policy))
+        game_state = sj.apply_action(game_state, action)
+    outcome_state_value = skynet.skyjo_to_state_value(game_state)
+    fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
+    return [
+        (
+            data[0][0],  # game
+            data[0][1][: len(players)],  # table
+            data[1],  # policy target
+            np.roll(outcome_state_value, sj.get_player(data[0])),  # outcome target
+            np.roll(
+                fixed_perspective_score,
+                sj.get_player(data[0]),
+            ),  # points target
+        )
+        for data in states_data
+    ]
 
 
 def model_single_game_faceoff(
@@ -216,33 +265,13 @@ def model_single_game_faceoff(
     temperature: float = 0.5,
     afterstate_initial_realizations: int = 10,
 ):
-    model1.eval()
-    model2.eval()
-    with torch.no_grad():
-        game_state = sj.new(players=2)
-        game_state = sj.start_round(game_state)
-        assert sj.validate(game_state)
-        players = [model1, model2]
-        random.shuffle(players)
-        countdown = game_state[6]
-        while countdown != 0:
-            node = mcts.run_mcts(
-                game_state,
-                players[sj.get_player(game_state)],
-                mcts_iterations,
-                afterstate_initial_realizations=afterstate_initial_realizations,
-            )
-            choice = np.random.choice(
-                sj.MASK_SIZE, p=node.sample_child_visit_probabilities(temperature)
-            )
-
-            assert sj.actions(game_state)[choice]
-            game_state = sj.apply_action(game_state, choice)
-            assert sj.validate(game_state)
-            countdown = game_state[6]
-    return skynet.skyjo_to_state_value(
-        game_state
-    ), sj.get_fixed_perspective_round_scores(game_state)
+    model1_player = player.ModelPlayer(
+        model1, temperature, mcts_iterations, afterstate_initial_realizations
+    )
+    model2_player = player.ModelPlayer(
+        model2, temperature, mcts_iterations, afterstate_initial_realizations
+    )
+    return single_game_faceoff([model1_player, model2_player])
 
 
 def model_faceoff(
@@ -471,7 +500,8 @@ if __name__ == "__main__":
     mcts_iterations = 200
     afterstate_initial_realizations = 25
     processes = 16
-
+    with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
+        validation_games_data = pkl.load(f)
     multiprocessed_learn(
         players=2,
         learn_iterations=learn_iterations,
@@ -481,7 +511,9 @@ if __name__ == "__main__":
         mcts_iterations=mcts_iterations,
         afterstate_initial_realizations=afterstate_initial_realizations,
         processes=processes,
-        validation_func=explain.validate_model_on_known_positions,
+        validation_func=lambda model: explain.validate_model(
+            model, validation_games_data
+        ),
     )
 
     # model = skynet.SkyNet1D(

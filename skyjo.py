@@ -261,7 +261,7 @@ def _update_countdown(countdown: int | None, table: Table, players: int) -> int 
     Should be called after an action has been applied.
     """
 
-    if _player_table_is_visible(table, player=players - 1):
+    if countdown is None and _player_table_is_visible(table, player=players - 1):
         return (players - 1) * 2
     return _decrement_countdown(countdown)
 
@@ -448,8 +448,9 @@ def get_player(skyjo: Skyjo) -> int:
 def get_game_over(skyjo: Skyjo) -> bool:
     """Whether the game is over.
     If there are any face-down cards game is not over"""
-    table = skyjo[1]
-    return not table[:, :, :, FINGER_HIDDEN].any()
+    # table = skyjo[1]
+    # return not table[:, :, :, FINGER_HIDDEN].any()
+    return skyjo[6] == 0
 
 
 def hash_skyjo(skyjo: Skyjo) -> int:
@@ -525,7 +526,8 @@ def visualize_state(skyjo: Skyjo):
     players = skyjo[3]
 
     curr_player = get_player(skyjo)
-    state_str = f"Current player: {curr_player} card: {get_top(skyjo)}\n"
+    state_str = f"current player: {curr_player} card: {get_top(skyjo)}\n"
+    state_str += f"countdown: {skyjo[6]} last_revealed_turn: {skyjo[7]}\n"
     state_str += f"Actions: {game[GAME_ACTION : GAME_ACTION + ACTION_SIZE]}\n\n"
     for i in range(players):
         state_str += f"Player {(curr_player + i) % players}\n"
@@ -954,7 +956,7 @@ def is_action_random(action: SkyjoAction, skyjo: Skyjo) -> bool:
 # MARK: Selfplay
 
 
-def greedy(skyjo: Skyjo) -> int:
+def quick_finish_action(skyjo: Skyjo) -> int:
     """Always draw from the pile and replace the next hidden card."""
 
     game = skyjo[0]
