@@ -40,7 +40,7 @@ This can also be used to represent the outcome of the game where all entries are
 
 # State value convenience functions
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
-    """Get the outcome of the game from the perspective of the current player."""
+    """Get the outcome of the game from the fixed perspective."""
     players = skyjo[3]
     outcome = np.zeros((players,), dtype=np.float32)
     outcome[sj.get_fixed_perspective_winner(skyjo)] = 1.0
@@ -66,16 +66,10 @@ def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.T
     return torch.sum((target - predicted) ** 2) / target.size()[0]
 
 
-def compute_point_differential_loss(
-    predicted: torch.Tensor, target: torch.Tensor
-) -> torch.Tensor:
-    return torch.sum((target / 100 - predicted / 100) ** 2) / target.size()[0]
-
-
 # OUTPUT DATACLASSES
 @dataclasses.dataclass(slots=True)
 class PolicyOutput:
-    probabilities: np.ndarray[tuple[int], np.float32]
+    probabilities: np.ndarray[tuple[int, int], np.float32]
     is_renormalized: bool = False
 
     @classmethod
@@ -90,6 +84,13 @@ class PolicyOutput:
         assert abs(self.probabilities.sum() - 1) < 1e-6, (
             f"expected probabilities to sum to 1, got {self.probabilities.sum()}"
         )
+
+    def __str__(self) -> str:
+        probabilities_strs = []
+        for action, prob in enumerate(self.probabilities[0]):
+            if prob > 1e-2:
+                probabilities_strs.append(f"{sj.get_action_name(action)}: {prob:.2f}")
+        return f"""PolicyOutput(\n{",\n".join(probabilities_strs)}\n)"""
 
     def mask_invalid_and_renormalize(
         self, valid_actions_mask: npt.NDArray[np.int8]
@@ -149,13 +150,19 @@ class ValueOutput:
             curr_player,
         )
 
+    def __str__(self) -> str:
+        value_strs = []
+        for value in self.state_values[0]:
+            value_strs.append(f"{value: .2f}")
+        return f"""ValueOutput(\n{",\n".join(value_strs)}\n)"""
+
     def state_value(self, sample_idx: int = 0) -> sj.StateValue:
         return self.state_values[sample_idx]
 
 
 @dataclasses.dataclass(slots=True)
-class PointDifferentialOutput:
-    point_differentials: sj.StateValue
+class PointsOutput:
+    points: StateValue
     curr_player: int
 
     @classmethod
@@ -169,13 +176,22 @@ class PointDifferentialOutput:
             curr_player,
         )
 
+    def __str__(self) -> str:
+        point_diff_strs = []
+        for value in self.points[0]:
+            point_diff_strs.append(f"{value: .2f}")
+        return f"""PointsOutput(\n{",\n".join(point_diff_strs)}\n)"""
+
 
 # Prediction dataclasses
 @dataclasses.dataclass(slots=True)
 class SkyNetPrediction(abstract.AbstractModelPrediction):
     policy_output: PolicyOutput
-    point_differential_output: PointDifferentialOutput
+    points_output: PointsOutput
     value_output: ValueOutput
+
+    def __str__(self) -> str:
+        return f"{self.policy_output}\n{self.value_output}\n{self.points_output}"
 
 
 # NETWORKS
@@ -244,6 +260,7 @@ class Spatia1DInputHead(nn.Module):
         input_shape: tuple[int, ...],
         hand_embedding_features: int,
         out_features: int,
+        dropout_rate: float = 0.3,
     ):
         super(Spatia1DInputHead, self).__init__()
         assert len(input_shape) == 4, (
@@ -263,6 +280,7 @@ class Spatia1DInputHead(nn.Module):
                 out_features=hand_embedding_features,
             ),
             nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
             nn.Linear(
                 in_features=hand_embedding_features,
                 out_features=hand_embedding_features,
@@ -277,6 +295,7 @@ class Spatia1DInputHead(nn.Module):
                 out_features=self.out_features,
             ),
             nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
             nn.Linear(in_features=self.out_features, out_features=self.out_features),
             nn.ReLU(inplace=True),
         )
@@ -303,6 +322,7 @@ class NonSpatialInputHead(nn.Module):
         in_features: int,
         out_features: int,
         activations: list[nn.Module] = [nn.ReLU(inplace=True), nn.ReLU(inplace=True)],
+        dropout_rate: float = 0.3,
     ):
         assert len(activations) == 2, "expected 2 activations, got {}".format(
             len(activations)
@@ -311,8 +331,10 @@ class NonSpatialInputHead(nn.Module):
         self.out_features = out_features
         self.in_features = in_features
         self.linear1 = nn.Linear(in_features=in_features, out_features=out_features)
+        self.dropout1 = nn.Dropout(dropout_rate)
         self.activation1 = activations[0]
         self.linear2 = nn.Linear(in_features=out_features, out_features=out_features)
+        self.dropout2 = nn.Dropout(dropout_rate)
         self.activation2 = activations[1]
 
     def forward(self, x):
@@ -322,8 +344,10 @@ class NonSpatialInputHead(nn.Module):
         """
         assert len(x.shape) == 2, f"expected 2D input (N, F), got {x.shape}"
         x = self.linear1(x)
+        x = self.dropout1(x)
         x = self.activation1(x)
         x = self.linear2(x)
+        x = self.dropout2(x)
         x = self.activation2(x)
         return x
 
@@ -412,9 +436,9 @@ class ValueTail(nn.Module):
         return x
 
 
-class PointDifferenceTail(nn.Module):
+class PointsTail(nn.Module):
     def __init__(self, num_features: int, num_players: int):
-        super(PointDifferenceTail, self).__init__()
+        super(PointsTail, self).__init__()
         self.linear1 = nn.Linear(in_features=num_features, out_features=num_players)
 
     def forward(self, x):
@@ -476,7 +500,7 @@ class SkyNet1D(nn.Module):
             num_features=self.final_embedding_dim,
             out_features=self.policy_output_shape[0],
         )
-        self.point_difference_tail = PointDifferenceTail(
+        self.points_tail = PointsTail(
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
         )
@@ -501,8 +525,8 @@ class SkyNet1D(nn.Module):
         dropped_out = self.dropout(mlp_out)
         value_out = self.value_tail(dropped_out)
         policy_out = self.policy_tail(dropped_out)
-        point_difference_out = self.point_difference_tail(dropped_out)
-        return value_out, point_difference_out, policy_out
+        points_out = self.points_tail(dropped_out)
+        return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         game, table, players = skyjo[0], skyjo[1], skyjo[3]
@@ -514,7 +538,7 @@ class SkyNet1D(nn.Module):
         non_spatial_tensor = torch.tensor(
             einops.rearrange(game, "f -> 1 f"), dtype=torch.float32, device=self.device
         )
-        value_out, point_difference_out, policy_out = self.forward(
+        value_out, points_out, policy_out = self.forward(
             spatial_tensor, non_spatial_tensor
         )
 
@@ -523,8 +547,8 @@ class SkyNet1D(nn.Module):
             value_output=ValueOutput.from_tensor_output(
                 value_out, sj.get_player(skyjo), self.device
             ),
-            point_differential_output=PointDifferentialOutput.from_tensor_output(
-                point_difference_out, sj.get_turn(skyjo), self.device
+            points_output=PointsOutput.from_tensor_output(
+                points_out, sj.get_turn(skyjo), self.device
             ),
         )
 
@@ -554,18 +578,21 @@ if __name__ == "__main__":
     )
     model.set_device(torch.device("mps"))
     game_state = sj.start_round(game_state)
+    model.eval()
     prediction = model.predict(game_state)
     print(prediction)
 
-    model_path = model.save(pathlib.Path("models/"))
+    model_path = model.save(pathlib.Path("models/test/"))
     loaded_model = SkyNet1D(
         spatial_input_shape=model.spatial_input_shape,
         non_spatial_input_shape=model.non_spatial_input_shape,
         value_output_shape=model.value_output_shape,
         policy_output_shape=model.policy_output_shape,
+        dropout_rate=model.dropout_rate,
     )
     loaded_model.load_state_dict(torch.load(model_path, weights_only=True))
     loaded_model.set_device(model.device)
+    loaded_model.eval()
     loaded_prediction = loaded_model.predict(game_state)
     print(loaded_prediction)
     assert np.allclose(
@@ -577,6 +604,6 @@ if __name__ == "__main__":
         loaded_prediction.value_output.state_values,
     )
     assert np.allclose(
-        prediction.point_differential_output.point_differentials,
-        loaded_prediction.point_differential_output.point_differentials,
+        prediction.points_output.points,
+        loaded_prediction.points_output.points,
     )

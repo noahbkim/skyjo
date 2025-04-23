@@ -114,18 +114,18 @@ class AfterStateNode:
         )
         return outcome_state
 
-    def expand(self, model: skynet.SkyNet, num_outcomes: int = 10):
+    def expand(self, model: skynet.SkyNet, initial_realizations: int = 10):
         # Placeholder for now we may want to simulate many random outcomes here
         self.is_expanded = True
         # TODO: probably more efficient to rng all at once then create children once
-        for _ in range(num_outcomes):
+        for _ in range(initial_realizations):
             realized_outcome = self._realize_outcome()
             outcome_state_hash = sj.hash_skyjo(realized_outcome)
             if outcome_state_hash not in self.children:
                 self.children[outcome_state_hash] = DecisionStateNode(
                     state=realized_outcome,
                     parent=self,
-                    prev_action=self.action,
+                    previous_action=self.action,
                 )
 
     def select_child(
@@ -219,7 +219,7 @@ def run_mcts(
     game_state: sj.Skyjo,
     model: skynet.SkyNet,
     iterations: int,
-    num_afterstate_outcomes: int = 10,
+    afterstate_initial_realizations: int = 10,
 ) -> MCTSNode:
     root_node = DecisionStateNode(
         state=game_state,
@@ -229,7 +229,11 @@ def run_mcts(
     )
 
     for _ in range(iterations):
-        search(root_node, model, num_afterstate_outcomes=num_afterstate_outcomes)
+        search(
+            root_node,
+            model,
+            afterstate_initial_realizations=afterstate_initial_realizations,
+        )
 
     return root_node
 
@@ -237,7 +241,7 @@ def run_mcts(
 def search(
     node: MCTSNode,
     model: skynet.SkyNet,
-    num_afterstate_outcomes: int = 10,
+    afterstate_initial_realizations: int = 10,
 ):
     search_path = [node]
     while node.is_expanded:
@@ -247,7 +251,7 @@ def search(
 
     if isinstance(leaf, AfterStateNode):
         # realize an outcome and propogate value back up tree
-        leaf.expand(model, num_outcomes=num_afterstate_outcomes)
+        leaf.expand(model, initial_realizations=afterstate_initial_realizations)
         leaf = leaf.select_child(model)
     if isinstance(leaf, TerminalStateNode):
         value = leaf.outcome
