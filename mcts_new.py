@@ -106,9 +106,16 @@ class AfterStateNode:
     average_visit_value: float = 1
     is_expanded: bool = False
 
-    def _realize_outcome(self) -> sj.Skyjo:
+    def _realize_outcome(self, model: skynet.SkyNet) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
         outcome_state_hash = sj.hash_skyjo(outcome_state)
+        if outcome_state_hash not in self.realized_counts:
+            self.children[outcome_state_hash] = DecisionStateNode(
+                state=outcome_state,
+                parent=self,
+                previous_action=self.action,
+                model_output=model.predict(outcome_state),
+            )
         self.realized_counts[outcome_state_hash] = (
             self.realized_counts.get(outcome_state_hash, 0) + 1
         )
@@ -119,36 +126,20 @@ class AfterStateNode:
         self.is_expanded = True
         # TODO: probably more efficient to rng all at once then create children once
         for _ in range(initial_realizations):
-            realized_outcome = self._realize_outcome()
-            outcome_state_hash = sj.hash_skyjo(realized_outcome)
-            if outcome_state_hash not in self.children:
-                self.children[outcome_state_hash] = DecisionStateNode(
-                    state=realized_outcome,
-                    parent=self,
-                    previous_action=self.action,
-                )
+            realized_outcome = self._realize_outcome(model)
 
     def select_child(
         self, model: skynet.SkyNet
     ) -> DecisionStateNode | TerminalStateNode:
         """Realize next state by applying action. Returns node in game tree that represents realized next state."""
-        realized_next_state = self._realize_outcome()
+        realized_next_state = self._realize_outcome(model)
         if sj.get_game_over(realized_next_state):
             return TerminalStateNode(
                 state=realized_next_state,
                 parent=self,
                 previous_action=self.action,
             )
-        realized_next_state_hash = sj.hash_skyjo(realized_next_state)
-        if realized_next_state_hash not in self.children:
-            self.children[realized_next_state_hash] = DecisionStateNode(
-                state=realized_next_state,
-                parent=self,
-                previous_action=self.action,
-                model_output=model.predict(realized_next_state),
-            )
-
-        return self.children[realized_next_state_hash]
+        return self.children[sj.hash_skyjo(realized_next_state)]
 
     def realized_outcome_probability(self, realized_outcome_state: sj.Skyjo) -> float:
         realized_outcome_state_hash = sj.hash_skyjo(realized_outcome_state)
@@ -179,39 +170,22 @@ MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | TerminalStateN
 
 
 # MARK: Node Scoring
-def ucb_score(child: MCTSNode, parent: MCTSNode) -> float:
+def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
+    assert isinstance(parent, DecisionStateNode), (
+        f"Parent must be DecisionStateNode, got {type(parent)}"
+    )
     if isinstance(child, TerminalStateNode):
         return skynet.state_value_for_player(child.outcome, sj.get_player(parent.state))
-    elif isinstance(parent, DecisionStateNode):
-        if isinstance(child, AfterStateNode):
-            action = child.action
-        else:
-            action = child.previous_action
-        return (
-            child.average_visit_value
-            + parent.model_output.policy_output.get_action_probability(action)
-            * np.sqrt(parent.visit_count)
-            / (1 + child.visit_count)
-        )
-
-    # Child node must be DecisionStateNode since
-    # After -> Decision | Terminal and Terminal returns earlier
-    elif isinstance(parent, AfterStateNode):
-        # For unvisited nodes, return 1 to force exploration
-        if child.visit_count == 0:
-            return 1
-        # Probability weighted average of value of realized decision nodes
-        # as evaluated by model from current player's perspective
-        return sum(
-            [
-                # empirical probability of realized state
-                child.realized_outcome_probability(realized_decision_node.state)
-                * ucb_score(realized_decision_node, child)
-                for realized_decision_node in child.children.values()
-            ]
-        )
+    if isinstance(child, AfterStateNode):
+        action = child.action
     else:
-        raise ValueError(f"Unknown node type: {type(child)}")
+        action = child.previous_action
+    return (
+        child.average_visit_value * 0.999
+        + parent.model_output.policy_output.get_action_probability(action)
+        * np.sqrt(parent.visit_count)
+        / (1 + child.visit_count)
+    )
 
 
 # MARK: MCTS Algorithm
@@ -266,12 +240,13 @@ def search(
 def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue):
     # Update each node's visited cound and average value
     # to be value of leaf node from that player's perspective
-    for node in search_path:
+    for node in reversed(search_path):
         node.average_visit_value = (
             node.average_visit_value * (node.visit_count)
             + skynet.state_value_for_player(value, sj.get_player(node.state))
         ) / (node.visit_count + 1)
         node.visit_count += 1
+        value = value * 0.999
 
 
 if __name__ == "__main__":

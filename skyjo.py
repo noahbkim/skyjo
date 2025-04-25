@@ -508,7 +508,7 @@ def visualize_table(table: Table, player: int):
                 cell_str = "X"
             else:
                 cell_str = str(
-                    np.argwhere(table[player, row, column, :CARD_SIZE] == 1).item()
+                    np.argwhere(table[player, row, column, :CARD_SIZE] == 1).item() - 2
                 )
             if len(cell_str) < 2:
                 cell_str = " " * (2 - len(cell_str)) + cell_str
@@ -526,8 +526,8 @@ def visualize_state(skyjo: Skyjo):
     players = skyjo[3]
 
     curr_player = get_player(skyjo)
-    state_str = f"current player: {curr_player} card: {get_top(skyjo)}\n"
-    state_str += f"countdown: {skyjo[6]} last_revealed_turn: {skyjo[7]}\n"
+    state_str = f"current player: {curr_player} card: {get_top(skyjo) - 2 if get_top(skyjo) is not None else None}\n"
+    state_str += f"turn: {get_turn(skyjo)} countdown: {skyjo[6]} last_revealed_turn: {skyjo[7]}\n"
     state_str += f"Actions: {game[GAME_ACTION : GAME_ACTION + ACTION_SIZE]}\n\n"
     for i in range(players):
         state_str += f"Player {(curr_player + i) % players}\n"

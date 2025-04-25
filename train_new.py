@@ -61,6 +61,45 @@ class DataBatch:
         )
 
 
+def get_skyjo_symmetries(
+    skyjo: sj.Skyjo, policy_probs: np.ndarray[tuple[int], np.uint8]
+) -> list[tuple[sj.Skyjo, np.ndarray[tuple[int], np.uint8]]]:
+    """Return a list of symmetrically equivalent `Skyjo` states and corresponding policy."""
+    symmetries = []
+    for col_order in itertools.permutations(range(sj.COLUMN_COUNT)):
+        new_table = skyjo[1].copy()
+        new_table[0] = new_table[0][:, col_order, :]
+        new_policy_probs = policy_probs.copy()
+        flip_policy = new_policy_probs[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT]
+        replace_policy = new_policy_probs[
+            sj.MASK_REPLACE : sj.MASK_REPLACE + sj.FINGER_COUNT
+        ]
+        new_policy_probs[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT] = (
+            flip_policy.reshape(sj.ROW_COUNT, sj.COLUMN_COUNT)[:, col_order].reshape(-1)
+        )
+        new_policy_probs[sj.MASK_REPLACE : sj.MASK_REPLACE + sj.FINGER_COUNT] = (
+            replace_policy.reshape(sj.ROW_COUNT, sj.COLUMN_COUNT)[:, col_order].reshape(
+                -1
+            )
+        )
+        symmetries.append(
+            (
+                (
+                    skyjo[0],
+                    new_table,
+                    skyjo[2],
+                    skyjo[3],
+                    skyjo[4],
+                    skyjo[5],
+                    skyjo[6],
+                    skyjo[7],
+                ),
+                new_policy_probs,
+            )
+        )
+    return symmetries
+
+
 def selfplay_game(
     model: skynet.SkyNet,
     players: int = 2,
@@ -84,14 +123,15 @@ def selfplay_game(
             )
 
             sample_temperature = mcts_temperature
-            if len(game_data) < 15:
-                sample_temperature = 1.0
             mcts_probs = node.sample_child_visit_probabilities(
                 temperature=sample_temperature
             )
             choice = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
             assert sj.actions(game_state)[choice]
             game_data.append((game_state, mcts_probs))
+            symmetries = get_skyjo_symmetries(game_state, mcts_probs)
+            for symmetry in symmetries:
+                game_data.append((symmetry[0], symmetry[1]))
             if debug:
                 logging.info(f"curr facedown: {sj.get_facedown_count(game_state, 0)}")
                 logging.info(f"other facedown: {sj.get_facedown_count(game_state, 1)}")
@@ -139,9 +179,9 @@ def multiprocessed_selfplay(
     processes: int,
     model: skynet.SkyNet,
     players: int,
+    mcts_temperature: float,
     mcts_iterations: int,
     afterstate_initial_realizations: int,
-    mcts_temperature: float,
 ):
     with mp.Pool(processes=processes) as pool:
         res_list = pool.starmap(
@@ -160,8 +200,8 @@ def multiprocessed_selfplay(
     return list(itertools.chain.from_iterable(res_list))
 
 
-def train(model: skynet.SkyNet, training_epochs: int, batches: list[list[tuple]]):
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+def train(model: skynet.SkyNet, training_epochs: int, training_data: list[tuple]):
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     policy_losses = []
     value_losses = []
     points_losses = []
@@ -169,7 +209,16 @@ def train(model: skynet.SkyNet, training_epochs: int, batches: list[list[tuple]]
     model.train()
 
     for _ in range(training_epochs):
-        for i, batch in enumerate(batches):
+        # Create training data batches
+        random.shuffle(training_data)
+        batches = [
+            DataBatch.from_raw(
+                training_data[i * 64 : (i + 1) * 64],
+                device=model.device,
+            )
+            for i in range(len(training_data) // 64)
+        ]
+        for _, batch in enumerate(batches):
             (
                 torch_predicted_value,
                 torch_predicted_points,
@@ -182,12 +231,12 @@ def train(model: skynet.SkyNet, training_epochs: int, batches: list[list[tuple]]
             value_loss = skynet.compute_value_loss(
                 torch_predicted_value, batch.value_targets_tensor
             )
-            value_loss_scale = 3
+            value_loss_scale = 5
             points_loss = nn.L1Loss()(
                 torch_predicted_points,
                 batch.points_targets_tensor,
             )
-            points_loss_scale = 1 / 100
+            points_loss_scale = 1 / 1000
             total_loss = (
                 value_loss_scale * value_loss
                 + points_loss_scale * points_loss
@@ -243,7 +292,7 @@ def gen_single_game_data(players: list[player.AbstractPlayer]):
         game_state = sj.apply_action(game_state, action)
     outcome_state_value = skynet.skyjo_to_state_value(game_state)
     fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
-    return [
+    final_data = [
         (
             data[0][0],  # game
             data[0][1][: len(players)],  # table
@@ -256,6 +305,14 @@ def gen_single_game_data(players: list[player.AbstractPlayer]):
         )
         for data in states_data
     ]
+    for data in states_data:
+        print(sj.visualize_state(data[0]))
+        print(np.roll(outcome_state_value, sj.get_player(data[0])))
+        print(np.roll(fixed_perspective_score, sj.get_player(data[0])))
+        print(sj.get_action_name(np.argwhere(data[1] == 1).item()))
+    print(sj.visualize_state(game_state))
+
+    return final_data
 
 
 def model_single_game_faceoff(
@@ -384,6 +441,19 @@ def multiprocessed_learn(
         evaluation_faceoff_rounds: number of face-offs to run to evaluate the model
         processes: number of processes to run the multiprocessed selfplay and model faceoff
     """
+
+    def temp_func(learn_iter: int) -> float:
+        if learn_iter < 50:
+            return 1.0
+        elif learn_iter < 100:
+            return 0.5
+        elif learn_iter < 150:
+            return 0.25
+        elif learn_iter < 200:
+            return 0.1
+        else:
+            return mcts_temperature
+
     # initialize model
     initial_model = skynet.SkyNet1D(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
@@ -398,7 +468,11 @@ def multiprocessed_learn(
     models_dir.mkdir(exist_ok=True, parents=True)
     previous_best_model_path = initial_model.save(models_dir)
     model = initial_model
-    for _ in range(learn_iterations):
+    # Compute validation statistics if provided
+    if validation_func is not None:
+        logging.info("Getting model validation stats")
+        validation_func(model)
+    for learn_iter in range(learn_iterations):
         logging.info("Generating training data")
         training_data = multiprocessed_selfplay(
             players=players,
@@ -406,27 +480,17 @@ def multiprocessed_learn(
             processes=processes,
             model=model,
             mcts_iterations=mcts_iterations,
-            mcts_temperature=mcts_temperature,
             afterstate_initial_realizations=afterstate_initial_realizations,
+            mcts_temperature=temp_func(learn_iter),
             **selfplay_kwargs,
         )
         logging.info(f"{len(training_data)} training data points")
-
-        # Create training data batches
-        random.shuffle(training_data)
-        batches = [
-            DataBatch.from_raw(
-                [
-                    training_data[data_idx]
-                    for data_idx in np.random.randint(len(training_data), size=64)
-                ],
-                device=model_device,
-            )
-            for _ in range(len(training_data) // 64)
-        ]
+        logging.info(
+            f"value avg: {np.mean([data[3] for data in training_data], axis=0)}"
+        )
 
         logging.info("Training model")
-        train(model, training_epochs, batches)
+        train(model, training_epochs, training_data)
         trained_model_path = model.save(models_dir)
 
         # load old model and compare performance
@@ -494,11 +558,11 @@ if __name__ == "__main__":
 
     # hyperparameters
     learn_iterations = 100
-    selfplay_episodes = 256
+    selfplay_episodes = 128
     evaluation_faceoff_rounds = 32
-    training_epochs = 10
-    mcts_iterations = 200
-    afterstate_initial_realizations = 25
+    training_epochs = 2
+    mcts_iterations = 400
+    afterstate_initial_realizations = 100
     processes = 16
     with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
         validation_games_data = pkl.load(f)

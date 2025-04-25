@@ -176,12 +176,12 @@ def validate_model_with_games_data(
         value_loss = skynet.compute_value_loss(
             torch_predicted_value, value_targets_tensor
         )
-        value_loss_scale = 3
+        value_loss_scale = 5
         points_loss = nn.L1Loss()(
             torch_predicted_points,
             points_targets_tensor,
         )
-        points_loss_scale = 1 / 100
+        points_loss_scale = 1 / 1000
         total_loss = (
             value_loss_scale * value_loss
             + points_loss_scale * points_loss
