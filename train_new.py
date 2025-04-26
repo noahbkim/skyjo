@@ -423,8 +423,7 @@ def multiprocessed_learn(
     afterstate_initial_realizations: int = 50,
     validation_func: typing.Callable[[skynet.SkyNet], None] = None,
     evaluation_faceoff_rounds: int = 50,
-    processes: int = 16,
-    max_training_data_size: int = 1e7,
+    max_training_data_size: int = 1e5,
 ) -> None:
     """Trains a skyjo model using monte carlo tree search, self-play, and model face offs.
 
@@ -605,4 +604,5 @@ if __name__ == "__main__":
     #     temperature=0.0,
     #     afterstate_initial_realizations=50,
     # )
+    # DataBatch.from_raw(training_data, device=device)
     # DataBatch.from_raw(training_data, device=device)

@@ -54,6 +54,34 @@ def state_value_for_player(state_value: StateValue, player: int) -> float:
     return state_value[player].item()
 
 
+## Training Data
+TrainingDataPoint: typing.TypeAlias = tuple[
+    sj.Skyjo,  # game state
+    np.ndarray[tuple[int], np.float32],  # policy target
+    np.ndarray[tuple[int], np.float32],  # value target
+    np.ndarray[tuple[int], np.float32],  # points target
+]
+TrainingBatch: typing.TypeAlias = list[TrainingDataPoint]
+
+
+def get_policy_target(
+    batch: TrainingBatch,
+) -> torch.Tensor:
+    return torch.tensor(np.array([data_point[0] for data_point in batch]))
+
+
+def get_value_target(
+    batch: TrainingBatch,
+) -> torch.Tensor:
+    return torch.tensor(np.array([data_point[1] for data_point in batch]))
+
+
+def get_points_target(
+    batch: TrainingBatch,
+) -> torch.Tensor:
+    return torch.tensor(np.array([data_point[2] for data_point in batch]))
+
+
 ## LOSS FUNCTIONS
 def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     loss = -(target * torch.log(predicted + 1e-9)).sum(
@@ -64,6 +92,16 @@ def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.
 
 def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return torch.sum((target - predicted) ** 2) / target.size()[0]
+
+
+def base_total_loss(
+    model_output: SkyNetPrediction, batch: TrainingBatch, value_scale: float = 3.0
+) -> torch.Tensor:
+    policy_loss = compute_policy_loss(
+        model_output.policy_output, get_policy_target(batch)
+    )
+    value_loss = compute_value_loss(model_output.value_output, get_value_target(batch))
+    return policy_loss + value_scale * value_loss
 
 
 # OUTPUT DATACLASSES
@@ -482,6 +520,7 @@ class SkyNet1D(nn.Module):
         self.policy_output_shape = policy_output_shape
         self.dropout_rate = dropout_rate
         self.device = device
+        self.to(device)
         self.final_embedding_dim = 32
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
@@ -554,13 +593,17 @@ class SkyNet1D(nn.Module):
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         game, table, players = skyjo[0], skyjo[1], skyjo[3]
-        spatial_tensor = torch.tensor(
-            einops.rearrange(table[:players], "p h w c -> 1 p h w c"),
-            dtype=torch.float32,
-            device=self.device,
+        spatial_tensor = einops.rearrange(
+            torch.tensor(
+                table[:players],
+                dtype=torch.float32,
+                device=self.device,
+            ),
+            "p h w c -> 1 p h w c",
         )
-        non_spatial_tensor = torch.tensor(
-            einops.rearrange(game, "f -> 1 f"), dtype=torch.float32, device=self.device
+        non_spatial_tensor = einops.rearrange(
+            torch.tensor(game, dtype=torch.float32, device=self.device),
+            "f -> 1 f",
         )
         value_out, points_out, policy_out = self.forward(
             spatial_tensor, non_spatial_tensor
