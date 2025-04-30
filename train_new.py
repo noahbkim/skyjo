@@ -423,7 +423,8 @@ def multiprocessed_learn(
     afterstate_initial_realizations: int = 50,
     validation_func: typing.Callable[[skynet.SkyNet], None] = None,
     evaluation_faceoff_rounds: int = 50,
-    max_training_data_size: int = 1e5,
+    processes: int = 2,
+    max_training_data_size: int = 1e7,
 ) -> None:
     """Trains a skyjo model using monte carlo tree search, self-play, and model face offs.
 
@@ -449,7 +450,7 @@ def multiprocessed_learn(
 
     def temp_func(learn_iter: int) -> float:
         if learn_iter < 50:
-            return 0.5
+            return 1.0
         elif learn_iter < 100:
             return 0.5
         elif learn_iter < 150:
@@ -460,7 +461,7 @@ def multiprocessed_learn(
             return mcts_temperature
 
     # initialize model
-    initial_model = skynet.SkyNet2D(
+    initial_model = skynet.SkyNet1D(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(players,),
@@ -505,7 +506,7 @@ def multiprocessed_learn(
         trained_model_path = model.save(models_dir)
 
         # load old model and compare performance
-        previous_best_model = skynet.SkyNet2D(
+        previous_best_model = skynet.SkyNet1D(
             model.spatial_input_shape,
             model.non_spatial_input_shape,
             policy_output_shape=model.policy_output_shape,
@@ -562,19 +563,19 @@ if __name__ == "__main__":
     # set device
     if torch.cuda.is_available():
         device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
+    # elif torch.backends.mps.is_available():
+    #     device = torch.device("mps")
     else:
         device = torch.device("cpu")
 
     # hyperparameters
-    learn_iterations = 100
-    selfplay_episodes = 64
-    evaluation_faceoff_rounds = 50
-    training_epochs = 10
-    mcts_iterations = 200
+    learn_iterations = 1000
+    selfplay_episodes = 256
+    evaluation_faceoff_rounds = 32
+    training_epochs = 1
+    mcts_iterations = 400
     afterstate_initial_realizations = 100
-    processes = 2
+    processes = 8
     with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
         validation_games_data = pkl.load(f)
     multiprocessed_learn(

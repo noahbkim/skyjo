@@ -445,6 +445,11 @@ def get_player(skyjo: Skyjo) -> int:
     return skyjo[4] % skyjo[3]
 
 
+def get_player_count(skyjo: Skyjo) -> int:
+    """Get the number of players in the game."""
+    return skyjo[3]
+
+
 def get_game_over(skyjo: Skyjo) -> bool:
     """Whether the game is over.
     If there are any face-down cards game is not over"""

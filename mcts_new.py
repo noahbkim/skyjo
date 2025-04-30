@@ -25,11 +25,32 @@ class DecisionStateNode:
     state: sj.Skyjo
     parent: AfterStateNode | None
     previous_action: sj.SkyjoAction | None
+    state_value_total: skynet.StateValue | None = None
     model_output: skynet.SkyNetOutput | None = None
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
-    average_visit_value: float = 1  # initialize to 1 to force initial exploration
     is_expanded: bool = False
+
+    def __post_init__(self):
+        self.state_value_total = np.zeros(sj.get_player_count(self.state))
+
+    def __str__(self) -> str:
+        return (
+            f"DecisionStateNode\n"
+            f"{sj.visualize_state(self.state)}\n"
+            f"Visit Count: {self.visit_count}\n"
+            f"State Value: {self.state_value}\n"
+            f"Is Expanded: {self.is_expanded}\n"
+            f"Children: {len(self.children)}\n"
+        )
+
+    @property
+    def state_value(self) -> skynet.StateValue:
+        if self.visit_count == 0:
+            return np.ones(sj.get_player_count(self.state)) / sj.get_player_count(
+                self.state
+            )
+        return self.state_value_total / self.visit_count
 
     def _select_highest_ucb_child(self) -> MCTSNode:
         return max(
@@ -98,13 +119,40 @@ class AfterStateNode:
     state: sj.Skyjo
     action: sj.SkyjoAction
     parent: DecisionStateNode
+    state_value_total: skynet.StateValue | None = None
     children: dict[sj.Skyjo, DecisionStateNode | TerminalStateNode] = dataclasses.field(
         default_factory=dict
     )
     realized_counts: dict[sj.Skyjo, int] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
-    average_visit_value: float = 1
     is_expanded: bool = False
+
+    def __post_init__(self):
+        self.state_value_total = np.zeros(sj.get_player_count(self.state))
+
+    def __str__(self) -> str:
+        return (
+            f"AfterStateNode\n"
+            f"{sj.visualize_state(self.state)}\n"
+            f"Action: {sj.get_action_name(self.action)}\n"
+            f"Visit Count: {self.visit_count}\n"
+            f"Value: {self.state_value}\n"
+            f"Is Expanded: {self.is_expanded}\n"
+            f"Children: {len(self.children)}\n"
+        )
+
+    @property
+    def state_value(self) -> skynet.StateValue:
+        if self.visit_count == 0:
+            return np.ones(sj.get_player_count(self.state)) / sj.get_player_count(
+                self.state
+            )
+        return sum(
+            [
+                self.children[state_hash].state_value * count
+                for state_hash, count in self.realized_counts.items()
+            ]
+        ) / sum(self.realized_counts.values())
 
     def _realize_outcome(self, model: skynet.SkyNet) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
@@ -155,8 +203,18 @@ class TerminalStateNode:
     parent: AfterStateNode | DecisionStateNode
     previous_action: sj.SkyjoAction
     visit_count: int = 0
-    average_visit_value: float = 1
     is_expanded: bool = False
+
+    def __str__(self) -> str:
+        return (
+            f"TerminalStateNode\n"
+            f"{sj.visualize_state(self.state)}\n"
+            f"Outcome: {self.outcome}\n"
+        )
+
+    @property
+    def state_value(self) -> skynet.StateValue:
+        return skynet.skyjo_to_state_value(self.state)
 
     @property
     def outcome(self) -> skynet.StateValue:
@@ -180,12 +238,11 @@ def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
         action = child.action
     else:
         action = child.previous_action
-    return (
-        child.average_visit_value * 0.999
-        + parent.model_output.policy_output.get_action_probability(action)
-        * np.sqrt(parent.visit_count)
-        / (1 + child.visit_count)
-    )
+    return skynet.state_value_for_player(
+        child.state_value, sj.get_player(parent.state)
+    ) + parent.model_output.policy_output.get_action_probability(action) * np.sqrt(
+        parent.visit_count
+    ) / (1 + child.visit_count)
 
 
 # MARK: MCTS Algorithm
@@ -226,13 +283,14 @@ def search(
     if isinstance(leaf, AfterStateNode):
         # realize an outcome and propogate value back up tree
         leaf.expand(model, initial_realizations=afterstate_initial_realizations)
-        leaf = leaf.select_child(model)
-    if isinstance(leaf, TerminalStateNode):
+        value = leaf.state_value
+    elif isinstance(leaf, TerminalStateNode):
         value = leaf.outcome
         backpropagate(search_path, value)
         return
-    leaf.expand(model)
-    value = leaf.model_output.value_output.state_value()
+    else:
+        leaf.expand(model)
+        value = leaf.model_output.value_output.state_value()
 
     backpropagate(search_path, value)
 
@@ -241,12 +299,9 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue):
     # Update each node's visited cound and average value
     # to be value of leaf node from that player's perspective
     for node in reversed(search_path):
-        node.average_visit_value = (
-            node.average_visit_value * (node.visit_count)
-            + skynet.state_value_for_player(value, sj.get_player(node.state))
-        ) / (node.visit_count + 1)
+        if not isinstance(node, TerminalStateNode):
+            node.state_value_total += value
         node.visit_count += 1
-        value = value * 0.999
 
 
 if __name__ == "__main__":

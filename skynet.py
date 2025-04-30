@@ -66,20 +66,29 @@ TrainingBatch: typing.TypeAlias = list[TrainingDataPoint]
 
 def get_policy_target(
     batch: TrainingBatch,
+    device: torch.device = torch.device("cpu"),
 ) -> torch.Tensor:
-    return torch.tensor(np.array([data_point[0] for data_point in batch]))
+    return torch.tensor(
+        np.array([data_point[0] for data_point in batch]), device=device
+    )
 
 
 def get_value_target(
     batch: TrainingBatch,
+    device: torch.device = torch.device("cpu"),
 ) -> torch.Tensor:
-    return torch.tensor(np.array([data_point[1] for data_point in batch]))
+    return torch.tensor(
+        np.array([data_point[1] for data_point in batch]), device=device
+    )
 
 
 def get_points_target(
     batch: TrainingBatch,
+    device: torch.device = torch.device("cpu"),
 ) -> torch.Tensor:
-    return torch.tensor(np.array([data_point[2] for data_point in batch]))
+    return torch.tensor(
+        np.array([data_point[2] for data_point in batch]), device=device
+    )
 
 
 ## LOSS FUNCTIONS
@@ -98,9 +107,11 @@ def base_total_loss(
     model_output: SkyNetPrediction, batch: TrainingBatch, value_scale: float = 3.0
 ) -> torch.Tensor:
     policy_loss = compute_policy_loss(
-        model_output.policy_output, get_policy_target(batch)
+        model_output.policy_output, get_policy_target(batch, device=model_output.device)
     )
-    value_loss = compute_value_loss(model_output.value_output, get_value_target(batch))
+    value_loss = compute_value_loss(
+        model_output.value_output, get_value_target(batch, device=model_output.device)
+    )
     return policy_loss + value_scale * value_loss
 
 
@@ -227,9 +238,19 @@ class SkyNetPrediction(abstract.AbstractModelPrediction):
     policy_output: PolicyOutput
     points_output: PointsOutput
     value_output: ValueOutput
+    device: torch.device = torch.device("cpu")
 
     def __str__(self) -> str:
         return f"{self.policy_output}\n{self.value_output}\n{self.points_output}"
+
+    def get_sample(
+        self, sample_idx: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return (
+            self.value_output.state_values[sample_idx],
+            self.points_output.points[sample_idx],
+            self.policy_output.probabilities[sample_idx],
+        )
 
 
 # NETWORKS
@@ -521,11 +542,11 @@ class SkyNet1D(nn.Module):
         self.dropout_rate = dropout_rate
         self.device = device
         self.to(device)
-        self.final_embedding_dim = 32
+        self.final_embedding_dim = 48
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
-            hand_embedding_features=64,
-            out_features=64,
+            hand_embedding_features=32,
+            out_features=32,
         )
         self.non_spatial_input_head = NonSpatialInputHead(
             in_features=non_spatial_input_shape[0],
@@ -617,6 +638,7 @@ class SkyNet1D(nn.Module):
             points_output=PointsOutput.from_tensor_output(
                 points_out, sj.get_player(skyjo), self.device
             ),
+            device=self.device,
         )
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:
@@ -740,6 +762,7 @@ class SkyNet2D(nn.Module):
             points_output=PointsOutput.from_tensor_output(
                 points_out, sj.get_player(skyjo), self.device
             ),
+            device=self.device,
         )
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:
