@@ -303,6 +303,16 @@ def new(*, players: int) -> Skyjo:
 # MARK: Convenience
 
 
+def get_table(skyjo: Skyjo) -> Table:
+    """Get the board portion of the game state."""
+    return skyjo[1]
+
+
+def get_game(skyjo: Skyjo) -> Game:
+    """Get the non-spatial (i.e. non-board) game state values."""
+    return skyjo[0]
+
+
 def get_draw_count(skyjo: Skyjo) -> int:
     """Get the number of cards left in the deck."""
 
