@@ -70,7 +70,7 @@ def create_almost_surely_losing_position() -> sj.Skyjo:
         game_state = sj.flip(game_state, row, col)
         game_state = sj.preordain(game_state, row)
         game_state = sj.flip(game_state, row, col)
-        return game_state
+    return game_state
 
 
 # MARK: Evaluation
