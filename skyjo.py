@@ -303,12 +303,12 @@ def new(*, players: int) -> Skyjo:
 # MARK: Convenience
 
 
-def get_table(skyjo: Skyjo) -> Table:
+def get_spatial_input(skyjo: Skyjo) -> Table:
     """Get the board portion of the game state."""
-    return skyjo[1]
+    return skyjo[1][: get_player_count(skyjo)]
 
 
-def get_game(skyjo: Skyjo) -> Game:
+def get_non_spatial_input(skyjo: Skyjo) -> Game:
     """Get the non-spatial (i.e. non-board) game state values."""
     return skyjo[0]
 

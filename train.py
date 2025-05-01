@@ -5,110 +5,26 @@ import logging
 import multiprocessing as mp
 import pathlib
 import random
-import re
+import time
 import typing
 
 import numpy as np
 import torch
 
 import buffer
-import mcts_new as mcts
+import model_factory
+import parallel_mcts as mcts
+import predictor
 import skyjo as sj
 import skynet
 
 
-class SkyNetModelFactory:
-    def __init__(
-        self,
-        players: int = 2,
-        dropout_rate: float = 0.5,
-        device: torch.device = torch.device("cpu"),
-        models_dir: pathlib.Path = pathlib.Path("models"),
-        model_kwargs: dict[str, typing.Any] = {},
-    ):
-        self.models_dir = models_dir
-        self.players = players
-        self.dropout_rate = dropout_rate
-        self.device = device
-        self.model_kwargs = model_kwargs
-        self.training_model = skynet.SkyNet1D(
-            spatial_input_shape=(
-                players,
-                sj.ROW_COUNT,
-                sj.COLUMN_COUNT,
-                sj.FINGER_SIZE,
-            ),
-            non_spatial_input_shape=(sj.GAME_SIZE,),
-            value_output_shape=(players,),
-            policy_output_shape=(sj.MASK_SIZE,),
-            dropout_rate=self.dropout_rate,
-            device=self.device,
-            **self.model_kwargs,
-        )
-        # Save initial model
-        self.save_model(self.training_model)
-
-    def _get_latest_model_path(self) -> pathlib.Path:
-        """Finds the model file with the latest timestamp in the filename."""
-        model_files = list(self.models_dir.glob("model_*.pth"))
-        if not model_files:
-            # If no models saved yet, return path for the initial model
-            # Assuming the initial model is saved with a specific name or timestamp 0
-            # For simplicity, let's assume save_model ensures one exists or handles it.
-            # Re-evaluating: It's better to raise an error if called before first save.
-            raise FileNotFoundError(f"No model files found in {self.models_dir}")
-
-        # Regex to extract the timestamp YYYYMMDD_HHMMSS
-        pattern = re.compile(r"model_(\d{8}_\d{6})\.pth")
-
-        latest_file = None
-        latest_timestamp_str = ""
-
-        for file_path in model_files:
-            match = pattern.match(file_path.name)
-            if match:
-                timestamp_str = match.group(1)
-                # String comparison works for YYYYMMDD_HHMMSS format
-                if timestamp_str > latest_timestamp_str:
-                    latest_timestamp_str = timestamp_str
-                    latest_file = file_path
-
-        if latest_file is None:
-            # This case should ideally not happen if files exist and saving adheres to format
-            raise FileNotFoundError(
-                f"No model files matching the pattern 'model_YYYYMMDD_HHMMSS.pth' found in {self.models_dir}"
-            )
-
-        return latest_file
-
-    def save_model(self, model: skynet.SkyNet) -> pathlib.Path:
-        return model.save(self.models_dir)
-
-    def get_latest_model(self) -> skynet.SkyNet:
-        latest_model_path = self._get_latest_model_path()
-        model = skynet.SkyNet1D(
-            spatial_input_shape=(
-                self.players,
-                sj.ROW_COUNT,
-                sj.COLUMN_COUNT,
-                sj.FINGER_SIZE,
-            ),
-            non_spatial_input_shape=(sj.GAME_SIZE,),
-            value_output_shape=(self.players,),
-            policy_output_shape=(sj.MASK_SIZE,),
-            dropout_rate=self.dropout_rate,
-            device=self.device,
-            **self.model_kwargs,
-        )
-        model.load_state_dict(torch.load(latest_model_path, weights_only=True))
-        model.to(self.device)
-        return model
-
-
+# Learning rate schedule
 def constant_basic_learning_rate(train_iter: int) -> float:
     return 1e-4
 
 
+# Selfplay parameter schedule
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
     return {
         "players": 2,
@@ -219,6 +135,8 @@ def training_data_from_game_data(
 
 def selfplay(
     model: skynet.SkyNet,
+    model_runner_input_queue: mp.Queue,
+    model_runner_output_queue: mp.Queue,
     players: int = 2,
     mcts_iterations: int = 100,
     mcts_temperature: float = 1.0,
@@ -231,8 +149,13 @@ def selfplay(
         game_state = sj.start_round(game_state)
         game_data = []
         while not sj.get_game_over(game_state):
-            node = mcts.run_mcts(
-                game_state, model, mcts_iterations, afterstate_initial_realizations
+            node = mcts.run_mcts_with_model_runner(
+                game_state,
+                model,
+                mcts_iterations,
+                afterstate_initial_realizations,
+                model_runner_input_queue,
+                model_runner_output_queue,
             )
             mcts_probs = node.sample_child_visit_probabilities(
                 temperature=mcts_temperature
@@ -261,42 +184,66 @@ def selfplay(
 
 def _add_training_data_and_resubmit_selfplay(
     result: concurrent.futures.Future[list[skynet.TrainingDataPoint]],
+    model: skynet.SkyNet,
     data_queue: mp.Queue,
     pool: concurrent.futures.ThreadPoolExecutor,
-    model_factory: SkyNetModelFactory,
+    model_factory: model_factory.SkyNetModelFactory,
     model_update_queue: mp.Queue,
     selfplay_kwargs: dict[str, typing.Any],
 ) -> None:
     data_queue.put(result.result())
-    if not model_update_queue.empty():
+    while not model_update_queue.empty():
         model = model_factory.get_latest_model()
         model_update_queue.get()
+    if selfplay_kwargs.get("debug", False):
+        logging.info(
+            "Selfplay complete, adding training data to queue, and submitting new selfplay to pool"
+        )
     selfplay_future = pool.submit(selfplay, model, **selfplay_kwargs)
     selfplay_future.add_done_callback(
         lambda result: _add_training_data_and_resubmit_selfplay(
-            result, data_queue, pool, model_factory, model_update_queue, selfplay_kwargs
+            result,
+            model,
+            data_queue,
+            pool,
+            model_factory,
+            model_update_queue,
+            selfplay_kwargs,
         )
     )
 
 
 def generate_multithreaded_selfplay_games(
-    model_factory: SkyNetModelFactory,
+    model_factory: model_factory.SkyNetModelFactory,
     model_update_queue: mp.Queue,
     data_queue: mp.Queue,
+    model_runner_input_queue: mp.Queue,
+    model_runner_output_queue: mp.Queue,
     selfplay_kwargs: dict[str, typing.Any],
-    thread_count: int = 8,
+    thread_count: int = 1,
 ):
     with concurrent.futures.ThreadPoolExecutor(thread_count) as pool:
+        logging.info(f"Loading initial model, {model_factory.get_latest_model_path()}")
         model = model_factory.get_latest_model()
         # If learner has populated queue, it means a new model is available
-        if not model_update_queue.empty():
+        while not model_update_queue.empty():
+            logging.info(
+                f"New model available, loading new model for selfplay, {model_factory.get_latest_model_path()}"
+            )
             model = model_factory.get_latest_model()
             model_update_queue.get()
         for _ in range(thread_count):
-            selfplay_future = pool.submit(selfplay, model, **selfplay_kwargs)
+            selfplay_future = pool.submit(
+                selfplay,
+                model,
+                model_runner_input_queue,
+                model_runner_output_queue,
+                **selfplay_kwargs,
+            )
             selfplay_future.add_done_callback(
                 lambda result: _add_training_data_and_resubmit_selfplay(
                     result,
+                    model,
                     data_queue,
                     pool,
                     model_factory,
@@ -304,6 +251,9 @@ def generate_multithreaded_selfplay_games(
                     selfplay_kwargs,
                 )
             )
+        # keep pool alive indefinitely
+        while True:
+            time.sleep(60)
 
 
 def train(
@@ -316,8 +266,8 @@ def train(
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     model.train()
     game_state = batch[0]
-    spatial_inputs = torch.tensor(game_state[0], dtype=torch.float32)
-    non_spatial_inputs = torch.tensor(game_state[1], dtype=torch.float32)
+    spatial_inputs = torch.tensor(game_state[1], dtype=torch.float32)
+    non_spatial_inputs = torch.tensor(game_state[0], dtype=torch.float32)
     model_output = model(spatial_inputs, non_spatial_inputs)
 
     loss = loss_function(model_output, batch)
@@ -338,7 +288,7 @@ def faceoff(
 
 
 def learn(
-    model_factory: SkyNetModelFactory,
+    model_factory: model_factory.SkyNetModelFactory,
     training_steps: int = 100,
     training_data_buffer_size: int = 10000,
     batch_size: int = 128,
@@ -351,19 +301,34 @@ def learn(
         [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
     ] = skynet.base_total_loss,
 ):
+    model_runner_model_update_queue = mp.Queue()
+    model_runner_input_queues = {i: mp.Queue() for i in range(selfplay_processes)}
+    model_runner_output_queues = {i: mp.Queue() for i in range(selfplay_processes)}
+    predictor_process = predictor.PredictorProcess(
+        model_factory,
+        model_runner_model_update_queue,
+        model_runner_input_queues,
+        model_runner_output_queues,
+        batch_size,
+        device=device,
+    )
+    predictor_process.start()
+
     selfplay_data_queue = mp.Queue()
-    model_update_queue = mp.Queue()
+    model_update_queues = [mp.Queue() for _ in range(selfplay_processes)]
     actors = []
     logging.info(
         f"Starting {selfplay_processes} selfplay processes each with {selfplay_process_thread_count} threads"
     )
-    for _ in range(selfplay_processes):
+    for i in range(selfplay_processes):
         actor_process = mp.Process(
             target=generate_multithreaded_selfplay_games,
             args=[
                 model_factory,
-                model_update_queue,
+                model_update_queues[i],
                 selfplay_data_queue,
+                model_runner_input_queues[i],
+                model_runner_output_queues[i],
                 constant_basic_selfplay_params(0),
                 selfplay_process_thread_count,
             ],
@@ -390,24 +355,80 @@ def learn(
         if train_iter > 0 and train_iter % update_best_model_step_interval == 0:
             saved_path = model_factory.save_model(model)
             logging.info(f"Saved model to {saved_path}")
+            model_runner_model_update_queue.put(f"new_model {saved_path}")
+            for i in range(selfplay_processes):
+                model_update_queues[i].put(f"new_model {saved_path}")
 
 
 if __name__ == "__main__":
+    import explain
+
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
+        format="%(asctime)s - TRAIN_MAIN - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        filename="logs/train.log",
+        filename="logs/distributed_train.log",
         filemode="a",
     )
     np.random.seed(0)
     torch.manual_seed(0)
     random.seed(0)
     players = 2
-    model_factory = SkyNetModelFactory(
+    device = torch.device("mps")
+    models_dir = pathlib.Path("./models") / "distributed/"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    model_factory = model_factory.SkyNetModelFactory(
         players=players,
         dropout_rate=0.5,
-        device=torch.device("mps"),
-        models_dir=pathlib.Path("./models") / "parallel/",
+        device=device,
+        models_dir=models_dir,
     )
-    learn(model_factory, training_steps=10)
+    # learn(model_factory, training_steps=10)
+    selfplay_processes = 1
+    batch_size = 32
+    model_runner_model_update_queue = mp.Queue()
+    model_runner_input_queues = {i: mp.Queue() for i in range(selfplay_processes)}
+    model_runner_output_queues = {i: mp.Queue() for i in range(selfplay_processes)}
+    predictor_process = predictor.PredictorProcess(
+        model_factory,
+        model_runner_model_update_queue,
+        model_runner_input_queues,
+        model_runner_output_queues,
+        batch_size,
+        device=device,
+        max_wait_seconds=0.2,
+    )
+    try:
+        predictor_process.start()
+        predictor = predictor.MultiProcessPredictorClient(
+            model_runner_input_queues[0], model_runner_output_queues[0]
+        )
+        # game_state = sj.new(players=players)
+        # game_state = sj.start_round(game_state)
+        game_state = explain.create_almost_surely_winning_position()
+        print(sj.visualize_state(game_state))
+        while not sj.get_game_over(game_state):
+            root_node = mcts.run_mcts(
+                game_state,
+                predictor,
+                1600,
+                afterstate_initial_realizations=100,
+                max_parallel_threads=16,
+            )
+            print(root_node.visit_count, root_node.state_value)
+            print(root_node.sample_child_visit_probabilities(temperature=1.0))
+            print(root_node.sample_child_visit_probabilities(temperature=0.5))
+            mcts_probs = root_node.sample_child_visit_probabilities(temperature=1.0)
+            action = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
+            assert sj.actions(game_state)[action]
+            game_state = sj.apply_action(game_state, action)
+            print(sj.get_action_name(action))
+            print(sj.visualize_state(game_state))
+        winner = sj.get_fixed_perspective_winner(game_state)
+        print(winner)
+        print(sj.get_fixed_perspective_round_scores(game_state))
+    finally:
+        print("Terminating predictor")
+        predictor_process.terminate()
+        time.sleep(1)
+        predictor_process.close()

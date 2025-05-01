@@ -7,11 +7,9 @@ import typing
 
 import einops
 import numpy as np
-import numpy.typing as npt
 import torch
 import torch.nn as nn
 
-import abstract
 import skyjo as sj
 
 """
@@ -52,6 +50,12 @@ def state_value_for_player(state_value: StateValue, player: int) -> float:
     state_value = state_value.squeeze()
     assert len(state_value.shape) == 1, "Expected a 1D state value"
     return state_value[player].item()
+
+
+def to_state_value(
+    value_output: np.ndarray[tuple[int], np.float32], curr_player: int
+) -> StateValue:
+    return np.roll(value_output, shift=-curr_player)
 
 
 ## Training Data
@@ -115,141 +119,92 @@ def base_total_loss(
     return policy_loss + value_scale * value_loss
 
 
-# OUTPUT DATACLASSES
-@dataclasses.dataclass(slots=True)
-class PolicyOutput:
-    probabilities: np.ndarray[tuple[int, int], np.float32]
-    is_renormalized: bool = False
-
-    @classmethod
-    def from_tensor_output(
-        cls, output: torch.Tensor, device: torch.device
-    ) -> typing.Self:
-        if device != torch.device("cpu"):
-            output = output.cpu()
-        return cls(output.detach().numpy(), is_renormalized=False)
-
-    def __post_init__(self):
-        assert abs(self.probabilities.sum() - 1) < 1e-6, (
-            f"expected probabilities to sum to 1, got {self.probabilities.sum()}"
-        )
-
-    def __str__(self) -> str:
-        probabilities_strs = []
-        for action, prob in enumerate(self.probabilities[0]):
-            if prob > 1e-2:
-                probabilities_strs.append(f"{sj.get_action_name(action)}: {prob:.2f}")
-        return f"""PolicyOutput(\n{",\n".join(probabilities_strs)}\n)"""
-
-    def mask_invalid_and_renormalize(
-        self, valid_actions_mask: npt.NDArray[np.int8]
-    ) -> typing.Self:
-        assert valid_actions_mask.shape == self.probabilities.shape, (
-            f"expected valid_actions_mask of shape {self.probabilities.shape}, got {valid_actions_mask.shape}"
-        )
-        valid_action_probabilities = self.probabilities * valid_actions_mask
-        total_valid_action_probabilities = einops.reduce(
-            valid_action_probabilities, "b ... -> b", reduction="sum"
-        )
-        num_valid_actions = einops.reduce(
-            valid_actions_mask, "b ... -> b", reduction="sum"
-        )
-        assert not np.any(num_valid_actions == 0), (
-            "expected no samples with no valid actions"
-        )
-        # Change denominator to 1 if total probability is 0 to make division safe
-        safe_denominator = np.where(
-            total_valid_action_probabilities == 0, 1.0, total_valid_action_probabilities
-        )
-        renormalized_valid_action_probabilities = (
-            valid_action_probabilities / safe_denominator
-        )
-        # Assign uniform probability where total probability is 0
-        renormalized_valid_action_probabilities = np.where(
-            total_valid_action_probabilities == 0,
-            1 / num_valid_actions,
-            renormalized_valid_action_probabilities,
-        )
-
-        return PolicyOutput(
-            renormalized_valid_action_probabilities, is_renormalized=True
-        )
-
-    def get_action_probability(self, action: sj.SkyjoAction) -> float:
-        assert self.probabilities.shape[0] == 1, (
-            f"expected 1 sample, got {self.probabilities.shape[0]}"
-        )
-        return self.probabilities[:, action].item()
+def mask_and_renormalize_policy_probabilities(
+    policy_probabilities: np.ndarray[tuple[int], np.float32],
+    valid_actions_mask: np.ndarray[tuple[int], np.int8],
+) -> np.ndarray[tuple[int], np.float32]:
+    assert valid_actions_mask.shape == policy_probabilities.shape, (
+        f"expected valid_actions_mask of shape {policy_probabilities.shape}, got {valid_actions_mask.shape}"
+    )
+    valid_action_probabilities = policy_probabilities * valid_actions_mask
+    total_valid_action_probabilities = valid_action_probabilities.sum()
+    num_valid_actions = valid_actions_mask.sum()
+    assert not np.any(num_valid_actions == 0), (
+        "expected no samples with no valid actions"
+    )
+    if total_valid_action_probabilities == 0:
+        return np.ones_like(policy_probabilities) / num_valid_actions
+    renormalized_valid_action_probabilities = (
+        valid_action_probabilities / total_valid_action_probabilities
+    )
+    return renormalized_valid_action_probabilities
 
 
-@dataclasses.dataclass(slots=True)
-class ValueOutput:
-    # _values is indexed starting with current player
-    state_values: np.ndarray[tuple[int, int], np.float32]  # (batch_size, num_players)
-    curr_player: int
-
-    @classmethod
-    def from_tensor_output(
-        cls, output: torch.Tensor, curr_player: int, device: torch.device
-    ) -> typing.Self:
-        if device != torch.device("cpu"):
-            output = output.cpu()
-        return cls(
-            output.detach().numpy(),
-            curr_player,
-        )
-
-    def __str__(self) -> str:
-        value_strs = []
-        for value in self.state_values[0]:
-            value_strs.append(f"{value: .2f}")
-        return f"""ValueOutput(\n{",\n".join(value_strs)}\n)"""
-
-    def state_value(self, sample_idx: int = 0) -> sj.StateValue:
-        return self.state_values[sample_idx]
+def get_single_model_output(
+    model_output: SkyNetOutput | SkyNetNumpyOutput, idx: int
+) -> SkyNetOutput | SkyNetNumpyOutput:
+    return (
+        model_output[0][idx],
+        model_output[1][idx],
+        model_output[2][idx],
+    )
 
 
-@dataclasses.dataclass(slots=True)
-class PointsOutput:
-    points: StateValue
-    curr_player: int
+def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
+    """Converts a SkyNetOutput to a SkyNetNumpyOutput.
 
-    @classmethod
-    def from_tensor_output(
-        cls, output: torch.Tensor, curr_player: int, device: torch.device
-    ) -> typing.Self:
-        if device != torch.device("cpu"):
-            output = output.cpu()
-        return cls(
-            output.detach().numpy(),
-            curr_player,
-        )
-
-    def __str__(self) -> str:
-        point_diff_strs = []
-        for value in self.points[0]:
-            point_diff_strs.append(f"{value: .2f}")
-        return f"""PointsOutput(\n{",\n".join(point_diff_strs)}\n)"""
+    Handles the detaching and converting to numpy
+    (including copying to cpu when device is not cpu).
+    """
+    value_output = output[0].detach()
+    points_output = output[1].detach()
+    policy_output = output[2].detach()
+    if value_output.device != torch.device("cpu"):
+        value_output = value_output.cpu()
+    if points_output.device != torch.device("cpu"):
+        points_output = points_output.cpu()
+    if policy_output.device != torch.device("cpu"):
+        policy_output = policy_output.cpu()
+    return value_output.numpy(), points_output.numpy(), policy_output.numpy()
 
 
 # Prediction dataclasses
 @dataclasses.dataclass(slots=True)
-class SkyNetPrediction(abstract.AbstractModelPrediction):
-    policy_output: PolicyOutput
-    points_output: PointsOutput
-    value_output: ValueOutput
-    device: torch.device = torch.device("cpu")
+class SkyNetPrediction:
+    value_output: np.ndarray[tuple[int], np.float32]
+    points_output: np.ndarray[tuple[int], np.float32]
+    policy_output: np.ndarray[tuple[int], np.float32]
+
+    @classmethod
+    def from_skynet_output(
+        cls,
+        output: SkyNetOutput,
+    ) -> SkyNetPrediction:
+        numpy_output = output_to_numpy(output)
+        value_numpy, points_numpy, policy_numpy = get_single_model_output(
+            numpy_output, 0
+        )
+        assert (
+            len(value_numpy.shape)
+            == len(points_numpy.shape)
+            == len(policy_numpy.shape)
+            == 1
+        ), (
+            "expected value_output, points_output, and policy_output to be a single result and not batched results."
+            f"value_output.shape: {value_numpy.shape}, points_output.shape: {points_numpy.shape}, policy_output.shape: {policy_numpy.shape}"
+        )
+        return SkyNetPrediction(
+            value_output=value_numpy,
+            points_output=points_numpy,
+            policy_output=policy_numpy,
+        )
 
     def __str__(self) -> str:
         return f"{self.policy_output}\n{self.value_output}\n{self.points_output}"
 
-    def get_sample(
-        self, sample_idx: int = 0
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return (
-            self.value_output.state_values[sample_idx],
-            self.points_output.points[sample_idx],
-            self.policy_output.probabilities[sample_idx],
+    def mask_and_renormalize(self, valid_actions_mask: np.ndarray[tuple[int], np.int8]):
+        self.policy_output = mask_and_renormalize_policy_probabilities(
+            self.policy_output, valid_actions_mask
         )
 
 
@@ -542,15 +497,15 @@ class SkyNet1D(nn.Module):
         self.dropout_rate = dropout_rate
         self.device = device
         self.to(device)
-        self.final_embedding_dim = 48
+        self.final_embedding_dim = 128
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
-            hand_embedding_features=32,
-            out_features=32,
+            hand_embedding_features=64,
+            out_features=64,
         )
         self.non_spatial_input_head = NonSpatialInputHead(
             in_features=non_spatial_input_shape[0],
-            out_features=32,
+            out_features=48,
         )
         self.mlp = nn.Sequential(
             nn.Linear(
@@ -597,11 +552,7 @@ class SkyNet1D(nn.Module):
         self,
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
+    ) -> SkyNetOutput:
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
@@ -613,33 +564,27 @@ class SkyNet1D(nn.Module):
         return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
-        game, table, players = skyjo[0], skyjo[1], skyjo[3]
+        """Takes a single skyjo representation and returns a prediction object.
+
+        Prediction object returned contains numpy arrays instead of tensors.
+        This function is mostly a convenience function for testing and
+        debugging. For actual optimized usage the `forward` method offers less
+        overhead and flexibility.
+        """
         spatial_tensor = einops.rearrange(
             torch.tensor(
-                table[:players],
-                dtype=torch.float32,
-                device=self.device,
+                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "p h w c -> 1 p h w c",
         )
         non_spatial_tensor = einops.rearrange(
-            torch.tensor(game, dtype=torch.float32, device=self.device),
+            torch.tensor(
+                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
             "f -> 1 f",
         )
-        value_out, points_out, policy_out = self.forward(
-            spatial_tensor, non_spatial_tensor
-        )
-
-        return SkyNetPrediction(
-            policy_output=PolicyOutput.from_tensor_output(policy_out, self.device),
-            value_output=ValueOutput.from_tensor_output(
-                value_out, sj.get_player(skyjo), self.device
-            ),
-            points_output=PointsOutput.from_tensor_output(
-                points_out, sj.get_player(skyjo), self.device
-            ),
-            device=self.device,
-        )
+        output = self.forward(spatial_tensor, non_spatial_tensor)
+        return SkyNetPrediction.from_skynet_output(output)
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:
         curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -725,11 +670,7 @@ class SkyNet2D(nn.Module):
         self,
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
+    ) -> SkyNetOutput:
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
@@ -741,29 +682,28 @@ class SkyNet2D(nn.Module):
         return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
-        game, table, players = skyjo[0], skyjo[1], skyjo[3]
-        spatial_tensor = torch.tensor(
-            einops.rearrange(table[:players], "p h w c -> 1 p h w c"),
-            dtype=torch.float32,
-            device=self.device,
-        )
-        non_spatial_tensor = torch.tensor(
-            einops.rearrange(game, "f -> 1 f"), dtype=torch.float32, device=self.device
-        )
-        value_out, points_out, policy_out = self.forward(
-            spatial_tensor, non_spatial_tensor
-        )
+        """Takes a single skyjo representation and returns a prediction object.
 
-        return SkyNetPrediction(
-            policy_output=PolicyOutput.from_tensor_output(policy_out, self.device),
-            value_output=ValueOutput.from_tensor_output(
-                value_out, sj.get_player(skyjo), self.device
+        Prediction object returned contains numpy arrays instead of tensors.
+        This function is mostly a convenience function for testing and
+        debugging. For actual optimized usage the `forward` method offers less
+        overhead and flexibility.
+        """
+        spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
-            points_output=PointsOutput.from_tensor_output(
-                points_out, sj.get_player(skyjo), self.device
-            ),
-            device=self.device,
+            "p h w c -> 1 p h w c",
         )
+        non_spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "f -> 1 f",
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor)
+
+        return SkyNetPrediction.from_skynet_output(output)
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:
         curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -775,6 +715,16 @@ class SkyNet2D(nn.Module):
         return model_path
 
 
+SkyNetOutput: typing.TypeAlias = tuple[
+    torch.Tensor,  # value
+    torch.Tensor,  # points
+    torch.Tensor,  # policy
+]
+SkyNetNumpyOutput: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int, ...], np.float32],  # value
+    np.ndarray[tuple[int, ...], np.float32],  # points
+    np.ndarray[tuple[int, ...], np.float32],  # policy
+]
 SkyNet: typing.TypeAlias = SkyNet1D | SkyNet2D
 
 if __name__ == "__main__":
