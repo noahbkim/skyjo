@@ -3,7 +3,7 @@ import abc
 import numpy as np
 import torch
 
-import mcts_new as mcts
+import mcts
 import skyjo as sj
 import skynet
 

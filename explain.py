@@ -151,10 +151,14 @@ def validate_model_with_games_data(
     with torch.no_grad():
         batch = games_data
         spatial_inputs = torch.tensor(
-            np.array([data[1] for data in batch]), dtype=torch.float32
+            np.array([data[1] for data in batch]),
+            dtype=torch.float32,
+            device=model.device,
         )
         non_spatial_inputs = torch.tensor(
-            np.array([data[0] for data in batch]), dtype=torch.float32
+            np.array([data[0] for data in batch]),
+            dtype=torch.float32,
+            device=model.device,
         )
         (
             torch_predicted_value,
@@ -162,13 +166,19 @@ def validate_model_with_games_data(
             torch_predicted_policy,
         ) = model(spatial_inputs, non_spatial_inputs)
         policy_targets_tensor = torch.tensor(
-            np.array([data[2] for data in batch]), dtype=torch.float32
+            np.array([data[2] for data in batch]),
+            dtype=torch.float32,
+            device=model.device,
         )
         value_targets_tensor = torch.tensor(
-            np.array([data[3] for data in batch]), dtype=torch.float32
+            np.array([data[3] for data in batch]),
+            dtype=torch.float32,
+            device=model.device,
         )
         points_targets_tensor = torch.tensor(
-            np.array([data[4] for data in batch]), dtype=torch.float32
+            np.array([data[4] for data in batch]),
+            dtype=torch.float32,
+            device=model.device,
         )
         policy_loss = skynet.compute_policy_loss(
             torch_predicted_policy, policy_targets_tensor

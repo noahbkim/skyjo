@@ -1,3 +1,11 @@
+"""Implementations of predictors that run model inference.
+
+This abstracts the model execution and provides a consistent interface for
+callers to request and receive model predictions. This includes a multi-processed
+version that runs predictions in a dedicated process and communicates via
+mp.Queue.
+"""
+
 from __future__ import annotations
 
 import abc
@@ -34,16 +42,21 @@ ModelUpdate: typing.TypeAlias = bool
 
 
 # MARK: Predictor Process
+
+
 class PredictorProcess(mp.Process):
+    """Predictor process that runs model inference in a dedicated process."""
+
     def __init__(
         self,
         model_factory: model_factory.SkyNetModelFactory,
         model_update_queue: mp.Queue[ModelUpdate],
         input_queues: dict[QueueId, mp.Queue[PredictorInput]],
         output_queues: dict[QueueId, mp.Queue[PredictorOutput]],
-        batch_size: int = 128,
+        batch_size: int = 1024,
         device: torch.device = torch.device("cpu"),
         max_wait_seconds: float = 0.1,
+        debug: bool = False,
     ):
         super().__init__()
         self.model_factory = model_factory
@@ -53,20 +66,24 @@ class PredictorProcess(mp.Process):
         self.batch_size = batch_size
         self.device = device
         self.max_wait_seconds = max_wait_seconds
+        self.debug = debug
 
     def run(self):
         try:
             assert set(self.input_queues.keys()) == set(self.output_queues.keys()), (
                 "Input and output queues must have the same id keys"
             )
+            level = logging.DEBUG if self.debug else logging.INFO
             logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s - PREDICTOR - %(levelname)s - %(message)s",
+                level=level,
+                format="%(asctime)s - %(levelname)s - %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
-                filename="logs/distributed_train.log",
+                filename="logs/multiprocessed_train/predictor.log",
                 filemode="a",
             )
             model = self.model_factory.get_latest_model()
+            model.set_device(self.device)
+            model.eval()
             logging.info(
                 f"Loaded model from {self.model_factory._get_latest_model_path()}"
             )
@@ -76,6 +93,8 @@ class PredictorProcess(mp.Process):
                 # Update model if available
                 while not self.model_update_queue.empty():
                     model = self.model_factory.get_latest_model()
+                    model.set_device(self.device)
+                    model.eval()
                     logging.info(
                         f"New model loaded from {self.model_factory._get_latest_model_path()}"
                     )
@@ -93,12 +112,12 @@ class PredictorProcess(mp.Process):
                     len(input_data_queue) > 0
                     and time.time() - start_time >= self.max_wait_seconds
                 ):
-                    logging.info(f"Input queue has {len(input_data_queue)} predictions")
+                    if self.debug:
+                        logging.info(
+                            f"Running predictions, input_data_queue size: {len(input_data_queue)}"
+                        )
                     to_run = input_data_queue[: self.batch_size]
-                    if len(input_data_queue) > self.batch_size:
-                        input_data_queue = input_data_queue[self.batch_size :]
-                    else:
-                        input_data_queue = []
+                    input_data_queue = input_data_queue[self.batch_size :]
                     queue_ids, pred_ids, spatial_inputs, non_spatial_inputs = zip(
                         *to_run
                     )
@@ -139,6 +158,8 @@ class PredictorProcess(mp.Process):
 
 
 # MARK: PredictorClient
+
+
 class PredictorClient(abc.ABC):
     @abc.abstractmethod
     def put(self, state: sj.Skyjo) -> PredictionId:
@@ -156,6 +177,8 @@ class PredictorClient(abc.ABC):
 
 
 class MultiProcessPredictorClient(PredictorClient):
+    """Predictor client that communicates with dedicated predictor process."""
+
     def __init__(
         self,
         input_queue: mp.Queue[PredictorInput],
@@ -231,6 +254,8 @@ class MultiProcessPredictorClient(PredictorClient):
 
 
 class NaivePredictorClient(PredictorClient):
+    """Predictor client that actually just lazily runs the model inference."""
+
     def __init__(
         self,
         model: skynet.SkyNet,

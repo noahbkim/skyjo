@@ -108,13 +108,21 @@ def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.T
 
 
 def base_total_loss(
-    model_output: SkyNetPrediction, batch: TrainingBatch, value_scale: float = 3.0
+    model_output: SkyNetOutput, batch: TrainingBatch, value_scale: float = 3.0
 ) -> torch.Tensor:
+    value_output, points_output, policy_output = model_output
+    _, policy_targets, value_targets, points_targets = zip(*batch)
     policy_loss = compute_policy_loss(
-        model_output.policy_output, get_policy_target(batch, device=model_output.device)
+        policy_output,
+        torch.tensor(
+            np.array(policy_targets), device=policy_output.device, dtype=torch.float32
+        ),
     )
     value_loss = compute_value_loss(
-        model_output.value_output, get_value_target(batch, device=model_output.device)
+        value_output,
+        torch.tensor(
+            np.array(value_targets), device=value_output.device, dtype=torch.float32
+        ),
     )
     return policy_loss + value_scale * value_loss
 

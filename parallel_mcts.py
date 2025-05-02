@@ -1,7 +1,13 @@
+"""Tree-Parallel MCTS implementation for Skyjo.
+
+This implementation 'batches' model evaluation and implements a virtual loss
+to encourage exploration. Discussion of parallel algorithm can be found in
+https://dke.maastrichtuniversity.nl/m.winands/documents/multithreadedMCTS2.pdf
+"""
+
 from __future__ import annotations
 
 import dataclasses
-import enum
 import typing
 
 import numpy as np
@@ -10,14 +16,6 @@ import torch
 import predictor
 import skyjo as sj
 import skynet
-
-
-# MARK: ENUMS
-class MCTSSelectionMethod(enum.Enum):
-    UCB = "UCB"  # AlphaZero UCB
-    # Lots of different research ideas to explore here
-    # with other selection methods
-
 
 # MARK: NODE SCORING
 
@@ -246,10 +244,9 @@ class TerminalStateNode:
         raise ValueError("Terminal nodes should not need to be expanded")
 
 
-MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | TerminalStateNode
-
-
 # MARK: MCTS Algorithm
+
+
 def _handle_prediction_results(
     prediction_id: predictor.PredictionId,
     prediction: skynet.SkyNetPrediction,
@@ -277,7 +274,7 @@ def _handle_prediction_results(
             virtual_loss,
         )
         del pending_decision_state_search_paths[prediction_id]
-
+        return True
     # After state child decision state predictions
     elif prediction_id in pending_after_state_search_paths:
         search_path = pending_after_state_search_paths[prediction_id]
@@ -292,7 +289,8 @@ def _handle_prediction_results(
         pending_after_state_prediction_ids[after_state_prediction_id].remove(
             prediction_id
         )
-
+        del prediction_id_to_after_state_prediction_id[prediction_id]
+        del pending_after_state_search_paths[prediction_id]
         # If all after state realized children have been processed, backpropagate
         if len(pending_after_state_prediction_ids[after_state_prediction_id]) == 0:
             backpropagate(
@@ -301,8 +299,8 @@ def _handle_prediction_results(
                 virtual_loss,
             )
             del pending_after_state_prediction_ids[after_state_prediction_id]
-        del prediction_id_to_after_state_prediction_id[prediction_id]
-        del pending_after_state_search_paths[prediction_id]
+            return True
+        return False
     else:
         raise ValueError(
             f"prediction id {prediction_id} not found in pending predictions"
@@ -315,7 +313,7 @@ def run_mcts(
     iterations: int,
     afterstate_initial_realizations: int = 10,
     virtual_loss: float = 0.5,
-    max_parallel_threads: int = 100,
+    max_parallel_evaluations: int = 100,
 ) -> MCTSNode:
     # TODO: Modularize this function with helper functions
     _ = predictor_client.put(game_state)
@@ -400,7 +398,7 @@ def run_mcts(
         # Handle ready predictions
         ready_outputs = predictor_client.get_all_nowait()
         for prediction_id, prediction in ready_outputs:
-            _handle_prediction_results(
+            if _handle_prediction_results(
                 prediction_id,
                 prediction,
                 pending_decision_state_search_paths,
@@ -408,13 +406,13 @@ def run_mcts(
                 pending_after_state_prediction_ids,
                 prediction_id_to_after_state_prediction_id,
                 virtual_loss,
-            )
-            pending_leaf_count -= 1
+            ):
+                pending_leaf_count -= 1
 
         # Process predictions until we have at most max_parallel_threads pending leaf nodes
-        while pending_leaf_count >= max_parallel_threads:
+        while pending_leaf_count >= max_parallel_evaluations:
             prediction_id, prediction = predictor_client.get()
-            _handle_prediction_results(
+            if _handle_prediction_results(
                 prediction_id,
                 prediction,
                 pending_decision_state_search_paths,
@@ -422,11 +420,11 @@ def run_mcts(
                 pending_after_state_prediction_ids,
                 prediction_id_to_after_state_prediction_id,
                 virtual_loss,
-            )
-            pending_leaf_count -= 1
+            ):
+                pending_leaf_count -= 1
     while pending_leaf_count > 0:
         prediction_id, prediction = predictor_client.get()
-        _handle_prediction_results(
+        if _handle_prediction_results(
             prediction_id,
             prediction,
             pending_decision_state_search_paths,
@@ -434,8 +432,8 @@ def run_mcts(
             pending_after_state_prediction_ids,
             prediction_id_to_after_state_prediction_id,
             virtual_loss,
-        )
-        pending_leaf_count -= 1
+        ):
+            pending_leaf_count -= 1
     return root_node
 
 
@@ -460,6 +458,11 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual
             node.state_value_total += value
             node.virtual_loss -= virtual_loss
         node.visit_count += 1
+
+
+# MARK: TYPES
+
+MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | TerminalStateNode
 
 
 if __name__ == "__main__":
