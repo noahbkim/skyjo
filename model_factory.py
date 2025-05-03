@@ -79,11 +79,12 @@ class SkyNetModelFactory:
         return latest_file
 
     def save_model(self, model: skynet.SkyNet) -> pathlib.Path:
+        self.models_dir.mkdir(parents=True, exist_ok=True)
         return model.save(self.models_dir)
 
     def get_latest_model(self) -> skynet.SkyNet:
         latest_model_path = self._get_latest_model_path()
-        model = skynet.SkyNet1D(
+        model = self.model_callable(
             spatial_input_shape=(
                 self.players,
                 sj.ROW_COUNT,

@@ -16,7 +16,7 @@ import skynet
 
 
 def constant_basic_learning_rate(train_iter: int) -> float:
-    return 1e-3
+    return 1e-2
 
 
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
@@ -25,8 +25,8 @@ def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
         "mcts_iterations": 1600,
         "mcts_temperature": 0.5,
         "afterstate_initial_realizations": 100,
-        "virtual_loss": 0.0,
-        "max_parallel_evaluations": 100,
+        "virtual_loss": 0.5,
+        "max_parallel_evaluations": 400,
     }
 
 
@@ -124,7 +124,12 @@ def multiprocessed_learn(
             batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
             model = model_factory.get_latest_model()
             model.set_device(device)
-            train(model, batch, loss_function, constant_basic_learning_rate(train_iter))
+            train(
+                model,
+                batch,
+                loss_function=loss_function,
+                learning_rate=constant_basic_learning_rate(train_iter),
+            )
 
             if (
                 train_iter % validation_step_interval == 0
@@ -176,6 +181,7 @@ if __name__ == "__main__":
         dropout_rate=0.5,
         device=device,
         models_dir=models_dir,
+        model_callable=skynet.SkyNet2D,
     )
     with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
         validation_games_data = pkl.load(f)
@@ -185,7 +191,7 @@ if __name__ == "__main__":
         training_steps=int(1e6),
         device=device,
         debug=debug,
-        training_batch_size=256,
+        training_batch_size=512,
         predictor_batch_size=1024,
         validation_function=lambda model: explain.validate_model(
             model, validation_games_data

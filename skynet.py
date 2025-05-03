@@ -386,10 +386,12 @@ class Spatial2DInputHead(nn.Module):
             f"expected input shape {self.input_shape}, got {x.shape}"
         )
         x = einops.rearrange(x, "b p h w c -> (b p) c h w")
+        x = x.contiguous()
         x = self.conv1(x)
         x = self.resblock1(x)
-        x = self.max_pool(x)  # (b, c, 1, 1)
+        x = self.max_pool(x)  # (bp, c, 1, 1)
         x = einops.rearrange(x, "(b p) c h w -> b (p c h w)", p=self.players)
+        x = x.contiguous()
         x = self.combiner(x)  # (b, out_features)
         return x
 
@@ -682,6 +684,7 @@ class SkyNet2D(nn.Module):
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
+        combined_out = combined_out.contiguous()
         mlp_out = self.mlp(combined_out)
         dropped_out = self.dropout(mlp_out)
         value_out = self.value_tail(dropped_out)

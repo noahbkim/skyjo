@@ -1,4 +1,4 @@
-import random
+import numpy as np
 
 
 class ReplayBuffer:
@@ -16,22 +16,29 @@ class ReplayBuffer:
     def __init__(self, max_size: int):
         self.max_size = max_size
         self.buffer = []
-
-    @property
-    def games_count(self):
-        return len(self.buffer)
+        self.games_count = 0
 
     def add(self, game_data: list[tuple]):
         """Adds a game's worth of training data to the buffer."""
+        # TODO: make the buffer faster
         if len(self.buffer) >= self.max_size:
-            self.buffer.pop(0)
-        self.buffer.append(game_data)
+            self.buffer = self.buffer[: len(game_data)]
+            self.games_count -= 1
+        self.buffer.extend(game_data)
+        self.games_count += 1
 
     def sample_element(self):
         assert len(self.buffer) > 0, "Buffer is empty"
-        sample_game = random.choice(self.buffer)
-        sample_point = random.choice(sample_game)
-        return sample_point
+        # Select a random index first
+        index = np.random.randint(len(self.buffer))
+        return self.buffer[index]
 
     def sample_batch(self, batch_size: int):
-        return [self.sample_element() for _ in range(batch_size)]
+        assert len(self.buffer) > 0, "Cannot sample from an empty buffer."
+        assert batch_size <= len(self.buffer), (
+            f"Batch size {batch_size} cannot be larger than buffer size {len(self.buffer)} when sampling without replacement."
+        )
+        indices = np.random.choice(len(self.buffer), size=batch_size, replace=False)
+        # Retrieve elements using the sampled indices
+        batch = [self.buffer[i] for i in indices]
+        return batch
