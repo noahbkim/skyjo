@@ -16,7 +16,7 @@ import skynet
 
 
 def constant_basic_learning_rate(train_iter: int) -> float:
-    return 1e-2
+    return 1e-4
 
 
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
@@ -112,6 +112,8 @@ def multiprocessed_learn(
 
         training_data_buffer = buffer.ReplayBuffer(max_size=training_data_buffer_size)
         logging.info(f"Training for {training_steps} steps")
+        model = model_factory.get_latest_model()
+        model.set_device(device)
         for train_iter in range(training_steps):
             # Add training data from the queue into the buffer
             while (
@@ -122,8 +124,7 @@ def multiprocessed_learn(
             if train_iter == 0:
                 logging.info("Enough selfplay data collected, starting training")
             batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
-            model = model_factory.get_latest_model()
-            model.set_device(device)
+
             train(
                 model,
                 batch,
