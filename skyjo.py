@@ -303,14 +303,49 @@ def new(*, players: int) -> Skyjo:
 # MARK: Convenience
 
 
+def get_table(skyjo: Skyjo) -> Table:
+    """Get the board portion of the game state."""
+    return skyjo[1][: get_player_count(skyjo)]
+
+
+def get_board(skyjo: Skyjo) -> Table:
+    """Get the board portion of the game state."""
+    return get_table(skyjo)
+
+
 def get_spatial_input(skyjo: Skyjo) -> Table:
     """Get the board portion of the game state."""
     return skyjo[1][: get_player_count(skyjo)]
 
 
+def get_game(skyjo: Skyjo) -> Game:
+    """Get the game portion of the game state."""
+    return skyjo[0]
+
+
 def get_non_spatial_input(skyjo: Skyjo) -> Game:
     """Get the non-spatial (i.e. non-board) game state values."""
     return skyjo[0]
+
+
+def get_deck(skyjo: Skyjo) -> Deck:
+    """Get the deck portion of the game state."""
+    return skyjo[2]
+
+
+def get_countdown(skyjo: Skyjo) -> int | None:
+    """Get the number of cards left in the deck."""
+    return skyjo[6]
+
+
+def get_last_revealed_turn(skyjo: Skyjo) -> int:
+    """Get the last turn a card was revealed."""
+    return skyjo[7]
+
+
+def get_turn_count(skyjo: Skyjo) -> int:
+    """Get the current turn count."""
+    return skyjo[4]
 
 
 def get_draw_count(skyjo: Skyjo) -> int:
