@@ -25,7 +25,10 @@ t,T = action_type
 f,F = feature space
 """
 
-# TYPE ALIASES
+
+# MARK: State Value
+
+
 StateValue: typing.TypeAlias = np.ndarray[tuple[int], np.float32]
 """A vector representing the value of a Skyjo game for each player.
 
@@ -36,7 +39,6 @@ This can also be used to represent the outcome of the game where all entries are
 """
 
 
-# State value convenience functions
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
     """Get the outcome of the game from the fixed perspective."""
     players = skyjo[3]
@@ -59,6 +61,8 @@ def to_state_value(
 
 
 ## Training Data
+
+
 TrainingDataPoint: typing.TypeAlias = tuple[
     sj.Skyjo,  # game state
     np.ndarray[tuple[int], np.float32],  # policy target
@@ -66,6 +70,18 @@ TrainingDataPoint: typing.TypeAlias = tuple[
     np.ndarray[tuple[int], np.float32],  # points target
 ]
 TrainingBatch: typing.TypeAlias = list[TrainingDataPoint]
+
+
+def get_spatial_state_numpy(
+    skyjo: sj.Skyjo,
+) -> np.ndarray[tuple[int], np.float32]:
+    return torch.tensor(sj.get_table(skyjo), dtype=torch.float32)
+
+
+def get_non_spatial_state_numpy(
+    skyjo: sj.Skyjo,
+) -> np.ndarray[tuple[int], np.float32]:
+    return sj.get_game(skyjo)
 
 
 def get_policy_target(
@@ -333,7 +349,7 @@ class Spatia1DInputHead(nn.Module):
             self.num_rows,
             self.num_columns,
             self.num_channels,
-        ), f"expected input shape (P, H, W, C), got {x.shape}"
+        ), f"expected input shape (B, P, H, W, C), got {x.shape}"
         x = einops.rearrange(x, "b p h w c -> (b p) (h w c)")
         encoded_hands = self.hand_encoder(x)
         x = einops.rearrange(encoded_hands, "(b p) f -> b (p f)", p=self.num_players)
@@ -504,6 +520,7 @@ class SkyNet1D(nn.Module):
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
+        self.points_output_shape = value_output_shape
         self.dropout_rate = dropout_rate
         self.device = device
         self.to(device)
@@ -621,6 +638,7 @@ class SkyNet2D(nn.Module):
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
+        self.points_output_shape = value_output_shape
         self.dropout_rate = dropout_rate
         self.device = device
         self.final_embedding_dim = 32

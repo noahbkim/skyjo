@@ -9,14 +9,16 @@ mp.Queue.
 from __future__ import annotations
 
 import abc
+import datetime
 import logging
-import multiprocessing as mp
+import pathlib
 import time
 import traceback
 import typing
 
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 
 import model_factory
 import skyjo as sj
@@ -25,20 +27,280 @@ import skynet
 # MARK: Types
 
 PredictionId: typing.TypeAlias = int
-PredictorInput: typing.TypeAlias = tuple[
-    int,  # unique (per input queue) prediction id
-    np.ndarray[tuple[int], np.uint8],  # spatial input
-    np.ndarray[tuple[int], np.uint8],  # non-spatial input
-]
-
-PredictorOutput: typing.TypeAlias = tuple[
-    int,  # unique (per input queue) prediction id
-    np.ndarray[tuple[int], np.float32],  # value output
-    np.ndarray[tuple[int], np.float32],  # points output
-    np.ndarray[tuple[int], np.float32],  # policy output
-]
 QueueId: typing.TypeAlias = int
 ModelUpdate: typing.TypeAlias = bool
+
+
+# MARK: Queues
+
+
+class PredictorInputQueue:
+    def __init__(self, queue_id: QueueId, max_batch_size: int):
+        self.queue_id = queue_id
+        self.spatial_input_queue = mp.Queue()
+        self.free_spatial_input_queue = mp.Queue()
+        self.non_spatial_input_queue = mp.Queue()
+        self.free_non_spatial_input_queue = mp.Queue()
+        self.prediction_ids_queue = mp.Queue()
+        self.free_prediction_ids_queue = mp.Queue()
+        self.batch_size_queue = mp.Queue()
+        self.max_batch_size = max_batch_size
+
+    def empty(self) -> bool:
+        return (
+            self.spatial_input_queue.empty()
+            and self.non_spatial_input_queue.empty()
+            and self.prediction_ids_queue.empty()
+            and self.batch_size_queue.empty()
+        )
+
+    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return (
+            self.free_prediction_ids_queue.get(),
+            self.free_spatial_input_queue.get(),
+            self.free_non_spatial_input_queue.get(),
+        )
+
+    def put_free(
+        self,
+        prediction_ids_tensor: torch.Tensor,
+        spatial_input_tensor: torch.Tensor,
+        non_spatial_input_tensor: torch.Tensor,
+    ) -> None:
+        self.free_spatial_input_queue.put(spatial_input_tensor)
+        self.free_non_spatial_input_queue.put(non_spatial_input_tensor)
+        self.free_prediction_ids_queue.put(prediction_ids_tensor)
+
+    def put(
+        self,
+        prediction_ids_tensor: torch.Tensor,
+        spatial_input_tensor: torch.Tensor,
+        non_spatial_input_tensor: torch.Tensor,
+        batch_size: int,
+    ) -> None:
+        assert batch_size <= self.max_batch_size, (
+            f"Batch size: {batch_size} is greater than max batch size allowed: {self.max_batch_size}"
+        )
+        assert (
+            prediction_ids_tensor.shape[0]
+            == spatial_input_tensor.shape[0]
+            == non_spatial_input_tensor.shape[0]
+            == self.max_batch_size
+        ), (
+            "All input actual tensors must have the same batch size, got:",
+            f"prediction id tensor: {prediction_ids_tensor.shape[0]}",
+            f"spatial input tensor: {spatial_input_tensor.shape[0]}",
+            f"non spatial input tensor: {non_spatial_input_tensor.shape[0]}",
+            f"max batch size: {self.max_batch_size}",
+        )
+        self.spatial_input_queue.put(spatial_input_tensor)
+        self.non_spatial_input_queue.put(non_spatial_input_tensor)
+        self.prediction_ids_queue.put(prediction_ids_tensor)
+        self.batch_size_queue.put(batch_size)
+
+    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        spatial_input_tensor = self.spatial_input_queue.get()
+        non_spatial_input_tensor = self.non_spatial_input_queue.get()
+        prediction_ids_tensor = self.prediction_ids_queue.get()
+        batch_size = self.batch_size_queue.get()
+        return (
+            prediction_ids_tensor,
+            spatial_input_tensor,
+            non_spatial_input_tensor,
+            batch_size,
+        )
+
+
+class PredictorOutputQueue:
+    def __init__(self, queue_id: QueueId, max_batch_size: int):
+        self.queue_id = queue_id
+        self.prediction_ids_queue = mp.Queue()
+        self.free_prediction_ids_queue = mp.Queue()
+        self.value_output_queue = mp.Queue()
+        self.free_value_output_queue = mp.Queue()
+        self.points_output_queue = mp.Queue()
+        self.free_points_output_queue = mp.Queue()
+        self.policy_output_queue = mp.Queue()
+        self.free_policy_output_queue = mp.Queue()
+        self.batch_size_queue = mp.Queue()
+
+    def empty(self) -> bool:
+        return (
+            self.prediction_ids_queue.empty()
+            and self.value_output_queue.empty()
+            and self.points_output_queue.empty()
+            and self.policy_output_queue.empty()
+        )
+
+    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        return (
+            self.free_prediction_ids_queue.get(),
+            self.free_value_output_queue.get(),
+            self.free_points_output_queue.get(),
+            self.free_policy_output_queue.get(),
+        )
+
+    def put_free(
+        self,
+        prediction_ids_tensor: torch.Tensor,
+        value_output_tensor: torch.Tensor,
+        points_output_tensor: torch.Tensor,
+        policy_output_tensor: torch.Tensor,
+    ) -> None:
+        self.free_prediction_ids_queue.put(prediction_ids_tensor)
+        self.free_value_output_queue.put(value_output_tensor)
+        self.free_points_output_queue.put(points_output_tensor)
+        self.free_policy_output_queue.put(policy_output_tensor)
+
+    def put(
+        self,
+        prediction_ids_tensor: torch.Tensor,
+        value_output_tensor: torch.Tensor,
+        points_output_tensor: torch.Tensor,
+        policy_output_tensor: torch.Tensor,
+        batch_size: int,
+    ) -> None:
+        self.prediction_ids_queue.put(prediction_ids_tensor)
+        self.value_output_queue.put(value_output_tensor)
+        self.points_output_queue.put(points_output_tensor)
+        self.policy_output_queue.put(policy_output_tensor)
+        self.batch_size_queue.put(batch_size)
+
+    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        prediction_ids_tensor = self.prediction_ids_queue.get()
+        value_output_tensor = self.value_output_queue.get()
+        points_output_tensor = self.points_output_queue.get()
+        policy_output_tensor = self.policy_output_queue.get()
+        batch_size = self.batch_size_queue.get()
+        return (
+            prediction_ids_tensor,
+            value_output_tensor,
+            points_output_tensor,
+            policy_output_tensor,
+            batch_size,
+        )
+
+
+class UnifiedPredictorInputQueue:
+    """Queue that holds all of the inputs to be processed by the predictor."""
+
+    def __init__(self, device: torch.device):
+        self._queue = []
+        self.input_count = 0
+        self.device = device
+
+    def put(
+        self,
+        queue_id: QueueId,
+        prediction_ids_tensor: torch.Tensor,
+        spatial_input_tensor: torch.Tensor,
+        non_spatial_input_tensor: torch.Tensor,
+        batch_size: int,
+    ):
+        self._queue.append(
+            (
+                queue_id,
+                prediction_ids_tensor.clone(),
+                spatial_input_tensor.clone(),
+                non_spatial_input_tensor.clone(),
+                batch_size,
+            )
+        )
+        self.input_count += batch_size
+
+    def get(self) -> tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        (
+            queue_id,
+            prediction_ids_tensor,
+            spatial_input_tensor,
+            non_spatial_input_tensor,
+            batch_size,
+        ) = self._queue.pop(0)
+        self.input_count -= batch_size
+        return (
+            queue_id,
+            prediction_ids_tensor,
+            spatial_input_tensor,
+            non_spatial_input_tensor,
+            batch_size,
+        )
+
+    def peek(self) -> tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        return self._queue[0]
+
+    def get_batch(
+        self,
+        max_batch_size: int,
+    ) -> tuple[
+        list[tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]],
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        int,
+    ]:
+        """Gets a batch of inputs from the queue in ready to run state.
+
+        Returns the inputs in a stacked combined tensor ready for immediate model inference.
+        Additionally, returns the original input tensors so that they can be put back into
+        the free input queues once inference is complete.
+
+        Args:
+            max_batch_size: The maximum batch size to create
+
+        Returns:
+            A tuple of:
+                - A list of tuples of the original input tensors.
+                - A tensor of batched prediction ids.
+                - A tensor of batched spatial inputs.
+                - A tensor of batched non-spatial inputs.
+                - A list of batch sizes for each input.
+        """
+        (
+            queue_ids,
+            spatial_tensors,
+            non_spatial_tensors,
+            prediction_id_tensors,
+            batch_sizes,
+        ) = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+        (
+            queue_id,
+            prediction_ids_tensor,
+            spatial_input_tensor,
+            non_spatial_input_tensor,
+            batch_size,
+        ) = self.peek()
+        while sum(batch_sizes) + batch_size <= max_batch_size and self.input_count > 0:
+            queue_ids.append(queue_id)
+            spatial_tensors.append(spatial_input_tensor)
+            non_spatial_tensors.append(non_spatial_input_tensor)
+            prediction_id_tensors.append(prediction_ids_tensor)
+            batch_sizes.append(batch_size)
+            self.get()
+            if self.input_count == 0:
+                break
+            (
+                queue_id,
+                prediction_ids_tensor,
+                spatial_input_tensor,
+                non_spatial_input_tensor,
+                batch_size,
+            ) = self._queue[0]
+        spatial_input_tensor = torch.cat(spatial_tensors).to(self.device)
+        non_spatial_input_tensor = torch.cat(non_spatial_tensors).to(self.device)
+        prediction_id_tensor = torch.cat(prediction_id_tensors).to(self.device)
+        return (
+            queue_ids,
+            prediction_id_tensor,
+            spatial_input_tensor,
+            non_spatial_input_tensor,
+            batch_sizes,
+        )
 
 
 # MARK: Predictor Process
@@ -49,108 +311,209 @@ class PredictorProcess(mp.Process):
 
     def __init__(
         self,
-        model_factory: model_factory.SkyNetModelFactory,
+        factory: model_factory.SkyNetModelFactory,
         model_update_queue: mp.Queue[ModelUpdate],
-        input_queues: dict[QueueId, mp.Queue[PredictorInput]],
-        output_queues: dict[QueueId, mp.Queue[PredictorOutput]],
-        batch_size: int = 1024,
+        input_queues: dict[QueueId, PredictorInputQueue],
+        output_queues: dict[QueueId, PredictorOutputQueue],
+        min_batch_size: int = 256,
+        max_batch_size: int = 1024,
         device: torch.device = torch.device("cpu"),
         max_wait_seconds: float = 0.1,
         debug: bool = False,
+        free_output_queue_free: int = 10,
     ):
         super().__init__()
-        self.model_factory = model_factory
+        self.model_factory = factory
         self.model_update_queue = model_update_queue
         self.input_queues = input_queues
         self.output_queues = output_queues
-        self.batch_size = batch_size
+        self.max_batch_size = max_batch_size
+        self.min_batch_size = min_batch_size
         self.device = device
         self.max_wait_seconds = max_wait_seconds
         self.debug = debug
+        self.free_output_queue_free = free_output_queue_free
+
+        assert set(self.input_queues.keys()) == set(self.output_queues.keys()), (
+            "Input and output queues must have the same id keys"
+        )
+
+    def _populate_free_input_queues(self, model: skynet.SkyNet):
+        """Populate the input queues with free shared tensors for use when returning results."""
+        for queue_id, input_queue in self.input_queues.items():
+            for _ in range(self.free_output_queue_free):
+                input_queue.put_free(
+                    torch.zeros(
+                        size=(self.input_queues[queue_id].max_batch_size,),
+                        dtype=torch.int64,
+                    ).share_memory_(),  # prediction ids
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            *model.spatial_input_shape,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # spatial input
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            *model.non_spatial_input_shape,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # non spatial input
+                )
+
+    def _populate_free_output_queues(self, model: skynet.SkyNet):
+        """Populate the output queues with free shared tensors for use when returning results."""
+        for queue_id, output_queue in self.output_queues.items():
+            for _ in range(self.free_output_queue_free):
+                output_queue.put_free(
+                    torch.zeros(
+                        size=(self.input_queues[queue_id].max_batch_size,),
+                        dtype=torch.int64,
+                    ).share_memory_(),  # prediction ids
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            *model.value_output_shape,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # value output
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            *model.points_output_shape,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # points output
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            *model.policy_output_shape,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # policy output
+                )
+
+    def _setup_logging(self):
+        """Setup logging for the predictor process."""
+        log_dir = pathlib.Path(
+            f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
+        )
+        log_dir.mkdir(parents=True, exist_ok=True)
+        level = logging.DEBUG if self.debug else logging.INFO
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            filename=log_dir / "predictor.log",
+            filemode="w",
+        )
+
+    def _load_latest_model(self) -> skynet.SkyNet:
+        """Load the latest model from the model factory."""
+        model = self.model_factory.get_latest_model()
+        model.set_device(self.device)
+        model.eval()
+        logging.info(f"Loaded model from {self.model_factory._get_latest_model_path()}")
+        return model
+
+    def _gather_available_inputs(self, unified_input_queue: UnifiedPredictorInputQueue):
+        """Gather input from input queues and put it into the unified input queue."""
+        for queue_id, input_queue in self.input_queues.items():
+            while not input_queue.empty():
+                (
+                    prediction_ids_tensor,
+                    spatial_input_tensor,
+                    non_spatial_input_tensor,
+                    batch_size,
+                ) = input_queue.get()
+                unified_input_queue.put(
+                    queue_id,
+                    prediction_ids_tensor,
+                    spatial_input_tensor,
+                    non_spatial_input_tensor,
+                    batch_size,
+                )
+                input_queue.put_free(
+                    prediction_ids_tensor,
+                    spatial_input_tensor,
+                    non_spatial_input_tensor,
+                )
 
     def run(self):
         try:
-            assert set(self.input_queues.keys()) == set(self.output_queues.keys()), (
-                "Input and output queues must have the same id keys"
-            )
-            level = logging.DEBUG if self.debug else logging.INFO
-            logging.basicConfig(
-                level=level,
-                format="%(asctime)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-                filename="logs/multiprocessed_train/predictor.log",
-                filemode="a",
-            )
-            model = self.model_factory.get_latest_model()
-            model.set_device(self.device)
-            model.eval()
-            logging.info(
-                f"Loaded model from {self.model_factory._get_latest_model_path()}"
-            )
+            self._setup_logging()
+
+            # Load model
+            model = self._load_latest_model()
+
+            self._populate_free_input_queues(model)
+            self._populate_free_output_queues(model)
             start_time = time.time()
-            input_data_queue = []
+            unified_input_queue = UnifiedPredictorInputQueue(device=self.device)
             while True:
                 # Update model if available
                 while not self.model_update_queue.empty():
-                    model = self.model_factory.get_latest_model()
-                    model.set_device(self.device)
-                    model.eval()
-                    logging.info(
-                        f"New model loaded from {self.model_factory._get_latest_model_path()}"
-                    )
                     self.model_update_queue.get()
+                    model = self._load_latest_model()
 
-                # Gather input from input queues
-                for queue_id, input_queue in self.input_queues.items():
-                    while not input_queue.empty():
-                        pred_id, spatial_inputs, non_spatial_inputs = input_queue.get()
-                        input_data_queue.append(
-                            (queue_id, pred_id, spatial_inputs, non_spatial_inputs)
-                        )
+                self._gather_available_inputs(unified_input_queue)
 
-                if len(input_data_queue) >= self.batch_size or (
-                    len(input_data_queue) > 0
+                if unified_input_queue.input_count >= self.min_batch_size or (
+                    unified_input_queue.input_count > 0
                     and time.time() - start_time >= self.max_wait_seconds
                 ):
                     if self.debug:
                         logging.info(
-                            f"Running predictions, input_data_queue size: {len(input_data_queue)}"
+                            f"Running predictions, input_data_queue size: {unified_input_queue.input_count}"
                         )
-                    to_run = input_data_queue[: self.batch_size]
-                    input_data_queue = input_data_queue[self.batch_size :]
-                    queue_ids, pred_ids, spatial_inputs, non_spatial_inputs = zip(
-                        *to_run
-                    )
-                    spatial_input_tensor = torch.tensor(
-                        np.array(spatial_inputs),
-                        dtype=torch.float32,
-                        device=self.device,
-                    )
-                    non_spatial_input_tensor = torch.tensor(
-                        np.array(non_spatial_inputs),
-                        dtype=torch.float32,
-                        device=self.device,
-                    )
+                    (
+                        queue_ids,
+                        prediction_ids,
+                        spatial_input_tensor,
+                        non_spatial_input_tensor,
+                        batch_sizes,
+                    ) = unified_input_queue.get_batch(self.max_batch_size)
+
                     # Model Inference
                     with torch.no_grad():
-                        model_output = model(
+                        value_output, points_output, policy_output = model(
                             spatial_input_tensor, non_spatial_input_tensor
                         )
-                        numpy_output = skynet.output_to_numpy(model_output)
 
                     # Send outputs back to clients
-                    for idx, (queue_id, pred_id) in enumerate(zip(queue_ids, pred_ids)):
-                        value_numpy, points_numpy, policy_numpy = (
-                            skynet.get_single_model_output(numpy_output, idx)
-                        )
+                    processed_count = 0
+                    for queue_id, batch_size in zip(queue_ids, batch_sizes):
+                        # Get free output tensors and set to results
+                        (
+                            prediction_ids_tensor,
+                            value_tensor,
+                            points_tensor,
+                            policy_tensor,
+                        ) = self.output_queues[queue_id].get_free()
+                        prediction_ids_tensor[:batch_size] = prediction_ids[
+                            processed_count : processed_count + batch_size
+                        ]
+                        value_tensor[:batch_size] = value_output[
+                            processed_count : processed_count + batch_size
+                        ]
+                        points_tensor[:batch_size] = points_output[
+                            processed_count : processed_count + batch_size
+                        ]
+                        policy_tensor[:batch_size] = policy_output[
+                            processed_count : processed_count + batch_size
+                        ]
+
+                        # Put results back into output queue
                         self.output_queues[queue_id].put(
-                            (
-                                pred_id,
-                                value_numpy,
-                                points_numpy,
-                                policy_numpy,
-                            )
+                            prediction_ids_tensor,
+                            value_tensor,
+                            points_tensor,
+                            policy_tensor,
+                            batch_size,
                         )
+                        processed_count += batch_size
                     start_time = time.time()
         except Exception as e:
             logging.error(f"Predictor process failed: {traceback.format_exc()}")
@@ -163,16 +526,38 @@ class PredictorProcess(mp.Process):
 class PredictorClient(abc.ABC):
     @abc.abstractmethod
     def put(self, state: sj.Skyjo) -> PredictionId:
+        """Puts a state into the client's input queue."""
+        pass
+
+    @abc.abstractmethod
+    def send(self) -> None:
+        """Forces the client to send requests to the predictor process."""
         pass
 
     @abc.abstractmethod
     def get(self) -> tuple[PredictionId, skynet.SkyNetPrediction]:
+        """Gets a prediction from the client's output queue."""
+        pass
+
+    @abc.abstractmethod
+    def get_nowait(
+        self,
+    ) -> tuple[PredictionId, skynet.SkyNetPrediction] | None:
+        """Gets a prediction from the client's output queue without waiting."""
+        pass
+
+    @abc.abstractmethod
+    def get_all(
+        self,
+    ) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
+        """Gets all predictions from the client's output queue."""
         pass
 
     @abc.abstractmethod
     def get_all_nowait(
         self,
     ) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
+        """Gets all predictions from the client's output queue without waiting."""
         pass
 
 
@@ -181,163 +566,197 @@ class MultiProcessPredictorClient(PredictorClient):
 
     def __init__(
         self,
-        input_queue: mp.Queue[PredictorInput],
-        output_queue: mp.Queue[PredictorOutput],
+        input_queue: PredictorInputQueue,
+        output_queue: PredictorOutputQueue,
     ):
+        self.current_inputs = []
+        self.current_output = None
+        self.sample_count = 0
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.count = 0
 
+    @property
+    def output_ready(self) -> bool:
+        return self.current_output is not None or not self.output_queue.empty()
+
     def _get_unique_prediction_id(self) -> PredictionId:
         id = self.count
         self.count += 1
         return id
+
+    def _get_new_output(
+        self,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        (
+            prediction_ids,
+            value_output,
+            points_output,
+            policy_output,
+            batch_size,
+        ) = self.output_queue.get()
+        new_output = (
+            prediction_ids[:batch_size].clone(),
+            value_output[:batch_size].clone(),
+            points_output[:batch_size].clone(),
+            policy_output[:batch_size].clone(),
+        )
+        self.output_queue.put_free(
+            prediction_ids,
+            value_output,
+            points_output,
+            policy_output,
+        )
+        return new_output
+
+    def _get_current_batch(
+        self,
+    ) -> tuple[
+        list[PredictionId],
+        list[np.ndarray[tuple[int], np.float32]],
+        list[np.ndarray[tuple[int], np.float32]],
+        int,
+    ]:
+        prediction_ids, spatial_inputs, nonspatial_inputs = zip(*self.current_inputs)
+        batch_size = min(len(self.current_inputs), self.input_queue.max_batch_size)
+        self.current_inputs = self.current_inputs[batch_size:]
+        return (
+            prediction_ids,
+            spatial_inputs,
+            nonspatial_inputs,
+            batch_size,
+        )
 
     def put(self, state: sj.Skyjo) -> PredictionId:
         prediction_id = self._get_unique_prediction_id()
-        spatial_numpy = sj.get_spatial_input(state)
-        nonspatial_numpy = sj.get_non_spatial_input(state)
-        self.input_queue.put((prediction_id, spatial_numpy, nonspatial_numpy))
+        spatial_numpy = skynet.get_spatial_state_numpy(state)
+        nonspatial_numpy = skynet.get_non_spatial_state_numpy(state)
+        self.current_inputs.append((prediction_id, spatial_numpy, nonspatial_numpy))
         return prediction_id
 
-    def get_all_nowait(
-        self,
-    ) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
-        if self.output_queue.empty():
-            return []
-
-        outputs = []
-        while not self.output_queue.empty():
-            result = self.get_nowait()
-            assert result is not None, (
-                "result was None even though output queue isn't empty"
-            )
-            outputs.append(result)
-        return outputs
-
-    def get_all(self) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
-        if self.output_queue.empty():
-            return []
-
-        outputs = [self.get()]
-        while not self.output_queue.empty():
-            result = self.get_nowait()
-            assert result is not None, (
-                "result was None even though output queue isn't empty"
-            )
-            outputs.append(result)
-        return outputs
-
-    def get(
-        self,
-    ) -> tuple[PredictionId, skynet.SkyNetPrediction]:
-        pred_id, value_numpy, points_numpy, policy_numpy = self.output_queue.get()
-        return pred_id, skynet.SkyNetPrediction(
-            value_output=value_numpy,
-            points_output=points_numpy,
-            policy_output=policy_numpy,
+    def send(self) -> None:
+        prediction_ids, spatial_inputs, nonspatial_inputs, batch_size = (
+            self._get_current_batch()
         )
-
-    def get_nowait(
-        self,
-    ) -> tuple[PredictionId, skynet.SkyNetPrediction] | None:
-        if self.output_queue.empty():
-            return None
-        pred_id, value_numpy, points_numpy, policy_numpy = (
-            self.output_queue.get_nowait()
+        prediction_ids_tensor, spatial_input_tensor, nonspatial_input_tensor = (
+            self.input_queue.get_free()
         )
-        return pred_id, skynet.SkyNetPrediction(
-            value_output=value_numpy,
-            points_output=points_numpy,
-            policy_output=policy_numpy,
+        prediction_ids_tensor[:batch_size] = torch.tensor(
+            np.array(prediction_ids),
+            dtype=torch.int64,
         )
-
-
-class NaivePredictorClient(PredictorClient):
-    """Predictor client that actually just lazily runs the model inference."""
-
-    def __init__(
-        self,
-        model: skynet.SkyNet,
-        device: torch.device = torch.device("cpu"),
-    ):
-        self.model = model
-        self.device = device
-        self.count = 0
-        self.input_queue = []
-        self.output_queue = []
-
-    def _get_unique_prediction_id(self) -> PredictionId:
-        id = self.count
-        self.count += 1
-        return id
-
-    def _run_model(self) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
-        assert len(self.input_queue) > 0, "No predictions are available to run"
-        prediction_ids, spatial_inputs, nonspatial_inputs = zip(*self.input_queue)
-        spatial_input_tensor = torch.tensor(
+        spatial_input_tensor[:batch_size] = torch.tensor(
             np.array(spatial_inputs),
             dtype=torch.float32,
-            device=self.device,
         )
-        non_spatial_input_tensor = torch.tensor(
+        nonspatial_input_tensor[:batch_size] = torch.tensor(
             np.array(nonspatial_inputs),
             dtype=torch.float32,
-            device=self.device,
         )
-        with torch.no_grad():
-            model_output = self.model(spatial_input_tensor, non_spatial_input_tensor)
-            numpy_output = skynet.output_to_numpy(model_output)
-        self.input_queue = []
-        return [
-            (
-                prediction_id,
-                skynet.SkyNetPrediction(
-                    value_output=value_numpy,
-                    points_output=points_numpy,
-                    policy_output=policy_numpy,
-                ),
-            )
-            for prediction_id, value_numpy, points_numpy, policy_numpy in zip(
-                prediction_ids, *numpy_output
-            )
-        ]
-
-    def put(self, state: sj.Skyjo) -> PredictionId:
-        prediction_id = self._get_unique_prediction_id()
-        spatial_numpy = sj.get_spatial_input(state)
-        nonspatial_numpy = sj.get_non_spatial_input(state)
-        self.input_queue.append((prediction_id, spatial_numpy, nonspatial_numpy))
-        return prediction_id
-
-    def get_all_nowait(
-        self,
-    ) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
-        if len(self.output_queue) == 0:
-            if len(self.input_queue) == 0:
-                return []
-            self.output_queue = self._run_model()
-        outputs = self.output_queue
-        self.output_queue = []
-        return outputs
-
-    def get_all(
-        self,
-    ) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
-        return self.get_all_nowait()
+        self.input_queue.put(
+            prediction_ids_tensor,
+            spatial_input_tensor,
+            nonspatial_input_tensor,
+            batch_size,
+        )
 
     def get(
         self,
-    ) -> tuple[PredictionId, skynet.SkyNetPrediction]:
-        if len(self.output_queue) == 0:
-            self.output_queue = self._run_model()
-        return self.output_queue.pop(0)
+    ) -> tuple[PredictionId, skynet.SkyNetPrediction] | None:
+        if self.current_output is None:
+            self.current_output = self._get_new_output()
+        to_return = (
+            self.current_output[0][self.sample_count],
+            skynet.SkyNetPrediction(
+                value_output=self.current_output[1][self.sample_count],
+                points_output=self.current_output[2][self.sample_count],
+                policy_output=self.current_output[3][self.sample_count],
+            ),
+        )
+        self.sample_count += 1
+        # We have returned all of the samples in the current batch
+        if self.sample_count == self.current_output[0].shape[0]:
+            self.current_output = None
+            self.sample_count = 0
+        return to_return
+
+    def get_all(self) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
+        if self.current_output is None:
+            self.current_output = self._get_new_output()
+        outputs = []
+        for sample_idx in range(self.sample_count, self.current_output[0].shape[0]):
+            outputs.append(
+                (
+                    self.current_output[0][sample_idx],
+                    skynet.SkyNetPrediction(
+                        value_output=self.current_output[1][sample_idx],
+                        points_output=self.current_output[2][sample_idx],
+                        policy_output=self.current_output[3][sample_idx],
+                    ),
+                )
+            )
+        self.current_output = None
+        self.sample_count = 0
+        return outputs
 
     def get_nowait(
         self,
     ) -> tuple[PredictionId, skynet.SkyNetPrediction] | None:
-        if len(self.output_queue) == 0:
-            if len(self.input_queue) == 0:
-                return None
-            self.output_queue = self._run_model()
-        return self.output_queue.pop(0)
+        if self.current_output is None:
+            return None
+        return self.get()
+
+    def get_all_nowait(self) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
+        if self.current_output is None:
+            return []
+        return self.get_all()
+
+
+if __name__ == "__main__":
+    import time
+
+    factory = model_factory.SkyNetModelFactory()
+    input_queues = {0: PredictorInputQueue(0, 512)}
+    output_queues = {0: PredictorOutputQueue(0, 512)}
+    device = torch.device("cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    debug = True
+    predictor_process = PredictorProcess(
+        factory=factory,
+        model_update_queue=mp.Queue(),
+        device=device,
+        input_queues=input_queues,
+        output_queues=output_queues,
+        debug=debug,
+    )
+    predictor_process.start()
+    predictor_client = MultiProcessPredictorClient(
+        input_queue=input_queues[0],
+        output_queue=output_queues[0],
+    )
+    state = sj.new(players=2)
+    state = sj.start_round(state)
+
+    predictor_client.put(state)
+    predictor_client.put(sj.apply_action(state, sj.MASK_FLIP_SECOND_BELOW))
+    time.sleep(1)
+    assert not predictor_client.output_ready, (
+        "Nothing has been sent yet, so output should not be ready"
+    )
+    print("Sending")
+    predictor_client.send()
+    time.sleep(2)
+    assert predictor_client.output_ready, "Output should be ready after sending"
+    print("Getting")
+    prediction = predictor_client.get()
+    print(prediction)
+    assert prediction is not None, "Prediction should not be None"
+
+    predictions = predictor_client.get_all()
+    assert len(predictions) == 1, "Should have 1 remaining prediction"
+    print(predictions[0])
+
+    predictor_process.join()
