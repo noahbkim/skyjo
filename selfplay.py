@@ -156,8 +156,6 @@ def multiprocessed_selfplay(
 
 def selfplay(
     model: skynet.SkyNet,
-    model_runner_input_queue: mp.Queue,
-    model_runner_output_queue: mp.Queue,
     players: int = 2,
     mcts_iterations: int = 100,
     mcts_temperature: float = 1.0,
@@ -170,13 +168,11 @@ def selfplay(
         game_state = sj.start_round(game_state)
         game_data = []
         while not sj.get_game_over(game_state):
-            node = mcts.run_mcts_with_model_runner(
+            node = mcts.run_mcts(
                 game_state,
                 model,
                 mcts_iterations,
                 afterstate_initial_realizations,
-                model_runner_input_queue,
-                model_runner_output_queue,
             )
             mcts_probs = node.sample_child_visit_probabilities(
                 temperature=mcts_temperature

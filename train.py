@@ -181,6 +181,58 @@ def multiprocessed_learn(
         predictor_process.join()
 
 
+def learn(
+    model: skynet.SkyNet,
+    players: int,
+    training_steps: int = 10000,
+    training_epochs: int = 2,
+    training_episodes: int = 64,
+    training_batch_size: int = 256,
+    selfplay_processes: int = 1,
+    selfplay_kwargs: typing.Callable[[int], dict[str, typing.Any]]
+    | dict[str, typing.Any] = {},
+    training_data_buffer_max_games: int = 10000,
+    validation_function: typing.Callable[[skynet.SkyNet], None] = None,
+    validation_step_interval: int = 10,
+):
+    training_data_buffer = buffer.ReplayBuffer(max_games=training_data_buffer_max_games)
+    for train_iter in range(training_steps):
+        if callable(selfplay_kwargs):
+            selfplay_kwargs = selfplay_kwargs(train_iter)
+        with mp.Pool(processes=selfplay_processes) as pool:
+            selfplay_futures = []
+            for _ in range(training_episodes):
+                selfplay_futures.append(
+                    pool.apply_async(
+                        selfplay.selfplay,
+                        args=(model, players),
+                        kwds=selfplay_kwargs,
+                    )
+                )
+            selfplay_games_data = [future.get() for future in selfplay_futures]
+
+        for game_data in selfplay_games_data:
+            training_data_buffer.add_game_data_with_symmetry(game_data)
+
+        for _ in range(training_epochs):
+            for _ in range(len(training_data_buffer) // training_batch_size):
+                batch = training_data_buffer.sample_batch(
+                    batch_size=training_batch_size
+                )
+                train(
+                    model,
+                    batch,
+                    loss_function=skynet.base_total_loss,
+                    learning_rate=constant_basic_learning_rate(train_iter),
+                )
+
+        if (
+            train_iter % validation_step_interval == 0
+            and validation_function is not None
+        ):
+            validation_function(model)
+
+
 if __name__ == "__main__":
     import datetime
     import pathlib
