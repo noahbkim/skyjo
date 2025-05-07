@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import pathlib
 import typing
 
 import einops
 import numpy as np
-import numpy.typing as npt
 import torch
 import torch.nn as nn
 
-import abstract
 import skyjo as sj
 
 """
@@ -25,7 +25,10 @@ t,T = action_type
 f,F = feature space
 """
 
-# TYPE ALIASES
+
+# MARK: State Value
+
+
 StateValue: typing.TypeAlias = np.ndarray[tuple[int], np.float32]
 """A vector representing the value of a Skyjo game for each player.
 
@@ -36,9 +39,8 @@ This can also be used to represent the outcome of the game where all entries are
 """
 
 
-# State value convenience functions
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
-    """Get the outcome of the game from the perspective of the current player."""
+    """Get the outcome of the game from the fixed perspective."""
     players = skyjo[3]
     outcome = np.zeros((players,), dtype=np.float32)
     outcome[sj.get_fixed_perspective_winner(skyjo)] = 1.0
@@ -52,9 +54,75 @@ def state_value_for_player(state_value: StateValue, player: int) -> float:
     return state_value[player].item()
 
 
+def to_state_value(
+    value_output: np.ndarray[tuple[int], np.float32], curr_player: int
+) -> StateValue:
+    return np.roll(value_output, shift=-curr_player)
+
+
+## Training Data
+
+
+TrainingDataPoint: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int], np.float32],  # spatial input
+    np.ndarray[tuple[int], np.float32],  # non-spatial input
+    np.ndarray[tuple[int], np.float32],  # policy target
+    np.ndarray[tuple[int], np.float32],  # outcome target
+    np.ndarray[tuple[int], np.float32],  # points target
+]
+TrainingBatch: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int, int, int, int, int], np.float32],  # spatial input
+    np.ndarray[tuple[int, int], np.float32],  # non-spatial input
+    np.ndarray[tuple[int, int], np.float32],  # policy target
+    np.ndarray[tuple[int, int], np.float32],  # outcome target
+    np.ndarray[tuple[int, int], np.float32],  # points target
+]
+
+
+def get_spatial_state_numpy(
+    skyjo: sj.Skyjo,
+) -> np.ndarray[tuple[int], np.float32]:
+    return torch.tensor(sj.get_table(skyjo), dtype=torch.float32)
+
+
+def get_non_spatial_state_numpy(
+    skyjo: sj.Skyjo,
+) -> np.ndarray[tuple[int], np.float32]:
+    return sj.get_game(skyjo)
+
+
+def get_policy_target(
+    batch: TrainingBatch,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    return torch.tensor(
+        np.array([data_point[0] for data_point in batch]), device=device
+    )
+
+
+def get_value_target(
+    batch: TrainingBatch,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    return torch.tensor(
+        np.array([data_point[1] for data_point in batch]), device=device
+    )
+
+
+def get_points_target(
+    batch: TrainingBatch,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    return torch.tensor(
+        np.array([data_point[2] for data_point in batch]), device=device
+    )
+
+
 ## LOSS FUNCTIONS
 def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    loss = -(target * torch.log(predicted)).sum(dim=1)
+    loss = -(target * torch.log(predicted + 1e-9)).sum(
+        dim=1
+    )  # add small epsilon to avoid log(0)
     return loss.mean()
 
 
@@ -62,98 +130,121 @@ def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.T
     return torch.sum((target - predicted) ** 2) / target.size()[0]
 
 
-# OUTPUT DATACLASSES
-@dataclasses.dataclass(slots=True)
-class PolicyOutput:
-    probabilities: np.ndarray
-    is_renormalized: bool = False
-
-    @classmethod
-    def from_tensor_output(cls, output: torch.Tensor) -> typing.Self:
-        return cls(output.detach().numpy(), is_renormalized=False)
-
-    def __post_init__(self):
-        assert abs(self.probabilities.sum() - 1) < 1e-6, (
-            f"expected probabilities to sum to 1, got {self.probabilities.sum()}"
-        )
-
-    def mask_invalid_and_renormalize(
-        self, valid_actions_mask: npt.NDArray[np.int8]
-    ) -> typing.Self:
-        assert valid_actions_mask.shape == self.probabilities.shape, (
-            f"expected valid_actions_mask of shape {self.probabilities.shape}, got {valid_actions_mask.shape}"
-        )
-        valid_action_probabilities = self.probabilities * valid_actions_mask
-        total_valid_action_probabilities = einops.reduce(
-            valid_action_probabilities, "b ... -> b", reduction="sum"
-        )
-        num_valid_actions = einops.reduce(
-            valid_actions_mask, "b ... -> b", reduction="sum"
-        )
-        assert not np.any(num_valid_actions == 0), (
-            "expected no samples with no valid actions"
-        )
-        # Change denominator to 1 if total probability is 0 to make division safe
-        safe_denominator = np.where(
-            total_valid_action_probabilities == 0, 1.0, total_valid_action_probabilities
-        )
-        renormalized_valid_action_probabilities = (
-            valid_action_probabilities / safe_denominator
-        )
-        # Assign uniform probability where total probability is 0
-        renormalized_valid_action_probabilities = np.where(
-            total_valid_action_probabilities == 0,
-            1 / num_valid_actions,
-            renormalized_valid_action_probabilities,
-        )
-
-        return PolicyOutput(
-            renormalized_valid_action_probabilities, is_renormalized=True
-        )
-
-    def get_action_probability(self, action: sj.SkyjoAction) -> float:
-        assert self.probabilities.shape[0] == 1, (
-            f"expected 1 sample, got {self.probabilities.shape[0]}"
-        )
-        return self.probabilities[:, action].item()
+def base_total_loss(
+    model_output: SkyNetOutput,
+    value_targets: np.ndarray[tuple[int, int], np.float32],
+    points_targets: np.ndarray[tuple[int, int], np.float32],
+    policy_targets: np.ndarray[tuple[int, int], np.float32],
+    value_scale: float = 3.0,
+) -> torch.Tensor:
+    value_output, points_output, policy_output = model_output
+    assert policy_output.shape == policy_targets.shape, (
+        f"expected policy_output of shape {policy_targets.shape}, got {policy_output.shape}"
+    )
+    assert value_output.shape == value_targets.shape, (
+        f"expected value_output of shape {value_targets.shape}, got {value_output.shape}"
+    )
+    assert points_output.shape == points_targets.shape, (
+        f"expected points_output of shape {points_targets.shape}, got {points_output.shape}"
+    )
+    policy_loss = compute_policy_loss(
+        policy_output,
+        torch.tensor(policy_targets, device=policy_output.device, dtype=torch.float32),
+    )
+    value_loss = compute_value_loss(
+        value_output,
+        torch.tensor(value_targets, device=value_output.device, dtype=torch.float32),
+    )
+    return policy_loss + value_scale * value_loss
 
 
-@dataclasses.dataclass(slots=True)
-class ValueOutput:
-    # _values is indexed starting with current player
-    state_values: np.ndarray[tuple[int, int], np.float32]  # (batch_size, num_players)
-    curr_player: int
+def mask_and_renormalize_policy_probabilities(
+    policy_probabilities: np.ndarray[tuple[int], np.float32],
+    valid_actions_mask: np.ndarray[tuple[int], np.int8],
+) -> np.ndarray[tuple[int], np.float32]:
+    assert valid_actions_mask.shape == policy_probabilities.shape, (
+        f"expected valid_actions_mask of shape {policy_probabilities.shape}, got {valid_actions_mask.shape}"
+    )
+    valid_action_probabilities = policy_probabilities * valid_actions_mask
+    total_valid_action_probabilities = valid_action_probabilities.sum()
+    num_valid_actions = valid_actions_mask.sum()
+    assert not np.any(num_valid_actions == 0), (
+        "expected no samples with no valid actions"
+    )
+    if total_valid_action_probabilities == 0:
+        return np.ones_like(policy_probabilities) / num_valid_actions
+    renormalized_valid_action_probabilities = (
+        valid_action_probabilities / total_valid_action_probabilities
+    )
+    return renormalized_valid_action_probabilities
 
-    @classmethod
-    def from_tensor_output(cls, output: torch.Tensor, curr_player: int) -> typing.Self:
-        return cls(
-            np.roll(output.detach().numpy(), -curr_player, axis=1),
-            curr_player,
-        )
 
-    def state_value(self, sample_idx: int = 0) -> sj.StateValue:
-        return self.state_values[sample_idx]
+def get_single_model_output(
+    model_output: SkyNetOutput | SkyNetNumpyOutput, idx: int
+) -> SkyNetOutput | SkyNetNumpyOutput:
+    return (
+        model_output[0][idx],
+        model_output[1][idx],
+        model_output[2][idx],
+    )
 
 
-@dataclasses.dataclass(slots=True)
-class PointDifferentialOutput:
-    point_differentials: sj.StateValue
-    curr_player: int
+def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
+    """Converts a SkyNetOutput to a SkyNetNumpyOutput.
 
-    @classmethod
-    def from_tensor_output(cls, output: torch.Tensor, curr_player: int) -> typing.Self:
-        return cls(
-            np.roll(output.detach().numpy(), -curr_player, axis=1),
-            curr_player,
-        )
+    Handles the detaching and converting to numpy
+    (including copying to cpu when device is not cpu).
+    """
+    value_output = output[0].detach()
+    points_output = output[1].detach()
+    policy_output = output[2].detach()
+    if value_output.device != torch.device("cpu"):
+        value_output = value_output.cpu()
+    if points_output.device != torch.device("cpu"):
+        points_output = points_output.cpu()
+    if policy_output.device != torch.device("cpu"):
+        policy_output = policy_output.cpu()
+    return value_output.numpy(), points_output.numpy(), policy_output.numpy()
 
 
 # Prediction dataclasses
 @dataclasses.dataclass(slots=True)
-class SkyNetPrediction(abstract.AbstractModelPrediction):
-    policy_output: PolicyOutput
-    point_differential_output: PointDifferentialOutput
-    value_output: ValueOutput
+class SkyNetPrediction:
+    value_output: np.ndarray[tuple[int], np.float32]
+    points_output: np.ndarray[tuple[int], np.float32]
+    policy_output: np.ndarray[tuple[int], np.float32]
+
+    @classmethod
+    def from_skynet_output(
+        cls,
+        output: SkyNetOutput,
+    ) -> SkyNetPrediction:
+        numpy_output = output_to_numpy(output)
+        value_numpy, points_numpy, policy_numpy = get_single_model_output(
+            numpy_output, 0
+        )
+        assert (
+            len(value_numpy.shape)
+            == len(points_numpy.shape)
+            == len(policy_numpy.shape)
+            == 1
+        ), (
+            "expected value_output, points_output, and policy_output to be a single result and not batched results."
+            f"value_output.shape: {value_numpy.shape}, points_output.shape: {points_numpy.shape}, policy_output.shape: {policy_numpy.shape}"
+        )
+        return SkyNetPrediction(
+            value_output=value_numpy,
+            points_output=points_numpy,
+            policy_output=policy_numpy,
+        )
+
+    def __str__(self) -> str:
+        return f"{self.policy_output}\n{self.value_output}\n{self.points_output}"
+
+    def mask_and_renormalize(self, valid_actions_mask: np.ndarray[tuple[int], np.int8]):
+        self.policy_output = mask_and_renormalize_policy_probabilities(
+            self.policy_output, valid_actions_mask
+        )
 
 
 # NETWORKS
@@ -222,6 +313,7 @@ class Spatia1DInputHead(nn.Module):
         input_shape: tuple[int, ...],
         hand_embedding_features: int,
         out_features: int,
+        dropout_rate: float = 0.5,
     ):
         super(Spatia1DInputHead, self).__init__()
         assert len(input_shape) == 4, (
@@ -238,11 +330,17 @@ class Spatia1DInputHead(nn.Module):
         self.hand_encoder = nn.Sequential(
             nn.Linear(
                 in_features=self.num_channels * self.num_rows * self.num_columns,
-                out_features=hand_embedding_features,
+                out_features=(
+                    self.num_channels * self.num_rows * self.num_columns
+                    + hand_embedding_features
+                ),
             ),
             nn.ReLU(inplace=True),
             nn.Linear(
-                in_features=hand_embedding_features,
+                in_features=(
+                    self.num_channels * self.num_rows * self.num_columns
+                    + hand_embedding_features
+                ),
                 out_features=hand_embedding_features,
             ),
             nn.ReLU(inplace=True),
@@ -257,6 +355,7 @@ class Spatia1DInputHead(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(in_features=self.out_features, out_features=self.out_features),
             nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
         )
 
     def forward(self, x):
@@ -265,11 +364,66 @@ class Spatia1DInputHead(nn.Module):
             self.num_rows,
             self.num_columns,
             self.num_channels,
-        ), f"expected input shape (P, H, W, C), got {x.shape}"
+        ), f"expected input shape (B, P, H, W, C), got {x.shape}"
         x = einops.rearrange(x, "b p h w c -> (b p) (h w c)")
         encoded_hands = self.hand_encoder(x)
         x = einops.rearrange(encoded_hands, "(b p) f -> b (p f)", p=self.num_players)
         x = self.transform_encoded_hands(x)
+        return x
+
+
+class Spatial2DInputHead(nn.Module):
+    def __init__(
+        self,
+        input_shape: tuple[int, ...],
+        hand_embedding_channels: int,
+        out_features: int,
+        dropout_rate: float = 0.5,
+    ):
+        super(Spatial2DInputHead, self).__init__()
+        assert len(input_shape) == 4, (
+            f"expected 4D input (P, H, W, C), got {input_shape}"
+        )
+        self.input_shape = input_shape
+        self.players = input_shape[0]
+        self.out_features = out_features
+        self.hand_embedding_channels = hand_embedding_channels
+        self.conv1 = nn.Conv2d(
+            in_channels=self.input_shape[3],
+            out_channels=self.hand_embedding_channels,
+            kernel_size=(3, 1),
+            stride=(1, 1),
+            padding=(1, 0),
+        )
+        self.resblock1 = ResBlock(
+            in_channels=self.hand_embedding_channels,
+            out_channels=[self.hand_embedding_channels, self.hand_embedding_channels],
+            kernel_sizes=[(3, 3), (3, 3)],
+            strides=[(1, 1), (1, 1)],
+            paddings=[(1, 1), (1, 1)],
+        )
+        self.max_pool = nn.MaxPool2d(kernel_size=(sj.ROW_COUNT, sj.COLUMN_COUNT))
+        self.combiner = nn.Sequential(
+            nn.Linear(
+                in_features=self.hand_embedding_channels * self.players,
+                out_features=self.out_features,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
+        )
+
+    def forward(self, x):
+        assert x.shape[1:] == self.input_shape, (
+            f"expected input shape {self.input_shape}, got {x.shape}"
+        )
+        x = einops.rearrange(x, "b p h w c -> (b p) c h w")
+        x = x.contiguous()
+        x = self.conv1(x)
+        x = self.resblock1(x)
+        x = self.max_pool(x)  # (bp, c, 1, 1)
+        x = einops.rearrange(x, "(b p) c h w -> b (p c h w)", p=self.players)
+        x = x.contiguous()
+        x = self.combiner(x)  # (b, out_features)
         return x
 
 
@@ -281,6 +435,7 @@ class NonSpatialInputHead(nn.Module):
         in_features: int,
         out_features: int,
         activations: list[nn.Module] = [nn.ReLU(inplace=True), nn.ReLU(inplace=True)],
+        dropout_rate: float = 0.5,
     ):
         assert len(activations) == 2, "expected 2 activations, got {}".format(
             len(activations)
@@ -289,6 +444,7 @@ class NonSpatialInputHead(nn.Module):
         self.out_features = out_features
         self.in_features = in_features
         self.linear1 = nn.Linear(in_features=in_features, out_features=out_features)
+        self.dropout1 = nn.Dropout(dropout_rate)
         self.activation1 = activations[0]
         self.linear2 = nn.Linear(in_features=out_features, out_features=out_features)
         self.activation2 = activations[1]
@@ -303,43 +459,7 @@ class NonSpatialInputHead(nn.Module):
         x = self.activation1(x)
         x = self.linear2(x)
         x = self.activation2(x)
-        return x
-
-
-class ActionInputHead(nn.Module):
-    """Handles the action features of the current skyjo state (i.e. the action to take)"""
-
-    def __init__(
-        self,
-        action_shape: typing.Iterable[int],
-        out_features: int,
-        activations: list[nn.Module] = [nn.ReLU(inplace=True), nn.ReLU(inplace=True)],
-    ):
-        super(ActionInputHead, self).__init__()
-        self.out_features = out_features
-        self.action_shape = action_shape
-        self.linear1 = nn.Linear(
-            in_features=np.cumprod([dim for dim in action_shape])[-1],
-            out_features=out_features,
-        )
-        self.activation1 = activations[0]
-        self.linear2 = nn.Linear(
-            in_features=out_features,
-            out_features=out_features,
-        )
-        self.activation2 = activations[1]
-
-    def forward(self, x):
-        """
-        Input: (N, T, W, H)
-        Output: (N, out_features)
-        """
-        assert len(x.shape) == 4, f"expected 4D input (N, T, W, H), got {x.shape}"
-        x = einops.rearrange(x, "b t w h -> b (t w h)")
-        x = self.linear1(x)
-        x = self.activation1(x)
-        x = self.linear2(x)
-        x = self.activation2(x)
+        x = self.dropout1(x)
         return x
 
 
@@ -349,14 +469,11 @@ class PolicyTail(nn.Module):
         super(PolicyTail, self).__init__()
         self.num_features = num_features
         self.out_features = out_features
-        # INPUT: (N, F)
-        # OUTPUT: (N, A)
         self.linear1 = nn.Linear(
             in_features=num_features,
             out_features=out_features,  # number of possible moves
         )
-        # INPUT: (N, A)
-        # OUTPUT: (N, A)
+        self.activation1 = nn.ReLU(inplace=True)
         self.softmax1 = nn.Softmax(dim=1)
 
     def forward(self, x):
@@ -376,9 +493,7 @@ class ValueTail(nn.Module):
         # INPUT: (N, F)
         # OUTPUT: (N, P)
         self.linear1 = nn.Linear(in_features=num_features, out_features=num_players)
-        # INPUT: (N, P)
-        # OUTPUT: (N, P)
-        self.softmax1 = nn.Softmax(dim=1)
+        self.activation1 = nn.Sigmoid()
 
     def forward(self, x):
         """
@@ -386,13 +501,13 @@ class ValueTail(nn.Module):
         Output: (N, P)
         """
         x = self.linear1(x)
-        x = self.softmax1(x)
+        x = self.activation1(x)
         return x
 
 
-class PointDifferenceTail(nn.Module):
+class PointsTail(nn.Module):
     def __init__(self, num_features: int, num_players: int):
-        super(PointDifferenceTail, self).__init__()
+        super(PointsTail, self).__init__()
         self.linear1 = nn.Linear(in_features=num_features, out_features=num_players)
 
     def forward(self, x):
@@ -412,36 +527,52 @@ class SkyNet1D(nn.Module):
         non_spatial_input_shape: tuple[int],
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
+        device: torch.device = torch.device("cpu"),
+        dropout_rate: float = 0.5,
     ):
         super(SkyNet1D, self).__init__()
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
-
-        self.final_embedding_dim = 32
+        self.points_output_shape = value_output_shape
+        self.dropout_rate = dropout_rate
+        self.device = device
+        self.to(device)
+        self.final_embedding_dim = 128
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
-            hand_embedding_features=32,
-            out_features=32,
+            hand_embedding_features=64,
+            out_features=64,
         )
         self.non_spatial_input_head = NonSpatialInputHead(
             in_features=non_spatial_input_shape[0],
-            out_features=32,
+            out_features=48,
         )
         self.mlp = nn.Sequential(
             nn.Linear(
                 in_features=self.spatial_input_head.out_features
                 + self.non_spatial_input_head.out_features,
-                out_features=self.final_embedding_dim,
+                out_features=(
+                    self.spatial_input_head.out_features
+                    + self.non_spatial_input_head.out_features
+                    + self.final_embedding_dim
+                )
+                // 2,
             ),
             nn.ReLU(inplace=True),
             nn.Linear(
-                in_features=self.final_embedding_dim,
+                in_features=(
+                    self.spatial_input_head.out_features
+                    + self.non_spatial_input_head.out_features
+                    + self.final_embedding_dim
+                )
+                // 2,
                 out_features=self.final_embedding_dim,
             ),
             nn.ReLU(inplace=True),
         )
+        self.dropout = nn.Dropout(self.dropout_rate)
         self.value_tail = ValueTail(
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
@@ -450,51 +581,195 @@ class SkyNet1D(nn.Module):
             num_features=self.final_embedding_dim,
             out_features=self.policy_output_shape[0],
         )
-        self.point_difference_tail = PointDifferenceTail(
+        self.points_tail = PointsTail(
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
         )
+
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
 
     def forward(
         self,
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
+    ) -> SkyNetOutput:
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
         mlp_out = self.mlp(combined_out)
-        value_out = self.value_tail(mlp_out)
-        policy_out = self.policy_tail(mlp_out)
-        point_difference_out = self.point_difference_tail(mlp_out)
-        return value_out, policy_out, point_difference_out
+        dropped_out = self.dropout(mlp_out)
+        value_out = self.value_tail(dropped_out)
+        policy_out = self.policy_tail(dropped_out)
+        points_out = self.points_tail(dropped_out)
+        return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
-        game, table, players = skyjo[0], skyjo[1], skyjo[3]
-        spatial_tensor = torch.tensor(
-            einops.rearrange(table[:players], "p h w c -> 1 p h w c"),
-            dtype=torch.float32,
-        )
-        non_spatial_tensor = torch.tensor(
-            einops.rearrange(game, "f -> 1 f"), dtype=torch.float32
-        )
-        value_out, policy_out, point_difference_out = self.forward(
-            spatial_tensor, non_spatial_tensor
-        )
-        return SkyNetPrediction(
-            policy_output=PolicyOutput.from_tensor_output(policy_out),
-            value_output=ValueOutput.from_tensor_output(value_out, sj.get_turn(skyjo)),
-            point_differential_output=PointDifferentialOutput.from_tensor_output(
-                point_difference_out, sj.get_turn(skyjo)
+        """Takes a single skyjo representation and returns a prediction object.
+
+        Prediction object returned contains numpy arrays instead of tensors.
+        This function is mostly a convenience function for testing and
+        debugging. For actual optimized usage the `forward` method offers less
+        overhead and flexibility.
+        """
+        spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
+            "p h w c -> 1 p h w c",
+        )
+        non_spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "f -> 1 f",
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor)
+        return SkyNetPrediction.from_skynet_output(output)
+
+    def save(self, dir: pathlib.Path) -> pathlib.Path:
+        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
+        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
+        torch.save(
+            self.state_dict(),
+            model_path,
+        )
+        return model_path
+
+
+class SkyNet2D(nn.Module):
+    def __init__(
+        self,
+        spatial_input_shape: tuple[int, ...],  # (players, )
+        non_spatial_input_shape: tuple[int],
+        value_output_shape: tuple[int],  # (players,)
+        policy_output_shape: tuple[int],  # (mask_size,)
+        device: torch.device = torch.device("cpu"),
+        dropout_rate: float = 0.5,
+    ):
+        super(SkyNet2D, self).__init__()
+        self.spatial_input_shape = spatial_input_shape
+        self.non_spatial_input_shape = non_spatial_input_shape
+        self.value_output_shape = value_output_shape
+        self.policy_output_shape = policy_output_shape
+        self.points_output_shape = value_output_shape
+        self.dropout_rate = dropout_rate
+        self.device = device
+        self.final_embedding_dim = 32
+        self.spatial_input_head = Spatial2DInputHead(
+            input_shape=spatial_input_shape,
+            hand_embedding_channels=32,
+            out_features=64,
+            dropout_rate=dropout_rate,
+        )
+        self.non_spatial_input_head = NonSpatialInputHead(
+            in_features=non_spatial_input_shape[0],
+            out_features=32,
+            dropout_rate=dropout_rate,
+        )
+        self.mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.spatial_input_head.out_features
+                + self.non_spatial_input_head.out_features,
+                out_features=(
+                    self.spatial_input_head.out_features
+                    + self.non_spatial_input_head.out_features
+                    + self.final_embedding_dim
+                )
+                // 2,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_features=(
+                    self.spatial_input_head.out_features
+                    + self.non_spatial_input_head.out_features
+                    + self.final_embedding_dim
+                )
+                // 2,
+                out_features=self.final_embedding_dim,
+            ),
+            nn.ReLU(inplace=True),
+        )
+        self.dropout = nn.Dropout(self.dropout_rate)
+        self.value_tail = ValueTail(
+            num_features=self.final_embedding_dim,
+            num_players=self.value_output_shape[0],
+        )
+        self.policy_tail = PolicyTail(
+            num_features=self.final_embedding_dim,
+            out_features=self.policy_output_shape[0],
+        )
+        self.points_tail = PointsTail(
+            num_features=self.final_embedding_dim,
+            num_players=self.value_output_shape[0],
         )
 
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
 
-SkyNet: typing.TypeAlias = SkyNet1D
+    def forward(
+        self,
+        spatial_tensor: torch.Tensor,
+        non_spatial_tensor: torch.Tensor,
+    ) -> SkyNetOutput:
+        spatial_out = self.spatial_input_head(spatial_tensor)
+        non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
+        combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
+        combined_out = combined_out.contiguous()
+        mlp_out = self.mlp(combined_out)
+        dropped_out = self.dropout(mlp_out)
+        value_out = self.value_tail(dropped_out)
+        policy_out = self.policy_tail(dropped_out)
+        points_out = self.points_tail(dropped_out)
+        return value_out, points_out, policy_out
+
+    def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
+        """Takes a single skyjo representation and returns a prediction object.
+
+        Prediction object returned contains numpy arrays instead of tensors.
+        This function is mostly a convenience function for testing and
+        debugging. For actual optimized usage the `forward` method offers less
+        overhead and flexibility.
+        """
+        spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "p h w c -> 1 p h w c",
+        )
+        non_spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "f -> 1 f",
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor)
+
+        return SkyNetPrediction.from_skynet_output(output)
+
+    def save(self, dir: pathlib.Path) -> pathlib.Path:
+        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
+        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
+        torch.save(
+            self.state_dict(),
+            model_path,
+        )
+        return model_path
+
+
+SkyNetOutput: typing.TypeAlias = tuple[
+    torch.Tensor,  # value
+    torch.Tensor,  # points
+    torch.Tensor,  # policy
+]
+SkyNetNumpyOutput: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int, ...], np.float32],  # value
+    np.ndarray[tuple[int, ...], np.float32],  # points
+    np.ndarray[tuple[int, ...], np.float32],  # policy
+]
+SkyNet: typing.TypeAlias = SkyNet1D | SkyNet2D
 
 if __name__ == "__main__":
     np.random.seed(0)
@@ -508,6 +783,34 @@ if __name__ == "__main__":
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
     )
+    model.set_device(torch.device("mps"))
     game_state = sj.start_round(game_state)
+    model.eval()
     prediction = model.predict(game_state)
     print(prediction)
+
+    model_path = model.save(pathlib.Path("models/test/"))
+    loaded_model = SkyNet1D(
+        spatial_input_shape=model.spatial_input_shape,
+        non_spatial_input_shape=model.non_spatial_input_shape,
+        value_output_shape=model.value_output_shape,
+        policy_output_shape=model.policy_output_shape,
+        dropout_rate=model.dropout_rate,
+    )
+    loaded_model.load_state_dict(torch.load(model_path, weights_only=True))
+    loaded_model.set_device(model.device)
+    loaded_model.eval()
+    loaded_prediction = loaded_model.predict(game_state)
+    print(loaded_prediction)
+    assert np.allclose(
+        prediction.policy_output.probabilities,
+        loaded_prediction.policy_output.probabilities,
+    )
+    assert np.allclose(
+        prediction.value_output.state_values,
+        loaded_prediction.value_output.state_values,
+    )
+    assert np.allclose(
+        prediction.points_output.points,
+        loaded_prediction.points_output.points,
+    )
