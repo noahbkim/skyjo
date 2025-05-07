@@ -64,12 +64,19 @@ def to_state_value(
 
 
 TrainingDataPoint: typing.TypeAlias = tuple[
-    sj.Skyjo,  # game state
+    np.ndarray[tuple[int], np.float32],  # spatial input
+    np.ndarray[tuple[int], np.float32],  # non-spatial input
     np.ndarray[tuple[int], np.float32],  # policy target
-    np.ndarray[tuple[int], np.float32],  # value target
+    np.ndarray[tuple[int], np.float32],  # outcome target
     np.ndarray[tuple[int], np.float32],  # points target
 ]
-TrainingBatch: typing.TypeAlias = list[TrainingDataPoint]
+TrainingBatch: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int, int, int, int, int], np.float32],  # spatial input
+    np.ndarray[tuple[int, int], np.float32],  # non-spatial input
+    np.ndarray[tuple[int, int], np.float32],  # policy target
+    np.ndarray[tuple[int, int], np.float32],  # outcome target
+    np.ndarray[tuple[int, int], np.float32],  # points target
+]
 
 
 def get_spatial_state_numpy(
@@ -124,21 +131,29 @@ def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.T
 
 
 def base_total_loss(
-    model_output: SkyNetOutput, batch: TrainingBatch, value_scale: float = 3.0
+    model_output: SkyNetOutput,
+    value_targets: np.ndarray[tuple[int, int], np.float32],
+    points_targets: np.ndarray[tuple[int, int], np.float32],
+    policy_targets: np.ndarray[tuple[int, int], np.float32],
+    value_scale: float = 3.0,
 ) -> torch.Tensor:
     value_output, points_output, policy_output = model_output
-    _, policy_targets, value_targets, points_targets = zip(*batch)
+    assert policy_output.shape == policy_targets.shape, (
+        f"expected policy_output of shape {policy_targets.shape}, got {policy_output.shape}"
+    )
+    assert value_output.shape == value_targets.shape, (
+        f"expected value_output of shape {value_targets.shape}, got {value_output.shape}"
+    )
+    assert points_output.shape == points_targets.shape, (
+        f"expected points_output of shape {points_targets.shape}, got {points_output.shape}"
+    )
     policy_loss = compute_policy_loss(
         policy_output,
-        torch.tensor(
-            np.array(policy_targets), device=policy_output.device, dtype=torch.float32
-        ),
+        torch.tensor(policy_targets, device=policy_output.device, dtype=torch.float32),
     )
     value_loss = compute_value_loss(
         value_output,
-        torch.tensor(
-            np.array(value_targets), device=value_output.device, dtype=torch.float32
-        ),
+        torch.tensor(value_targets, device=value_output.device, dtype=torch.float32),
     )
     return policy_loss + value_scale * value_loss
 

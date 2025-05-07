@@ -145,11 +145,7 @@ def multiprocessed_selfplay(
             )
             logging.debug(f"ACTION: {sj.get_action_name(action)}")
             logging.debug(f"{sj.visualize_state(game_state)}")
-        # Add all symmetric game states to game data
-        for symmetric_game_state, symmetric_mcts_probs in get_skyjo_symmetries(
-            game_state, mcts_probs
-        ):
-            game_data.append((symmetric_game_state, symmetric_mcts_probs))
+        game_data.append((game_state, mcts_probs))
     outcome = skynet.skyjo_to_state_value(game_state)
     fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
     if debug:
@@ -187,10 +183,7 @@ def selfplay(
             )
             choice = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
             assert sj.actions(game_state)[choice]
-            for symmetric_game_state, symmetric_mcts_probs in get_skyjo_symmetries(
-                game_state, mcts_probs
-            ):
-                game_data.append((symmetric_game_state, symmetric_mcts_probs))
+            game_data.append((game_state, mcts_probs))
 
             if debug:
                 logging.info(f"{sj.visualize_state(game_state)}")
@@ -265,5 +258,5 @@ class MultiProcessedSelfplayGenerator(mp.Process):
                     f"Finished selfplay episode ({len(episode_data)} data points)"
                 )
             self.selfplay_data_queue.put(episode_data)
-            if self.count % 100 == 0:
+            if self.count % 10 == 1:
                 logging.info(f"Selfplay count: {self.count}")

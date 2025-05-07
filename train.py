@@ -1,58 +1,71 @@
 import logging
-import multiprocessing as mp
 import pathlib
 import random
 import typing
 
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 
 import buffer
 import model_factory
 import predictor
 import selfplay
-import skyjo as sj
 import skynet
 
 
 def constant_basic_learning_rate(train_iter: int) -> float:
-    return 1e-4
+    return 1e-5
 
 
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
     return {
         "players": 2,
-        "mcts_iterations": 1600,
+        "mcts_iterations": 400,
         "mcts_temperature": 0.5,
         "afterstate_initial_realizations": 100,
         "virtual_loss": 0.5,
-        "max_parallel_evaluations": 400,
+        "max_parallel_evaluations": 100,
     }
 
 
 def train(
     model: skynet.SkyNet,
     batch: skynet.TrainingBatch,
-    loss_function: typing.Callable,
+    loss_function: typing.Callable[
+        [
+            skynet.SkyNetOutput,
+            np.ndarray[tuple[int, int], np.float32],
+            np.ndarray[tuple[int, int], np.float32],
+            np.ndarray[tuple[int, int], np.float32],
+        ],
+        torch.Tensor,
+    ],
     learning_rate: float = 1e-4,
 ) -> None:
     """Performs a single training step on the model."""
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     model.train()
-    game_states, policy_targets, value_targets, points_targets = zip(*batch)
+    (
+        spatial_inputs,
+        non_spatial_inputs,
+        policy_targets,
+        outcome_targets,
+        points_targets,
+    ) = batch
     spatial_inputs = torch.tensor(
-        np.array([sj.get_spatial_input(game_state) for game_state in game_states]),
+        spatial_inputs,
         dtype=torch.float32,
         device=model.device,
     )
     non_spatial_inputs = torch.tensor(
-        np.array([sj.get_non_spatial_input(game_state) for game_state in game_states]),
+        non_spatial_inputs,
         dtype=torch.float32,
         device=model.device,
     )
     model_output = model(spatial_inputs, non_spatial_inputs)
 
-    loss = loss_function(model_output, batch)
+    loss = loss_function(model_output, outcome_targets, points_targets, policy_targets)
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
@@ -60,9 +73,9 @@ def train(
 
 
 def multiprocessed_learn(
-    model_factory: model_factory.SkyNetModelFactory,
+    factory: model_factory.SkyNetModelFactory,
     training_steps: int = 100,
-    training_data_buffer_size: int = 10000,
+    training_data_buffer_max_games: int = 10000,
     predictor_batch_size: int = 2048,
     selfplay_processes: int = 2,
     training_batch_size: int = 128,
@@ -77,10 +90,22 @@ def multiprocessed_learn(
 ):
     try:
         predictor_model_update_queue = mp.Queue()
-        predictor_input_queues = {i: mp.Queue() for i in range(selfplay_processes)}
-        predictor_output_queues = {i: mp.Queue() for i in range(selfplay_processes)}
+        predictor_input_queues = {
+            i: predictor.PredictorInputQueue(
+                queue_id=i,
+                max_batch_size=512,
+            )
+            for i in range(selfplay_processes)
+        }
+        predictor_output_queues = {
+            i: predictor.PredictorOutputQueue(
+                queue_id=i,
+                max_batch_size=512,
+            )
+            for i in range(selfplay_processes)
+        }
         predictor_process = predictor.PredictorProcess(
-            model_factory,
+            factory,
             predictor_model_update_queue,
             predictor_input_queues,
             predictor_output_queues,
@@ -110,9 +135,11 @@ def multiprocessed_learn(
         for actor in selfplay_actors:
             actor.start()
 
-        training_data_buffer = buffer.ReplayBuffer(max_size=training_data_buffer_size)
+        training_data_buffer = buffer.ReplayBuffer(
+            max_games=training_data_buffer_max_games
+        )
         logging.info(f"Training for {training_steps} steps")
-        model = model_factory.get_latest_model()
+        model = factory.get_latest_model()
         model.set_device(device)
         for train_iter in range(training_steps):
             # Add training data from the queue into the buffer
@@ -120,7 +147,7 @@ def multiprocessed_learn(
                 not selfplay_data_queue.empty() or training_data_buffer.games_count < 2
             ):
                 game_data = selfplay_data_queue.get()
-                training_data_buffer.add(game_data)
+                training_data_buffer.add_game_data_with_symmetry(game_data)
             if train_iter == 0:
                 logging.info("Enough selfplay data collected, starting training")
             batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
@@ -140,9 +167,9 @@ def multiprocessed_learn(
 
             if train_iter > 0 and train_iter % update_best_model_step_interval == 0:
                 logging.info(
-                    f"Training data buffer games: {training_data_buffer.games_count}"
+                    f"Training data buffer games: {training_data_buffer.games_count}, total buffer size: {len(training_data_buffer)}"
                 )
-                saved_path = model_factory.save_model(model)
+                saved_path = factory.save_model(model)
                 logging.info(f"Saved model to {saved_path}")
                 predictor_model_update_queue.put(f"new_model {saved_path}")
     finally:
@@ -155,19 +182,23 @@ def multiprocessed_learn(
 
 
 if __name__ == "__main__":
+    import datetime
     import pathlib
     import pickle as pkl
 
     import explain
 
     debug = False
-    pathlib.Path("logs/multiprocessed_train").mkdir(parents=True, exist_ok=True)
+    log_dir = pathlib.Path(
+        f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
+    )
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.DEBUG if debug else logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        filename="logs/multiprocessed_train/main.log",
-        filemode="a",
+        filename=log_dir / "main.log",
+        filemode="w",
     )
     np.random.seed(0)
     torch.manual_seed(0)
@@ -175,9 +206,13 @@ if __name__ == "__main__":
     players = 2
     selfplay_processes = 6
     device = torch.device("mps")
-    models_dir = pathlib.Path("./models") / "distributed/"
+    models_dir = (
+        pathlib.Path("./models")
+        / "distributed"
+        / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
     models_dir.mkdir(parents=True, exist_ok=True)
-    model_factory = model_factory.SkyNetModelFactory(
+    factory = model_factory.SkyNetModelFactory(
         players=players,
         dropout_rate=0.5,
         device=device,
@@ -187,13 +222,13 @@ if __name__ == "__main__":
     with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
         validation_games_data = pkl.load(f)
     multiprocessed_learn(
-        model_factory,
+        factory,
         selfplay_processes=selfplay_processes,
         training_steps=int(1e6),
         device=device,
         debug=debug,
-        training_batch_size=512,
-        predictor_batch_size=1024,
+        training_batch_size=1024,
+        predictor_batch_size=1028,
         validation_function=lambda model: explain.validate_model(
             model, validation_games_data
         ),

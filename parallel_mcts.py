@@ -8,6 +8,7 @@ https://dke.maastrichtuniversity.nl/m.winands/documents/multithreadedMCTS2.pdf
 from __future__ import annotations
 
 import dataclasses
+import logging  # noqa
 import typing
 
 import numpy as np
@@ -317,6 +318,7 @@ def run_mcts(
 ) -> MCTSNode:
     # TODO: Modularize this function with helper functions
     _ = predictor_client.put(game_state)
+    predictor_client.send()
     _, prediction = predictor_client.get()
     root_node = DecisionStateNode(
         state=game_state,
@@ -379,11 +381,13 @@ def run_mcts(
                     virtual_loss,
                 )
                 pending_leaf_count -= 1
+        # TODO: change this to evaluate all child node decision states too.
         elif isinstance(leaf, DecisionStateNode):
             if leaf.model_prediction is None:
                 prediction_id = predictor_client.put(leaf.state)
                 pending_decision_state_search_paths[prediction_id] = search_path
                 pending_leaf_count += 1
+
             # If model prediction is already set, expand and backpropagate
             else:
                 leaf.expand()
@@ -395,23 +399,24 @@ def run_mcts(
         else:
             raise ValueError(f"Unknown node type: {type(leaf)}")
 
-        # Handle ready predictions
-        ready_outputs = predictor_client.get_all_nowait()
-        for prediction_id, prediction in ready_outputs:
-            if _handle_prediction_results(
-                prediction_id,
-                prediction,
-                pending_decision_state_search_paths,
-                pending_after_state_search_paths,
-                pending_after_state_prediction_ids,
-                prediction_id_to_after_state_prediction_id,
-                virtual_loss,
-            ):
-                pending_leaf_count -= 1
-
         # Process predictions until we have at most max_parallel_threads pending leaf nodes
         while pending_leaf_count >= max_parallel_evaluations:
-            prediction_id, prediction = predictor_client.get()
+            predictor_client.send()
+            for prediction_id, prediction in predictor_client.get_all():
+                if _handle_prediction_results(
+                    prediction_id,
+                    prediction,
+                    pending_decision_state_search_paths,
+                    pending_after_state_search_paths,
+                    pending_after_state_prediction_ids,
+                    prediction_id_to_after_state_prediction_id,
+                    virtual_loss,
+                ):
+                    pending_leaf_count -= 1
+    while pending_leaf_count > 0:
+        if len(predictor_client.current_inputs) > 0:
+            predictor_client.send()
+        for prediction_id, prediction in predictor_client.get_all():
             if _handle_prediction_results(
                 prediction_id,
                 prediction,
@@ -422,18 +427,6 @@ def run_mcts(
                 virtual_loss,
             ):
                 pending_leaf_count -= 1
-    while pending_leaf_count > 0:
-        prediction_id, prediction = predictor_client.get()
-        if _handle_prediction_results(
-            prediction_id,
-            prediction,
-            pending_decision_state_search_paths,
-            pending_after_state_search_paths,
-            pending_after_state_prediction_ids,
-            prediction_id_to_after_state_prediction_id,
-            virtual_loss,
-        ):
-            pending_leaf_count -= 1
     return root_node
 
 
