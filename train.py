@@ -1,6 +1,7 @@
 import logging
 import pathlib
 import random
+import time
 import typing
 
 import numpy as np
@@ -15,17 +16,17 @@ import skynet
 
 
 def constant_basic_learning_rate(train_iter: int) -> float:
-    return 1e-5
+    return 1e-4
 
 
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
     return {
         "players": 2,
-        "mcts_iterations": 400,
-        "mcts_temperature": 0.5,
-        "afterstate_initial_realizations": 100,
+        "mcts_iterations": 1600,
+        "mcts_temperature": 1.0,
+        "afterstate_initial_realizations": 10,
         "virtual_loss": 0.5,
-        "max_parallel_evaluations": 100,
+        "max_parallel_evaluations": 64,
     }
 
 
@@ -74,18 +75,19 @@ def train(
 
 def multiprocessed_learn(
     factory: model_factory.SkyNetModelFactory,
-    training_steps: int = 100,
-    training_data_buffer_max_games: int = 10000,
-    predictor_batch_size: int = 2048,
-    selfplay_processes: int = 2,
-    training_batch_size: int = 128,
+    device: torch.device,
+    training_steps,
+    training_data_buffer_max_games: int = 250,
+    predictor_batch_size: int = 1024,
+    selfplay_processes: int = 1,
+    greedy_play_processes: int = 0,
+    training_batch_size: int = 256,
     validation_function: typing.Callable[[skynet.SkyNet], None] = None,
-    validation_step_interval: int = 10,
-    update_best_model_step_interval: int = 2000,
+    validation_step_interval: int = 1000,
+    update_best_model_step_interval: int = 1000,
     loss_function: typing.Callable[
         [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
     ] = skynet.base_total_loss,
-    device: torch.device = torch.device("cpu"),
     debug: bool = False,
 ):
     try:
@@ -93,23 +95,24 @@ def multiprocessed_learn(
         predictor_input_queues = {
             i: predictor.PredictorInputQueue(
                 queue_id=i,
-                max_batch_size=512,
+                max_batch_size=predictor_batch_size,
             )
-            for i in range(selfplay_processes)
+            for i in range(selfplay_processes + greedy_play_processes)
         }
         predictor_output_queues = {
             i: predictor.PredictorOutputQueue(
                 queue_id=i,
-                max_batch_size=512,
+                max_batch_size=predictor_batch_size,
             )
-            for i in range(selfplay_processes)
+            for i in range(selfplay_processes + greedy_play_processes)
         }
         predictor_process = predictor.PredictorProcess(
             factory,
             predictor_model_update_queue,
             predictor_input_queues,
             predictor_output_queues,
-            predictor_batch_size,
+            min_batch_size=predictor_batch_size // 4,
+            max_batch_size=predictor_batch_size,
             device=device,
             debug=debug,
         )
@@ -118,7 +121,7 @@ def multiprocessed_learn(
             i: predictor.MultiProcessPredictorClient(
                 predictor_input_queues[i], predictor_output_queues[i]
             )
-            for i in range(selfplay_processes)
+            for i in range(selfplay_processes + greedy_play_processes)
         }
         selfplay_data_queue = mp.Queue()
         logging.info(f"Starting {selfplay_processes} selfplay processes")
@@ -134,6 +137,18 @@ def multiprocessed_learn(
         ]
         for actor in selfplay_actors:
             actor.start()
+        greedy_play_actors = [
+            selfplay.MultiProcessedPlayGreedyPlayersGenerator(
+                predictor_clients[i + selfplay_processes],
+                selfplay_data_queue,
+                id=i + selfplay_processes,
+                debug=debug,
+                **constant_basic_selfplay_params(0),
+            )
+            for i in range(greedy_play_processes)
+        ]
+        for actor in greedy_play_actors:
+            actor.start()
 
         training_data_buffer = buffer.ReplayBuffer(
             max_games=training_data_buffer_max_games
@@ -141,10 +156,12 @@ def multiprocessed_learn(
         logging.info(f"Training for {training_steps} steps")
         model = factory.get_latest_model()
         model.set_device(device)
+        start_time = time.time()
         for train_iter in range(training_steps):
             # Add training data from the queue into the buffer
             while (
-                not selfplay_data_queue.empty() or training_data_buffer.games_count < 2
+                not selfplay_data_queue.empty()
+                or training_data_buffer.games_count <= 64
             ):
                 game_data = selfplay_data_queue.get()
                 training_data_buffer.add_game_data_with_symmetry(game_data)
@@ -169,14 +186,22 @@ def multiprocessed_learn(
                 logging.info(
                     f"Training data buffer games: {training_data_buffer.games_count}, total buffer size: {len(training_data_buffer)}"
                 )
+                logging.info(
+                    f"Ran {update_best_model_step_interval} train steps in {time.time() - start_time} seconds"
+                )
                 saved_path = factory.save_model(model)
                 logging.info(f"Saved model to {saved_path}")
                 predictor_model_update_queue.put(f"new_model {saved_path}")
+                start_time = time.time()
     finally:
         predictor_process.terminate()
         for actor in selfplay_actors:
             actor.terminate()
+        for actor in greedy_play_actors:
+            actor.terminate()
         for actor in selfplay_actors:
+            actor.join()
+        for actor in greedy_play_actors:
             actor.join()
         predictor_process.join()
 
@@ -188,10 +213,9 @@ def learn(
     training_epochs: int = 2,
     training_episodes: int = 64,
     training_batch_size: int = 256,
-    selfplay_processes: int = 1,
     selfplay_kwargs: typing.Callable[[int], dict[str, typing.Any]]
     | dict[str, typing.Any] = {},
-    training_data_buffer_max_games: int = 10000,
+    training_data_buffer_max_games: int = 250,
     validation_function: typing.Callable[[skynet.SkyNet], None] = None,
     validation_step_interval: int = 10,
 ):
@@ -199,18 +223,11 @@ def learn(
     for train_iter in range(training_steps):
         if callable(selfplay_kwargs):
             selfplay_kwargs = selfplay_kwargs(train_iter)
-        with mp.Pool(processes=selfplay_processes) as pool:
-            selfplay_futures = []
-            for _ in range(training_episodes):
-                selfplay_futures.append(
-                    pool.apply_async(
-                        selfplay.selfplay,
-                        args=(model, players),
-                        kwds=selfplay_kwargs,
-                    )
-                )
-            selfplay_games_data = [future.get() for future in selfplay_futures]
-
+        selfplay_games_data = []
+        for _ in range(training_episodes):
+            selfplay_games_data.append(
+                selfplay.selfplay(model, players, **selfplay_kwargs)
+            )
         for game_data in selfplay_games_data:
             training_data_buffer.add_game_data_with_symmetry(game_data)
 
@@ -257,6 +274,7 @@ if __name__ == "__main__":
     random.seed(0)
     players = 2
     selfplay_processes = 6
+    greedy_play_processes = 0
     device = torch.device("mps")
     models_dir = (
         pathlib.Path("./models")
@@ -266,21 +284,29 @@ if __name__ == "__main__":
     models_dir.mkdir(parents=True, exist_ok=True)
     factory = model_factory.SkyNetModelFactory(
         players=players,
-        dropout_rate=0.5,
+        dropout_rate=0.3,
         device=device,
         models_dir=models_dir,
         model_callable=skynet.SkyNet2D,
+        model_kwargs={
+            "hand_embedding_channels": 128,
+            "spatial_out_features": 128,
+            "non_spatial_out_features": 64,
+            "final_embedding_dim": 128,
+        },
     )
     with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
         validation_games_data = pkl.load(f)
     multiprocessed_learn(
         factory,
         selfplay_processes=selfplay_processes,
+        greedy_play_processes=greedy_play_processes,
         training_steps=int(1e6),
         device=device,
         debug=debug,
-        training_batch_size=1024,
-        predictor_batch_size=1028,
+        training_batch_size=512,
+        predictor_batch_size=2048,
+        training_data_buffer_max_games=500,
         validation_function=lambda model: explain.validate_model(
             model, validation_games_data
         ),

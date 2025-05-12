@@ -82,13 +82,13 @@ TrainingBatch: typing.TypeAlias = tuple[
 def get_spatial_state_numpy(
     skyjo: sj.Skyjo,
 ) -> np.ndarray[tuple[int], np.float32]:
-    return torch.tensor(sj.get_table(skyjo), dtype=torch.float32)
+    return sj.get_table(skyjo).astype(np.float32)
 
 
 def get_non_spatial_state_numpy(
     skyjo: sj.Skyjo,
 ) -> np.ndarray[tuple[int], np.float32]:
-    return sj.get_game(skyjo)
+    return sj.get_game(skyjo).astype(np.float32)
 
 
 def get_policy_target(
@@ -333,14 +333,16 @@ class Spatia1DInputHead(nn.Module):
                 out_features=(
                     self.num_channels * self.num_rows * self.num_columns
                     + hand_embedding_features
-                ),
+                )
+                // 2,
             ),
             nn.ReLU(inplace=True),
             nn.Linear(
                 in_features=(
                     self.num_channels * self.num_rows * self.num_columns
                     + hand_embedding_features
-                ),
+                )
+                // 2,
                 out_features=hand_embedding_features,
             ),
             nn.ReLU(inplace=True),
@@ -386,26 +388,37 @@ class Spatial2DInputHead(nn.Module):
         )
         self.input_shape = input_shape
         self.players = input_shape[0]
+        self.row_count = input_shape[1]
+        self.column_count = input_shape[2]
         self.out_features = out_features
         self.hand_embedding_channels = hand_embedding_channels
         self.conv1 = nn.Conv2d(
             in_channels=self.input_shape[3],
             out_channels=self.hand_embedding_channels,
-            kernel_size=(3, 1),
+            kernel_size=(self.row_count, 1),
             stride=(1, 1),
-            padding=(1, 0),
+            padding=(0, 0),
         )
-        self.resblock1 = ResBlock(
-            in_channels=self.hand_embedding_channels,
-            out_channels=[self.hand_embedding_channels, self.hand_embedding_channels],
-            kernel_sizes=[(3, 3), (3, 3)],
-            strides=[(1, 1), (1, 1)],
-            paddings=[(1, 1), (1, 1)],
-        )
-        self.max_pool = nn.MaxPool2d(kernel_size=(sj.ROW_COUNT, sj.COLUMN_COUNT))
+        # self.resblock1 = ResBlock(
+        #     in_channels=(self.input_shape[3] + self.hand_embedding_channels) // 2,
+        #     out_channels=[
+        #         self.hand_embedding_channels,
+        #         self.hand_embedding_channels,
+        #     ],
+        #     kernel_sizes=[(3, 3), (3, 3)],
+        #     strides=[(1, 1), (1, 1)],
+        #     paddings=[(1, 1), (1, 1)],
+        # )
+        # self.max_pool = nn.MaxPool2d(kernel_size=(self.row_count, self.column_count))
         self.combiner = nn.Sequential(
             nn.Linear(
-                in_features=self.hand_embedding_channels * self.players,
+                in_features=self.hand_embedding_channels * self.players * 4,
+                out_features=self.out_features,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate),
+            nn.Linear(
+                in_features=self.out_features,
                 out_features=self.out_features,
             ),
             nn.ReLU(inplace=True),
@@ -416,13 +429,11 @@ class Spatial2DInputHead(nn.Module):
         assert x.shape[1:] == self.input_shape, (
             f"expected input shape {self.input_shape}, got {x.shape}"
         )
-        x = einops.rearrange(x, "b p h w c -> (b p) c h w")
-        x = x.contiguous()
+        x = einops.rearrange(x, "b p h w c -> (b p) c h w").contiguous()
         x = self.conv1(x)
-        x = self.resblock1(x)
-        x = self.max_pool(x)  # (bp, c, 1, 1)
+        # x = self.resblock1(x)
+        # x = self.max_pool(x)  # (bp, c, 1, 1)
         x = einops.rearrange(x, "(b p) c h w -> b (p c h w)", p=self.players)
-        x = x.contiguous()
         x = self.combiner(x)  # (b, out_features)
         return x
 
@@ -529,6 +540,10 @@ class SkyNet1D(nn.Module):
         policy_output_shape: tuple[int],  # (mask_size,)
         device: torch.device = torch.device("cpu"),
         dropout_rate: float = 0.5,
+        hand_embedding_features: int = 64,
+        spatial_out_features: int = 64,
+        non_spatial_out_features: int = 48,
+        final_embedding_dim: int = 128,
     ):
         super(SkyNet1D, self).__init__()
         self.spatial_input_shape = spatial_input_shape
@@ -537,18 +552,26 @@ class SkyNet1D(nn.Module):
         self.policy_output_shape = policy_output_shape
         self.points_output_shape = value_output_shape
         self.dropout_rate = dropout_rate
-        self.device = device
-        self.to(device)
-        self.final_embedding_dim = 128
+        self.set_device(device)
+
+        # Spatial Input
+        self.hand_embedding_features = hand_embedding_features
+        self.spatial_out_features = spatial_out_features
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
-            hand_embedding_features=64,
-            out_features=64,
+            hand_embedding_features=self.hand_embedding_features,
+            out_features=self.spatial_out_features,
         )
+
+        # Non-Spatial Input
+        self.non_spatial_out_features = non_spatial_out_features
         self.non_spatial_input_head = NonSpatialInputHead(
             in_features=non_spatial_input_shape[0],
-            out_features=48,
+            out_features=self.non_spatial_out_features,
         )
+
+        # MLP
+        self.final_embedding_dim = final_embedding_dim
         self.mlp = nn.Sequential(
             nn.Linear(
                 in_features=self.spatial_input_head.out_features
@@ -561,6 +584,7 @@ class SkyNet1D(nn.Module):
                 // 2,
             ),
             nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
             nn.Linear(
                 in_features=(
                     self.spatial_input_head.out_features
@@ -571,8 +595,8 @@ class SkyNet1D(nn.Module):
                 out_features=self.final_embedding_dim,
             ),
             nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
         )
-        self.dropout = nn.Dropout(self.dropout_rate)
         self.value_tail = ValueTail(
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
@@ -599,10 +623,9 @@ class SkyNet1D(nn.Module):
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
         mlp_out = self.mlp(combined_out)
-        dropped_out = self.dropout(mlp_out)
-        value_out = self.value_tail(dropped_out)
-        policy_out = self.policy_tail(dropped_out)
-        points_out = self.points_tail(dropped_out)
+        value_out = self.value_tail(mlp_out)
+        policy_out = self.policy_tail(mlp_out)
+        points_out = self.points_tail(mlp_out)
         return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
@@ -618,13 +641,13 @@ class SkyNet1D(nn.Module):
                 sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "p h w c -> 1 p h w c",
-        )
+        ).contiguous()
         non_spatial_tensor = einops.rearrange(
             torch.tensor(
                 sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "f -> 1 f",
-        )
+        ).contiguous()
         output = self.forward(spatial_tensor, non_spatial_tensor)
         return SkyNetPrediction.from_skynet_output(output)
 
@@ -647,6 +670,10 @@ class SkyNet2D(nn.Module):
         policy_output_shape: tuple[int],  # (mask_size,)
         device: torch.device = torch.device("cpu"),
         dropout_rate: float = 0.5,
+        hand_embedding_channels: int = 128,
+        spatial_out_features: int = 256,
+        non_spatial_out_features: int = 48,
+        final_embedding_dim: int = 256,
     ):
         super(SkyNet2D, self).__init__()
         self.spatial_input_shape = spatial_input_shape
@@ -656,18 +683,23 @@ class SkyNet2D(nn.Module):
         self.points_output_shape = value_output_shape
         self.dropout_rate = dropout_rate
         self.device = device
-        self.final_embedding_dim = 32
+        self.hand_embedding_channels = hand_embedding_channels
+        self.spatial_out_features = spatial_out_features
         self.spatial_input_head = Spatial2DInputHead(
             input_shape=spatial_input_shape,
-            hand_embedding_channels=32,
-            out_features=64,
-            dropout_rate=dropout_rate,
+            hand_embedding_channels=self.hand_embedding_channels,
+            out_features=self.spatial_out_features,
+            dropout_rate=self.dropout_rate,
         )
+        self.non_spatial_out_features = non_spatial_out_features
         self.non_spatial_input_head = NonSpatialInputHead(
             in_features=non_spatial_input_shape[0],
-            out_features=32,
-            dropout_rate=dropout_rate,
+            out_features=self.non_spatial_out_features,
+            dropout_rate=self.dropout_rate,
         )
+
+        # MLP
+        self.final_embedding_dim = final_embedding_dim
         self.mlp = nn.Sequential(
             nn.Linear(
                 in_features=self.spatial_input_head.out_features
@@ -680,6 +712,7 @@ class SkyNet2D(nn.Module):
                 // 2,
             ),
             nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
             nn.Linear(
                 in_features=(
                     self.spatial_input_head.out_features
@@ -690,8 +723,14 @@ class SkyNet2D(nn.Module):
                 out_features=self.final_embedding_dim,
             ),
             nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(
+                in_features=self.final_embedding_dim,
+                out_features=self.final_embedding_dim,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Dropout(self.dropout_rate),
         )
-        self.dropout = nn.Dropout(self.dropout_rate)
         self.value_tail = ValueTail(
             num_features=self.final_embedding_dim,
             num_players=self.value_output_shape[0],
@@ -717,12 +756,10 @@ class SkyNet2D(nn.Module):
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
-        combined_out = combined_out.contiguous()
         mlp_out = self.mlp(combined_out)
-        dropped_out = self.dropout(mlp_out)
-        value_out = self.value_tail(dropped_out)
-        policy_out = self.policy_tail(dropped_out)
-        points_out = self.points_tail(dropped_out)
+        value_out = self.value_tail(mlp_out)
+        policy_out = self.policy_tail(mlp_out)
+        points_out = self.points_tail(mlp_out)
         return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:

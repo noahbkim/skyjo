@@ -3,22 +3,27 @@ import itertools
 import logging
 import multiprocessing as mp
 import pathlib
+import random
 
 import numpy as np
 import torch
 
 import mcts as mcts
 import parallel_mcts
+import player
 import predictor
 import skyjo as sj
 import skynet
 
+# MARK: Symmetry
 COLUMN_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.COLUMN_COUNT)))
+ROW_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.ROW_COUNT)))
 
 
 def get_symmetry_policy(
-    original_policy: np.ndarray[tuple[int], np.uint8], new_column_order: tuple[int, ...]
-) -> np.ndarray[tuple[int], np.uint8]:
+    original_policy: np.ndarray[tuple[int], np.float32],
+    new_column_order: tuple[int, ...],
+) -> np.ndarray[tuple[int], np.float32]:
     """Takes an original policy (sj.MASK_SIZE,) and returns a new policy based
     on the new_column_order permutation.
     """
@@ -39,11 +44,12 @@ def get_symmetry_policy(
 
 
 def get_skyjo_symmetries(
-    skyjo: sj.Skyjo, policy: np.ndarray[tuple[int], np.uint8]
-) -> list[tuple[sj.Skyjo, np.ndarray[tuple[int], np.uint8]]]:
+    skyjo: sj.Skyjo, policy: np.ndarray[tuple[int], np.float32]
+) -> list[tuple[sj.Skyjo, np.ndarray[tuple[int], np.float32]]]:
     """Return a list of symmetrically equivalent `Skyjo` states and corresponding policy."""
     # TODO: Make this work for within column permutations too
     symmetries = []
+    symmetry_hashes = set()
     for player_column_orders in itertools.combinations_with_replacement(
         COLUMN_ORDER_PERMUTATIONS, sj.get_player_count(skyjo)
     ):
@@ -53,24 +59,45 @@ def get_skyjo_symmetries(
             # shape that is different.
             # https://stackoverflow.com/questions/55829631/why-using-an-array-as-an-index-changes-the-shape-of-a-multidimensional-ndarray
             new_table[player_idx] = new_table[player_idx][:, column_order, :]
-
-        new_policy = get_symmetry_policy(policy, player_column_orders[0])
-        symmetries.append(
-            (
+        if new_table.tobytes() not in symmetry_hashes:
+            symmetry_hashes.add(new_table.tobytes())
+            new_policy = get_symmetry_policy(policy, player_column_orders[0])
+            symmetries.append(
                 (
-                    skyjo[0],
-                    new_table,
-                    skyjo[2],
-                    skyjo[3],
-                    skyjo[4],
-                    skyjo[5],
-                    skyjo[6],
-                    skyjo[7],
-                ),
-                new_policy,
+                    (
+                        skyjo[0],
+                        new_table,
+                        skyjo[2],
+                        skyjo[3],
+                        skyjo[4],
+                        skyjo[5],
+                        skyjo[6],
+                        skyjo[7],
+                    ),
+                    new_policy,
+                )
             )
-        )
     return symmetries
+
+
+def normalize_table(skyjo: sj.Skyjo) -> np.ndarray[tuple[int], np.uint8]:
+    """Returns normalized table"""
+    raise NotImplementedError("Not implemented")
+
+
+def normalize_action(action: int, skyjo: sj.Skyjo) -> int:
+    assert np.array_equal(sj.get_table(skyjo), normalize_table(skyjo))
+    if action < sj.MASK_FLIP:
+        return action
+    if action < sj.MASK_REPLACE:
+        row, col = divmod(action - sj.MASK_FLIP, sj.COLUMN_COUNT)
+    else:
+        row, col = divmod(action - sj.MASK_REPLACE, sj.COLUMN_COUNT)
+    if sj.get_finger(skyjo, row, col) != sj.FINGER_HIDDEN:
+        return action
+
+
+# MARK: Training data
 
 
 def training_data_from_game_data(
@@ -110,6 +137,7 @@ def training_data_from_game_data(
     return training_data
 
 
+# MARK: Selfplay
 def multiprocessed_selfplay(
     predictor_client: predictor.PredictorClient,
     players: int = 2,
@@ -137,6 +165,7 @@ def multiprocessed_selfplay(
         mcts_probs = node.sample_child_visit_probabilities(temperature=mcts_temperature)
         action = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
         assert sj.actions(game_state)[action]
+        game_data.append((game_state, mcts_probs))
         game_state = sj.apply_action(game_state, action)
         if debug:
             logging.debug(f"ACTION PROBABILITIES: {mcts_probs}")
@@ -145,7 +174,6 @@ def multiprocessed_selfplay(
             )
             logging.debug(f"ACTION: {sj.get_action_name(action)}")
             logging.debug(f"{sj.visualize_state(game_state)}")
-        game_data.append((game_state, mcts_probs))
     outcome = skynet.skyjo_to_state_value(game_state)
     fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
     if debug:
@@ -194,6 +222,61 @@ def selfplay(
             logging.info(f"Scores: {fixed_perspective_score}")
             logging.info(f"total turns: {sj.get_turn(game_state)}")
     return training_data_from_game_data(game_data, outcome, fixed_perspective_score)
+
+
+def multiprocessed_play_greedy_players(
+    predictor_client: predictor.PredictorClient,
+    players: int = 2,
+    mcts_iterations: int = 100,
+    mcts_temperature: float = 1.0,
+    afterstate_initial_realizations: int = 50,
+    virtual_loss: float = 0.0,
+    max_parallel_evaluations: int = 32,
+    debug: bool = False,
+) -> list[skynet.TrainingDataPoint]:
+    greedy_player = player.GreedyExpectedValuePlayer()
+    model_player_turn_order = random.randint(0, players - 1)
+    game_state = sj.new(players=players)
+    game_state = sj.start_round(game_state)
+    game_data = []
+    while not sj.get_game_over(game_state):
+        if sj.get_player(game_state) == model_player_turn_order:
+            node = parallel_mcts.run_mcts(
+                game_state,
+                predictor_client,
+                iterations=mcts_iterations,
+                afterstate_initial_realizations=afterstate_initial_realizations,
+                virtual_loss=virtual_loss,
+                max_parallel_evaluations=max_parallel_evaluations,
+            )
+            mcts_probs = node.sample_child_visit_probabilities(
+                temperature=mcts_temperature
+            )
+            action = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
+            assert sj.actions(game_state)[action]
+            game_data.append((game_state, mcts_probs))
+        else:
+            action = greedy_player.get_action(game_state)
+            action_probabilities = np.zeros(sj.MASK_SIZE)
+            action_probabilities[action] = 1.0
+            assert sj.actions(game_state)[action]
+            game_data.append((game_state, action_probabilities))
+        game_state = sj.apply_action(game_state, action)
+        if debug:
+            logging.debug(f"{sj.visualize_state(game_state)}")
+
+    outcome = skynet.skyjo_to_state_value(game_state)
+    fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
+    if debug:
+        logging.info("Game over")
+        logging.info(f"Game state: {sj.visualize_state(game_state)}")
+        logging.info(f"Outcome: {outcome}")
+        logging.info(f"Scores: {fixed_perspective_score}")
+        logging.info(f"total turns: {sj.get_turn(game_state)}")
+    return training_data_from_game_data(game_data, outcome, fixed_perspective_score)
+
+
+# MARK: Processes
 
 
 class MultiProcessedSelfplayGenerator(mp.Process):
@@ -256,3 +339,65 @@ class MultiProcessedSelfplayGenerator(mp.Process):
             self.selfplay_data_queue.put(episode_data)
             if self.count % 10 == 1:
                 logging.info(f"Selfplay count: {self.count}")
+
+
+class MultiProcessedPlayGreedyPlayersGenerator(mp.Process):
+    def __init__(
+        self,
+        predictor_client: predictor.PredictorClient,
+        selfplay_data_queue: mp.Queue,
+        id: int = 0,
+        players: int = 2,
+        mcts_iterations: int = 100,
+        mcts_temperature: float = 1.0,
+        afterstate_initial_realizations: int = 50,
+        virtual_loss: float = 0.0,
+        max_parallel_evaluations: int = 32,
+        debug: bool = False,
+    ):
+        super().__init__()
+        self.predictor_client = predictor_client
+        self.selfplay_data_queue = selfplay_data_queue
+        self.players = players
+        self.mcts_iterations = mcts_iterations
+        self.mcts_temperature = mcts_temperature
+        self.afterstate_initial_realizations = afterstate_initial_realizations
+        self.virtual_loss = virtual_loss
+        self.max_parallel_evaluations = max_parallel_evaluations
+        self.debug = debug
+        self.id = id
+        self.count = 0
+
+    def run(self):
+        level = logging.DEBUG if self.debug else logging.INFO
+        log_dir = pathlib.Path(
+            f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
+        )
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            filename=log_dir / f"greedy_play_{self.id}.log",
+            filemode="a",
+        )
+        logging.info(f"Starting greedy play generator process for id: {self.id}")
+        while True:
+            episode_data = multiprocessed_play_greedy_players(
+                self.predictor_client,
+                players=self.players,
+                mcts_iterations=self.mcts_iterations,
+                mcts_temperature=self.mcts_temperature,
+                afterstate_initial_realizations=self.afterstate_initial_realizations,
+                virtual_loss=self.virtual_loss,
+                max_parallel_evaluations=self.max_parallel_evaluations,
+                debug=self.debug,
+            )
+            self.count += 1
+            if self.debug:
+                logging.debug(
+                    f"Finished greedy play episode ({len(episode_data)} data points)"
+                )
+            self.selfplay_data_queue.put(episode_data)
+            if self.count % 10 == 1:
+                logging.info(f"Greedy Play count: {self.count}")

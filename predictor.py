@@ -211,6 +211,18 @@ class UnifiedPredictorInputQueue:
         non_spatial_input_tensor: torch.Tensor,
         batch_size: int,
     ):
+        assert (
+            len(prediction_ids_tensor)
+            == len(spatial_input_tensor)
+            == len(non_spatial_input_tensor)
+            == batch_size
+        ), (
+            "All input tensors must have the same batch size",
+            f"prediction_ids_tensor: {len(prediction_ids_tensor)}",
+            f"spatial_input_tensor: {len(spatial_input_tensor)}",
+            f"non_spatial_input_tensor: {len(non_spatial_input_tensor)}",
+            f"batch_size: {batch_size}",
+        )
         self._queue.append(
             (
                 queue_id,
@@ -489,6 +501,7 @@ class PredictorProcess(mp.Process):
                         logging.info(
                             f"Running predictions, input_data_queue size: {unified_input_queue.input_count}"
                         )
+
                     (
                         queue_ids,
                         prediction_ids,
@@ -730,6 +743,157 @@ class MultiProcessPredictorClient(PredictorClient):
             outputs.append(
                 (
                     self.current_output[0][sample_idx].item(),
+                    skynet.SkyNetPrediction(
+                        value_output=self.current_output[1][sample_idx],
+                        points_output=self.current_output[2][sample_idx],
+                        policy_output=self.current_output[3][sample_idx],
+                    ),
+                )
+            )
+        self.current_output = None
+        self.sample_count = 0
+        return outputs
+
+    def get_nowait(
+        self,
+    ) -> tuple[PredictionId, skynet.SkyNetPrediction] | None:
+        if self.current_output is None:
+            return None
+        return self.get()
+
+    def get_all_nowait(self) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
+        if self.current_output is None:
+            return []
+        return self.get_all()
+
+
+class NaivePredictorClient(PredictorClient):
+    """Predictor client that actually just lazily runs the model inference."""
+
+    def __init__(
+        self,
+        model: skynet.SkyNet,
+        max_batch_size: int,
+    ):
+        self.model = model
+        self.device = model.device
+        self.count = 0
+        self.input_queue = []
+        self.output_queue = []
+        self.current_inputs = []
+        self.current_output = None
+        self.sample_count = 0
+        self.max_batch_size = max_batch_size
+
+    @property
+    def output_ready(self) -> bool:
+        return self.current_output is not None or not self.output_queue.empty()
+
+    def _get_unique_prediction_id(self) -> PredictionId:
+        id = self.count
+        self.count += 1
+        return id
+
+    def _get_new_output(
+        self,
+    ) -> tuple[list[int], torch.Tensor, torch.Tensor, torch.Tensor]:
+        prediction_ids, value_output, points_output, policy_output = (
+            self.output_queue.pop(0)
+        )
+        return (
+            prediction_ids,
+            value_output,
+            points_output,
+            policy_output,
+        )
+
+    def _get_current_batch(
+        self,
+    ) -> tuple[
+        list[PredictionId],
+        list[np.ndarray[tuple[int], np.float32]],
+        list[np.ndarray[tuple[int], np.float32]],
+        int,
+    ]:
+        batch_size = min(len(self.current_inputs), self.max_batch_size)
+        assert batch_size > 0, "Batch size must be greater than 0"
+        batch = self.current_inputs[:batch_size]
+        self.current_inputs = self.current_inputs[batch_size:]
+        prediction_ids, spatial_inputs, nonspatial_inputs = zip(*batch)
+        return (
+            prediction_ids,
+            spatial_inputs,
+            nonspatial_inputs,
+            batch_size,
+        )
+
+    def put(self, state: sj.Skyjo) -> PredictionId:
+        prediction_id = self._get_unique_prediction_id()
+        spatial_numpy = skynet.get_spatial_state_numpy(state)
+        nonspatial_numpy = skynet.get_non_spatial_state_numpy(state)
+        self.current_inputs.append((prediction_id, spatial_numpy, nonspatial_numpy))
+        return prediction_id
+
+    def send(self) -> None:
+        prediction_ids, spatial_inputs, nonspatial_inputs, batch_size = (
+            self._get_current_batch()
+        )
+
+        spatial_input_tensor = torch.tensor(
+            np.array(spatial_inputs),
+            device=self.device,
+            dtype=torch.float32,
+        )
+        nonspatial_input_tensor = torch.tensor(
+            np.array(nonspatial_inputs),
+            device=self.device,
+            dtype=torch.float32,
+        )
+        with torch.no_grad():
+            value_output, points_output, policy_output = self.model(
+                spatial_input_tensor, nonspatial_input_tensor
+            )
+            if self.device != torch.device("cpu"):
+                value_output = value_output.cpu()
+                points_output = points_output.cpu()
+                policy_output = policy_output.cpu()
+        self.output_queue.append(
+            (
+                prediction_ids[:batch_size],
+                value_output,
+                points_output,
+                policy_output,
+            )
+        )
+
+    def get(
+        self,
+    ) -> tuple[PredictionId, skynet.SkyNetPrediction] | None:
+        if self.current_output is None:
+            self.current_output = self._get_new_output()
+        to_return = (
+            self.current_output[0][self.sample_count],
+            skynet.SkyNetPrediction(
+                value_output=self.current_output[1][self.sample_count],
+                points_output=self.current_output[2][self.sample_count],
+                policy_output=self.current_output[3][self.sample_count],
+            ),
+        )
+        self.sample_count += 1
+        # We have returned all of the samples in the current batch
+        if self.sample_count == self.current_output[1].shape[0]:
+            self.current_output = None
+            self.sample_count = 0
+        return to_return
+
+    def get_all(self) -> list[tuple[PredictionId, skynet.SkyNetPrediction]]:
+        if self.current_output is None:
+            self.current_output = self._get_new_output()
+        outputs = []
+        for sample_idx in range(self.sample_count, self.current_output[1].shape[0]):
+            outputs.append(
+                (
+                    self.current_output[0][sample_idx],
                     skynet.SkyNetPrediction(
                         value_output=self.current_output[1][sample_idx],
                         points_output=self.current_output[2][sample_idx],

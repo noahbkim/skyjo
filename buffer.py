@@ -1,3 +1,5 @@
+import typing
+
 import numpy as np
 
 import selfplay
@@ -69,8 +71,7 @@ class ReplayBuffer:
                 self.outcome_target_buffer.append(outcome_target)
                 self.points_target_buffer.append(points_target)
                 game_data_length += 1
-            self.game_data_lengths.append(game_data_length)
-
+        self.game_data_lengths.append(game_data_length)
         self.games_count += 1
 
     def sample_element(self) -> skynet.TrainingDataPoint:
@@ -116,3 +117,9 @@ class ReplayBuffer:
             np.array([self.points_target_buffer[i] for i in indices]),
         )
         return batch
+
+    def generate_training_batches(
+        self, batch_size: int, batch_count: int
+    ) -> typing.Generator[skynet.TrainingBatch, None, None]:
+        for _ in range(batch_count):
+            yield self.sample_batch(batch_size)

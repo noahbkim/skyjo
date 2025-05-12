@@ -8,7 +8,6 @@ https://dke.maastrichtuniversity.nl/m.winands/documents/multithreadedMCTS2.pdf
 from __future__ import annotations
 
 import dataclasses
-import logging  # noqa
 import typing
 
 import numpy as np
