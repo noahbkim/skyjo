@@ -56,7 +56,8 @@ GAME_TOP = 0
 GAME_DISCARDS = GAME_TOP + CARD_SIZE
 GAME_ACTION = GAME_DISCARDS + CARD_SIZE
 GAME_SCORES = GAME_ACTION + ACTION_SIZE
-GAME_SIZE = GAME_SCORES + PLAYER_COUNT
+GAME_LAST_REVEALED_TURNS = GAME_SCORES + PLAYER_COUNT
+GAME_SIZE = GAME_LAST_REVEALED_TURNS + PLAYER_COUNT
 
 NO_PROGRESS_TURN_THRESHOLD = 20
 
@@ -65,18 +66,26 @@ assert FINGER_COUNT == 12
 assert GAME_DISCARDS == 15
 assert GAME_ACTION == 30
 assert GAME_SCORES == 34
-assert GAME_SIZE == 42
+assert GAME_SIZE == 50
 
-Game: TypeAlias = np.ndarray[tuple[int], np.uint8]
-"""Top discard/drawn card, count of discards, player scores."""
+Game: TypeAlias = np.ndarray[tuple[int], np.int16]
+"""Top discard/drawn card, count of discards, player scores, and last revealed turns."""
 
-Table: TypeAlias = np.ndarray[tuple[int, int, int, int], np.uint8]
+Table: TypeAlias = np.ndarray[tuple[int, int, int, int], np.int16]
 """A tensor representing (player, row, column, card) tuples."""
 
-Deck: TypeAlias = np.ndarray[tuple[int], np.uint8]
+Deck: TypeAlias = np.ndarray[tuple[int], np.int16]
 """Cards remaining in the deck in lieu of a random seed."""
 
-Skyjo: TypeAlias = tuple[Game, Table, Deck, int, int, int | None, int | None, int]
+Skyjo: TypeAlias = tuple[
+    Game,
+    Table,
+    Deck,
+    int,
+    int,
+    int | None,
+    int | None,
+]
 """A lightweight representation of a Skyjo game.
 
 Values:
@@ -94,8 +103,6 @@ Values:
         for use in random outcome
     countdown: int 
         number of cards remaining in the deck
-    last_revealed_turn: int
-        last turn a card was revealed
 """
 
 SkyjoAction: TypeAlias = int
@@ -187,6 +194,16 @@ def _rotate_scores(game: Game, players: int) -> None:
     game[GAME_SCORES + players - 1] = swap
 
 
+def _rotate_last_revealed_turns(game: Game, players: int) -> None:
+    """Rotate the last revealed turns once left."""
+
+    swap = game[GAME_LAST_REVEALED_TURNS]
+    game[GAME_LAST_REVEALED_TURNS : GAME_LAST_REVEALED_TURNS + players - 1] = game[
+        GAME_LAST_REVEALED_TURNS + 1 : GAME_LAST_REVEALED_TURNS + players
+    ]
+    game[GAME_LAST_REVEALED_TURNS + players - 1] = swap
+
+
 def _rotate_table(table: Table, players: int) -> None:
     """Copy `table`, rotating all hands left by one."""
 
@@ -198,11 +215,10 @@ def _rotate_table(table: Table, players: int) -> None:
 def _rotate_skyjo(skyjo: Skyjo) -> Skyjo:
     """Copy `skyjo`, rotating all hands left by one."""
 
-    game, table, deck, players, current_player, card, countdown, last_revealed_turn = (
-        skyjo
-    )
+    game, table, deck, players, current_player, card, countdown = skyjo
     new_game = game.copy()
     _rotate_scores(new_game, players)
+    _rotate_last_revealed_turns(new_game, players)
     new_table = table.copy()
     _rotate_table(new_table, players)
     return (
@@ -213,7 +229,6 @@ def _rotate_skyjo(skyjo: Skyjo) -> Skyjo:
         current_player,
         card,
         countdown,
-        last_revealed_turn,
     )
 
 
@@ -253,7 +268,18 @@ def _remove_card(deck: Deck, card: int) -> None:
     deck[card] -= 1
 
 
-def _update_countdown(countdown: int | None, table: Table, players: int) -> int | None:
+def _update_last_revealed_turns(game: Game, turn: int) -> None:
+    """Update the last revealed turns."""
+    game[GAME_LAST_REVEALED_TURNS] = turn
+
+
+def _update_countdown(
+    countdown: int | None,
+    table: Table,
+    players: int,
+    last_revealed_turn: int,
+    current_turn: int,
+) -> int | None:
     """Decrement if already set, otherwise check whether round is ending
     (i.e. all cards are revealed). If, so set countdown to
     (number of players - 1)* 2 since each other player gets two decisions.
@@ -262,6 +288,11 @@ def _update_countdown(countdown: int | None, table: Table, players: int) -> int 
     """
 
     if countdown is None and _player_table_is_visible(table, player=players - 1):
+        return (players - 1) * 2
+    if (
+        countdown is None
+        and (current_turn - last_revealed_turn) // players >= NO_PROGRESS_TURN_THRESHOLD
+    ):
         return (players - 1) * 2
     return _decrement_countdown(countdown)
 
@@ -284,20 +315,20 @@ def _player_table_is_visible(table: Table, player: int) -> bool:
 def new(*, players: int) -> Skyjo:
     """Generate a fresh game with no visible discard."""
 
-    game = np.ndarray((GAME_SIZE,), dtype=np.uint8)
+    game = np.ndarray((GAME_SIZE,), dtype=np.int16)
     game.fill(0)
     game[GAME_ACTION + ACTION_FLIP_SECOND] = 1
 
     table_shape = (PLAYER_COUNT, ROW_COUNT, COLUMN_COUNT, FINGER_SIZE)
-    table = np.ndarray(table_shape, dtype=np.uint8, order="C")
+    table = np.ndarray(table_shape, dtype=np.int16, order="C")
     table.fill(0)
     table[:players, :, :, FINGER_HIDDEN] = 1
 
-    deck = np.ndarray((CARD_SIZE,), dtype=np.uint8)
+    deck = np.ndarray((CARD_SIZE,), dtype=np.int16)
     deck.fill(0)
     deck[:] = CARD_COUNTS
 
-    return game, table, deck, players, 0, None, None, 0
+    return game, table, deck, players, 0, None, None
 
 
 # MARK: Convenience
@@ -338,11 +369,6 @@ def get_countdown(skyjo: Skyjo) -> int | None:
     return skyjo[6]
 
 
-def get_last_revealed_turn(skyjo: Skyjo) -> int:
-    """Get the last turn a card was revealed."""
-    return skyjo[7]
-
-
 def get_turn_count(skyjo: Skyjo) -> int:
     """Get the current turn count."""
     return skyjo[4]
@@ -352,6 +378,13 @@ def get_draw_count(skyjo: Skyjo) -> int:
     """Get the number of cards left in the deck."""
 
     return np.sum(skyjo[2])
+
+
+def get_last_revealed_turns(skyjo: Skyjo) -> np.ndarray[tuple[int], np.int8]:
+    """Get the last turn a card was revealed."""
+    return get_game(skyjo)[
+        GAME_LAST_REVEALED_TURNS : GAME_LAST_REVEALED_TURNS + get_player_count(skyjo)
+    ]
 
 
 def get_discard_count(skyjo: Skyjo) -> int:
@@ -434,7 +467,7 @@ def get_score(skyjo: Skyjo, player: int = 0) -> int:
 
 def get_round_scores(
     skyjo: Skyjo, round_ending_player: int = 0
-) -> np.ndarray[tuple[int], np.uint8]:
+) -> np.ndarray[tuple[int], np.int16]:
     """Get the scores of all players for the current round.
 
         This method accounts for the round ending player's score being doubled,
@@ -445,12 +478,23 @@ def get_round_scores(
     base_scores = np.array(
         [get_score(skyjo, player=i) for i in range(players)], dtype=np.int16
     )
-    round_ender_score = base_scores[round_ending_player]
-    base_scores[round_ending_player] = 1000  # larger than any other possible score
-    if round_ender_score >= min(base_scores):
-        base_scores[round_ending_player] = 2 * round_ender_score
-    else:
-        base_scores[round_ending_player] = round_ender_score
+    turn = get_turn(skyjo)
+    for player in range(players):
+        if player == round_ending_player:
+            round_ender_score = base_scores[round_ending_player]
+            if round_ender_score >= min(
+                np.delete(base_scores, round_ending_player)
+            ) or (
+                (turn - get_last_revealed_turns(skyjo)[round_ending_player]) // players
+                >= NO_PROGRESS_TURN_THRESHOLD
+                + 1  # +1 because after last action turn is incremented again
+            ):
+                base_scores[round_ending_player] *= 2
+        else:
+            if (
+                turn - get_last_revealed_turns(skyjo)[player]
+            ) // players >= NO_PROGRESS_TURN_THRESHOLD:
+                base_scores[player] *= 2
     return base_scores
 
 
@@ -577,7 +621,7 @@ def visualize_state(skyjo: Skyjo):
 
     curr_player = get_player(skyjo)
     state_str = f"current player: {curr_player} card: {get_top(skyjo) - 2 if get_top(skyjo) is not None else None}\n"
-    state_str += f"turn: {get_turn(skyjo)} countdown: {skyjo[6]} last_revealed_turn: {skyjo[7]}\n"
+    state_str += f"turn: {get_turn(skyjo)} countdown: {skyjo[6]} last_revealed_turns: {get_last_revealed_turns(skyjo)}\n"
     state_str += f"Actions: {game[GAME_ACTION : GAME_ACTION + ACTION_SIZE]}\n\n"
     for i in range(players):
         state_str += f"Player {(curr_player + i) % players}\n"
@@ -611,7 +655,7 @@ def validate(skyjo: Skyjo) -> bool:
 
     # Table
     assert table.shape == (PLAYER_COUNT, ROW_COUNT, COLUMN_COUNT, FINGER_SIZE)
-    fingers = np.zeros((FINGER_SIZE,), dtype=np.uint8)
+    fingers = np.zeros((FINGER_SIZE,), dtype=np.int16)
     for i in range(players):
         for row in range(ROW_COUNT):
             for column in range(COLUMN_COUNT):
@@ -631,7 +675,16 @@ def validate(skyjo: Skyjo) -> bool:
     )
 
     # No card has been revealed for too long
-    assert get_turn(skyjo) <= skyjo[7] + players * NO_PROGRESS_TURN_THRESHOLD
+    assert (
+        np.all(
+            (get_turn(skyjo) - get_last_revealed_turns(skyjo)) // players
+            <= NO_PROGRESS_TURN_THRESHOLD
+        )
+        or get_countdown(skyjo) == 0
+    ), (
+        f"A card has not been revealed for too long: {get_turn(skyjo)=}, {get_last_revealed_turns(skyjo)=}, {get_countdown(skyjo)=}"
+        f"{(get_turn(skyjo) - get_last_revealed_turns(skyjo)) // players=}"
+    )
     return True
 
 
@@ -659,7 +712,7 @@ def randomize(skyjo: Skyjo, rng: Random = random) -> Skyjo:
         game[GAME_DISCARDS : GAME_DISCARDS + CARD_SIZE] = 0
     card = _choose_card(deck, rng)
 
-    return game, skyjo[1], deck, skyjo[3], skyjo[4], card, skyjo[6], skyjo[7]
+    return game, skyjo[1], deck, skyjo[3], skyjo[4], card, skyjo[6]
 
 
 def preordain(skyjo: Skyjo, card: int) -> Skyjo:
@@ -676,7 +729,6 @@ def preordain(skyjo: Skyjo, card: int) -> Skyjo:
         skyjo[4],
         card,
         skyjo[6],
-        skyjo[7],
     )
 
 
@@ -711,7 +763,7 @@ def begin(skyjo: Skyjo) -> Skyjo:
     new_deck = deck.copy()
     _remove_card(new_deck, card)
 
-    return new_game, table, new_deck, players, turn, None, None, turn
+    return new_game, table, new_deck, players, turn, None, None
 
 
 def draw(skyjo: Skyjo) -> Skyjo:
@@ -728,7 +780,6 @@ def draw(skyjo: Skyjo) -> Skyjo:
     turn = skyjo[4]
     card = skyjo[5]
     countdown = skyjo[6]
-    last_revealed_turn = skyjo[7]
     if card is None:
         raise ValueError("Expected a randomly-drawn card")
 
@@ -738,7 +789,15 @@ def draw(skyjo: Skyjo) -> Skyjo:
     new_deck = deck.copy()
     _remove_card(new_deck, card)
     countdown = _decrement_countdown(countdown)
-    return new_game, table, new_deck, players, turn, None, countdown, last_revealed_turn
+    return (
+        new_game,
+        table,
+        new_deck,
+        players,
+        turn,
+        None,
+        countdown,
+    )
 
 
 def take(skyjo: Skyjo) -> Skyjo:
@@ -755,12 +814,11 @@ def take(skyjo: Skyjo) -> Skyjo:
     turn = skyjo[4]
     card = skyjo[5]
     countdown = skyjo[6]
-    last_revealed_turn = skyjo[7]
     new_game = game.copy()
     _replace_action(new_game, ACTION_REPLACE)
     new_countdown = _decrement_countdown(countdown)
 
-    return new_game, table, deck, players, turn, card, new_countdown, last_revealed_turn
+    return new_game, table, deck, players, turn, card, new_countdown
 
 
 def flip(
@@ -785,7 +843,6 @@ def flip(
     turn = skyjo[4]
     card = skyjo[5]
     countdown = skyjo[6]
-    last_revealed_turn = skyjo[7]
     # Make sure this is a valid move
     if not table[0, row, column, FINGER_HIDDEN]:
         raise ValueError(f"{skyjo!r} cannot flip visible ({row}, {column})")
@@ -796,8 +853,15 @@ def flip(
     # No physical change to the top card, only semantic. What was the
     # draw card is now considered the discard. Rotate scores after.
     new_game = game.copy()
+    if is_turn:
+        countdown = _update_countdown(countdown, table, players, turn, turn)
+        _update_last_revealed_turns(new_game, turn)
+        turn = turn + 1
+
     if rotate:
         _rotate_scores(new_game, players)
+        _rotate_last_revealed_turns(new_game, players)
+
     if set_draw_or_take_action:
         _replace_action(new_game, ACTION_DRAW_OR_TAKE)
 
@@ -812,26 +876,8 @@ def flip(
     # Copy the deck, removing the card we chose.
     new_deck = deck.copy()
     _remove_card(new_deck, card)
-    if is_turn:
-        new_countdown = _update_countdown(countdown, new_table, players)
-    else:
-        new_countdown = countdown
 
-    new_turn = turn
-    new_last_revealed_turn = last_revealed_turn
-    if is_turn:
-        new_turn = turn + 1
-        new_last_revealed_turn = turn
-    return (
-        new_game,
-        new_table,
-        new_deck,
-        players,
-        new_turn,
-        None,
-        new_countdown,
-        new_last_revealed_turn,
-    )
+    return (new_game, new_table, new_deck, players, turn, None, countdown)
 
 
 def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
@@ -850,15 +896,15 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     turn = skyjo[4]
     card = skyjo[5]
     countdown = skyjo[6]
-    new_last_revealed_turn = skyjo[7]
     # If the finger is currently hidden, we need to draw, but only if
     # `card` is not specified.
+    new_game = game.copy()
     if table[0, row, column, FINGER_HIDDEN]:
         finger = FINGER_HIDDEN
         if card is None:
             raise ValueError("Expected a randomly-drawn card")
-        new_last_revealed_turn = turn
-
+        last_revealed_turn = turn
+        _update_last_revealed_turns(new_game, turn)
     # Otherwise, ensure no `card` was specified and determine which
     # card is currently at the given coordinates.
     else:
@@ -870,14 +916,15 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
         else:
             assert table[0, row, column, FINGER_CLEARED]
             raise ValueError(f"{skyjo!r} cannot replace cleared ({row}, {column})")
+    last_revealed_turn = get_last_revealed_turns(skyjo)[0]
 
     # Replace the current discard with `card`
-    new_game = game.copy()
     if card is not None:
         top = _swap_top(new_game, card)
     else:
         top = _swap_top(new_game, finger)
     _rotate_scores(new_game, players)
+    _rotate_last_revealed_turns(new_game, players)
     _replace_action(new_game, ACTION_DRAW_OR_TAKE)
 
     # Clear the current card in our hand and replace it with top, i.e.
@@ -892,23 +939,17 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     new_deck = deck.copy()
     if card is not None:
         _remove_card(new_deck, card)
-    new_countdown = _update_countdown(countdown, new_table, players)
-    return (
-        new_game,
-        new_table,
-        new_deck,
-        players,
-        turn + 1,
-        None,
-        new_countdown,
-        new_last_revealed_turn,
+    countdown = _update_countdown(
+        countdown, new_table, players, last_revealed_turn, turn
     )
+
+    return (new_game, new_table, new_deck, players, turn + 1, None, countdown)
 
 
 # MARK: Learning
 
 
-def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.uint8]:
+def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.int16]:
     """Generate a mask of possible actions from the current state.
 
     The mask is a flat, one-dimensional array where each index
@@ -931,7 +972,7 @@ def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.uint8]:
         `divmod(index - 16, ROW_COUNT)`.
     """
 
-    mask = np.ndarray((MASK_SIZE,), dtype=np.uint8)
+    mask = np.ndarray((MASK_SIZE,), dtype=np.int16)
     mask.fill(0)
     game = skyjo[0]
     table = skyjo[1]
@@ -968,11 +1009,10 @@ def get_actions(skyjo: Skyjo) -> Iterable[SkyjoAction]:
 
 def is_action_random(action: SkyjoAction, skyjo: Skyjo) -> bool:
     """Whether the action involves a random outcome."""
-    table, players, countdown, last_revealed_turn = (
+    table, players, countdown = (
         skyjo[1],
         skyjo[3],
         skyjo[6],
-        skyjo[7],
     )
     # last action before end round
     # end of round reveals of facedown cards which will reveal all
@@ -994,16 +1034,9 @@ def is_action_random(action: SkyjoAction, skyjo: Skyjo) -> bool:
     row, column = divmod(action - MASK_REPLACE, COLUMN_COUNT)
     # If replacing doesn't reveal a card and NO PROGRESS_TURN_THRESHOLD will be reached,
     # then game will end and thus there will be random outcomes from flipping.
-    if (
-        not table[0, row, column, FINGER_HIDDEN]
-        and last_revealed_turn + players * NO_PROGRESS_TURN_THRESHOLD
-        <= get_turn(skyjo) + 1
-    ):
+    if not table[0, row, column, FINGER_HIDDEN] <= get_turn(skyjo) + 1:
         return True
     return bool(table[0, row, column, FINGER_HIDDEN])
-
-
-# MARK: Selfplay
 
 
 def quick_finish_action(skyjo: Skyjo) -> int:
@@ -1032,13 +1065,18 @@ def random_valid_action(skyjo: Skyjo) -> int:
     )
 
 
+# MARK: Selfplay
+
+
 def start_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
     """Take skyjo state an start round by flipping first card for each player."""
     players = skyjo[3]
     for _ in range(players):
         skyjo = randomize(skyjo, rng=rng)
         assert validate(skyjo)
-        skyjo = flip(skyjo, 0, 0, rotate=True, set_draw_or_take_action=False)
+        skyjo = flip(
+            skyjo, 0, 0, rotate=True, set_draw_or_take_action=False, is_turn=False
+        )
         assert validate(skyjo)
     return skyjo
 
@@ -1069,30 +1107,32 @@ def end_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
         skyjo[4],
         skyjo[5],
         0,
-        skyjo[7],
     )
 
 
 def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Skyjo:
-    initial_skyjo = skyjo
-    players, countdown = skyjo[3], skyjo[6]
+    players, countdown = get_player_count(skyjo), get_countdown(skyjo)
     # Apply action to skyjo
     if action == MASK_FLIP_SECOND_BELOW:
         skyjo = randomize(skyjo, rng=rng)
         assert validate(skyjo)
-        skyjo = flip(skyjo, 1, 0, rotate=True, set_draw_or_take_action=False)
+        skyjo = flip(
+            skyjo, 1, 0, rotate=True, set_draw_or_take_action=False, is_turn=True
+        )
         assert validate(skyjo)
         # All players have flipped initial cards, start round
-        if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == skyjo[3] * 2:
+        if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == players * 2:
             skyjo = randomize(skyjo, rng=rng)
             skyjo = begin(skyjo)
     elif action == MASK_FLIP_SECOND_RIGHT:
         skyjo = randomize(skyjo, rng=rng)
         assert validate(skyjo)
-        skyjo = flip(skyjo, 0, 1, rotate=True, set_draw_or_take_action=False)
+        skyjo = flip(
+            skyjo, 0, 1, rotate=True, set_draw_or_take_action=False, is_turn=True
+        )
         assert validate(skyjo)
         # All players have flipped initial cards, start round
-        if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == skyjo[3] * 2:
+        if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == players * 2:
             skyjo = randomize(skyjo, rng=rng)
             skyjo = begin(skyjo)
     elif action == MASK_DRAW:
@@ -1123,11 +1163,7 @@ def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Sky
         raise ValueError(f"Invalid action {action!r}")
 
     countdown = skyjo[6]
-    last_revealed_turn = skyjo[7]
-    if (
-        countdown == 0
-        or last_revealed_turn + players * NO_PROGRESS_TURN_THRESHOLD <= get_turn(skyjo)
-    ):
+    if countdown == 0:
         skyjo = end_round(skyjo, rng=rng)
         assert validate(skyjo)
 
