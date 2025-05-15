@@ -676,15 +676,12 @@ def validate(skyjo: Skyjo) -> bool:
 
     # No card has been revealed for too long
     assert (
-        np.all(
-            (get_turn(skyjo) - get_last_revealed_turns(skyjo)) // players
-            <= NO_PROGRESS_TURN_THRESHOLD
-        )
-        or get_countdown(skyjo) == 0
-    ), (
+        get_turn(skyjo) - get_last_revealed_turns(skyjo)[0]
+    ) // players <= NO_PROGRESS_TURN_THRESHOLD or get_countdown(skyjo) == 0, (
         f"A card has not been revealed for too long: {get_turn(skyjo)=}, {get_last_revealed_turns(skyjo)=}, {get_countdown(skyjo)=}"
-        f"{(get_turn(skyjo) - get_last_revealed_turns(skyjo)) // players=}"
+        f"{(get_turn(skyjo) - get_last_revealed_turns(skyjo)[0]) // players=}"
     )
+
     return True
 
 
@@ -1083,6 +1080,7 @@ def start_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
 
 def end_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
     """End the round by flipping all hidden cards."""
+    assert get_countdown(skyjo) == 0, "Game isn't over we can't end the round"
     players = skyjo[3]
     for _ in range(players):
         for row in range(ROW_COUNT):
