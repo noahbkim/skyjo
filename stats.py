@@ -177,6 +177,10 @@ def end_round_outcome_probabilities(
     then compute the probability as the probability a player ends with that many
     points (PMF), and the probability of all other players having a higher score
     (1 - CMF).
+
+    Note: this does not account for clearing probability and outcomes and also
+    treats each flipped card as identical and independent rather than a single
+    combination of reveals.
     """
 
     players = sj.get_player_count(skyjo)

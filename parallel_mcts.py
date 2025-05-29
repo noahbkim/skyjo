@@ -207,14 +207,16 @@ class AfterStateNode:
     def expand(self, initial_realizations: int = 10):
         # Placeholder for now we may want to simulate many random outcomes here
         self.is_expanded = True
-        self.realize_outcomes(n=initial_realizations)
+        # self.realize_outcomes(n=initial_realizations)
+        self.realize_outcomes(n=1)
 
     def select_child(
         self,
     ) -> DecisionStateNode | TerminalStateNode:
         """Realize next state by applying action. Returns node in game tree that represents realized next state."""
-        realized_next_state = self._realize_outcome()
-        return self.children[sj.hash_skyjo(realized_next_state)]
+        # realized_next_state = self._realize_outcome()
+        return list(self.children.values())[0]
+        # return self.children[sj.hash_skyjo(realized_next_state)]
 
 
 @dataclasses.dataclass(slots=True)
@@ -334,11 +336,13 @@ def run_mcts(
     prediction_id_to_after_state_prediction_id = {}
     after_state_prediction_count = 0
     pending_leaf_count = 0
+    search_depths = []
     for _ in range(iterations):
         search_path = find_leaf(
             root_node,
             virtual_loss=virtual_loss,
         )
+        search_depths.append(len(search_path))
         leaf = search_path[-1]
         if isinstance(leaf, TerminalStateNode):
             # TODO: think about whether leaf needs to be expanded...

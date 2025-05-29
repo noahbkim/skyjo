@@ -57,7 +57,7 @@ def state_value_for_player(state_value: StateValue, player: int) -> float:
 def to_state_value(
     value_output: np.ndarray[tuple[int], np.float32], curr_player: int
 ) -> StateValue:
-    return np.roll(value_output, shift=-curr_player)
+    return np.roll(value_output, shift=curr_player)
 
 
 ## Training Data
@@ -120,14 +120,15 @@ def get_points_target(
 
 ## LOSS FUNCTIONS
 def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    loss = -(target * torch.log(predicted + 1e-9)).sum(
-        dim=1
-    )  # add small epsilon to avoid log(0)
-    return loss.mean()
+    # loss = -(target * torch.log(predicted + 1e-9)).sum(
+    #     dim=1
+    # )  # add small epsilon to avoid log(0)
+    # return loss.mean()
+    return nn.CrossEntropyLoss(reduction="mean")(predicted, target)
 
 
 def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    return torch.sum((target - predicted) ** 2) / target.size()[0]
+    return nn.MSELoss(reduction="mean")(predicted, target)
 
 
 def base_total_loss(
@@ -156,6 +157,37 @@ def base_total_loss(
         torch.tensor(value_targets, device=value_output.device, dtype=torch.float32),
     )
     return policy_loss + value_scale * value_loss
+
+
+def batch_mask_and_renormalize_policy_probabilities(
+    batch_policies: np.ndarray[tuple[int, int], np.float32],
+    batch_masks: np.ndarray[tuple[int, int], np.int8],
+) -> np.ndarray[tuple[int, int], np.float32]:
+    assert batch_policies.shape == batch_masks.shape, (
+        f"expected valid_actions_mask of shape {batch_policies.shape}, got {batch_masks.shape}"
+    )
+    valid_action_probabilities = batch_policies * batch_masks
+    total_valid_action_probabilities = einops.reduce(
+        valid_action_probabilities, "b ... -> b", reduction="sum"
+    )
+    num_valid_actions = einops.reduce(batch_masks, "b ... -> b", reduction="sum")
+    assert not np.any(num_valid_actions == 0), (
+        "expected no samples with no valid actions"
+    )
+    # Change denominator to 1 if total probability is 0 to make division safe
+    safe_denominator = torch.where(
+        total_valid_action_probabilities == 0, 1.0, total_valid_action_probabilities
+    )
+    renormalized_valid_action_probabilities = (
+        valid_action_probabilities / safe_denominator
+    )
+    # Assign uniform probability where total probability is 0
+    renormalized_valid_action_probabilities = torch.where(
+        total_valid_action_probabilities == 0,
+        1 / num_valid_actions,
+        renormalized_valid_action_probabilities,
+    )
+    return renormalized_valid_action_probabilities
 
 
 def mask_and_renormalize_policy_probabilities(
@@ -220,22 +252,33 @@ class SkyNetPrediction:
         output: SkyNetOutput,
     ) -> SkyNetPrediction:
         numpy_output = output_to_numpy(output)
-        value_numpy, points_numpy, policy_numpy = get_single_model_output(
+        value_numpy, points_numpy, policy_logits_numpy = get_single_model_output(
             numpy_output, 0
         )
+
+        # Convert masked policy logits to probabilities
+        # The logits from PolicyTail.forward are already masked (large negative numbers for invalid actions)
+        # A standard softmax will handle these correctly, assigning near-zero probability to masked actions.
+        exp_logits = np.exp(
+            policy_logits_numpy - np.max(policy_logits_numpy, axis=-1, keepdims=True)
+        )  # for numerical stability
+        policy_probabilities_numpy = exp_logits / np.sum(
+            exp_logits, axis=-1, keepdims=True
+        )
+
         assert (
             len(value_numpy.shape)
             == len(points_numpy.shape)
-            == len(policy_numpy.shape)
+            == len(policy_probabilities_numpy.shape)
             == 1
         ), (
             "expected value_output, points_output, and policy_output to be a single result and not batched results."
-            f"value_output.shape: {value_numpy.shape}, points_output.shape: {points_numpy.shape}, policy_output.shape: {policy_numpy.shape}"
+            f"value_output.shape: {value_numpy.shape}, points_output.shape: {points_numpy.shape}, policy_output.shape: {policy_probabilities_numpy.shape}"
         )
         return SkyNetPrediction(
             value_output=value_numpy,
             points_output=points_numpy,
-            policy_output=policy_numpy,
+            policy_output=policy_probabilities_numpy,
         )
 
     def __str__(self) -> str:
@@ -311,6 +354,7 @@ class Spatia1DInputHead(nn.Module):
     def __init__(
         self,
         input_shape: tuple[int, ...],
+        column_embedding_features: int,
         hand_embedding_features: int,
         out_features: int,
         dropout_rate: float = 0.5,
@@ -325,25 +369,20 @@ class Spatia1DInputHead(nn.Module):
         self.num_rows = input_shape[1]
         self.num_columns = input_shape[2]
         self.num_channels = input_shape[3]
-
+        self.column_embedding_features = column_embedding_features
+        self.column_encoder = nn.Sequential(
+            nn.Linear(
+                in_features=self.num_channels,
+                out_features=self.column_embedding_features,
+                bias=False,
+            ),
+            nn.ReLU(inplace=True),
+        )
         self.hand_embedding_features = hand_embedding_features
         self.hand_encoder = nn.Sequential(
             nn.Linear(
-                in_features=self.num_channels * self.num_rows * self.num_columns,
-                out_features=(
-                    self.num_channels * self.num_rows * self.num_columns
-                    + hand_embedding_features
-                )
-                // 2,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Linear(
-                in_features=(
-                    self.num_channels * self.num_rows * self.num_columns
-                    + hand_embedding_features
-                )
-                // 2,
-                out_features=hand_embedding_features,
+                in_features=self.column_embedding_features,
+                out_features=self.hand_embedding_features,
             ),
             nn.ReLU(inplace=True),
         )
@@ -367,7 +406,13 @@ class Spatia1DInputHead(nn.Module):
             self.num_columns,
             self.num_channels,
         ), f"expected input shape (B, P, H, W, C), got {x.shape}"
-        x = einops.rearrange(x, "b p h w c -> (b p) (h w c)")
+        x = einops.reduce(x, "b p h w c -> b p w c", "sum")
+        x = einops.rearrange(x, "b p w c -> (b p w) c")
+        x = self.column_encoder(x)
+        x = einops.rearrange(
+            x, "(b p w) f -> (b p) w f", w=self.num_columns, p=self.num_players
+        )
+        x = einops.reduce(x, "bp w f -> bp f", "sum")
         encoded_hands = self.hand_encoder(x)
         x = einops.rearrange(encoded_hands, "(b p) f -> b (p f)", p=self.num_players)
         x = self.transform_encoded_hands(x)
@@ -395,21 +440,31 @@ class Spatial2DInputHead(nn.Module):
         self.conv1 = nn.Conv2d(
             in_channels=self.input_shape[3],
             out_channels=self.hand_embedding_channels,
-            kernel_size=(self.row_count, 1),
+            kernel_size=(self.row_count, self.column_count),
             stride=(1, 1),
-            padding=(0, 0),
+            padding="same",
         )
-        # self.resblock1 = ResBlock(
-        #     in_channels=(self.input_shape[3] + self.hand_embedding_channels) // 2,
-        #     out_channels=[
-        #         self.hand_embedding_channels,
-        #         self.hand_embedding_channels,
-        #     ],
-        #     kernel_sizes=[(3, 3), (3, 3)],
-        #     strides=[(1, 1), (1, 1)],
-        #     paddings=[(1, 1), (1, 1)],
-        # )
-        # self.max_pool = nn.MaxPool2d(kernel_size=(self.row_count, self.column_count))
+        self.resblock1 = ResBlock(
+            in_channels=(self.hand_embedding_channels),
+            out_channels=[
+                self.hand_embedding_channels,
+                self.hand_embedding_channels,
+            ],
+            kernel_sizes=[(3, 4), (3, 4)],
+            strides=[(1, 1), (1, 1)],
+            paddings=["same", "same"],
+        )
+        self.resblock2 = ResBlock(
+            in_channels=(self.hand_embedding_channels),
+            out_channels=[
+                self.hand_embedding_channels,
+                self.hand_embedding_channels,
+            ],
+            kernel_sizes=[(3, 4), (3, 4)],
+            strides=[(1, 1), (1, 1)],
+            paddings=["same", "same"],
+        )
+        self.max_pool = nn.MaxPool2d(kernel_size=(self.row_count, 1), stride=(3, 1))
         self.combiner = nn.Sequential(
             nn.Linear(
                 in_features=self.hand_embedding_channels * self.players * 4,
@@ -431,8 +486,9 @@ class Spatial2DInputHead(nn.Module):
         )
         x = einops.rearrange(x, "b p h w c -> (b p) c h w").contiguous()
         x = self.conv1(x)
-        # x = self.resblock1(x)
-        # x = self.max_pool(x)  # (bp, c, 1, 1)
+        x = self.resblock1(x)
+        x = self.resblock2(x)
+        x = self.max_pool(x)  # (bp, c, 1, 4)
         x = einops.rearrange(x, "(b p) c h w -> b (p c h w)", p=self.players)
         x = self.combiner(x)  # (b, out_features)
         return x
@@ -487,14 +543,15 @@ class PolicyTail(nn.Module):
         self.activation1 = nn.ReLU(inplace=True)
         self.softmax1 = nn.Softmax(dim=1)
 
-    def forward(self, x):
+    def forward(self, x, mask):
         """
         Input: (N, num_features)
         Output: (N, output_shape_size)
         """
         assert len(x.shape) == 2, f"expected 2D input (N, F), got {x.shape}"
         x = self.linear1(x)
-        x = self.softmax1(x)
+        x = x + (mask - 1) * 1e9
+        # x = self.softmax1(x)
         return x
 
 
@@ -540,6 +597,7 @@ class SkyNet1D(nn.Module):
         policy_output_shape: tuple[int],  # (mask_size,)
         device: torch.device = torch.device("cpu"),
         dropout_rate: float = 0.5,
+        column_embedding_features: int = 32,
         hand_embedding_features: int = 64,
         spatial_out_features: int = 64,
         non_spatial_out_features: int = 48,
@@ -555,10 +613,12 @@ class SkyNet1D(nn.Module):
         self.set_device(device)
 
         # Spatial Input
+        self.column_embedding_features = column_embedding_features
         self.hand_embedding_features = hand_embedding_features
         self.spatial_out_features = spatial_out_features
         self.spatial_input_head = Spatia1DInputHead(
             input_shape=spatial_input_shape,
+            column_embedding_features=self.column_embedding_features,
             hand_embedding_features=self.hand_embedding_features,
             out_features=self.spatial_out_features,
         )
@@ -576,22 +636,12 @@ class SkyNet1D(nn.Module):
             nn.Linear(
                 in_features=self.spatial_input_head.out_features
                 + self.non_spatial_input_head.out_features,
-                out_features=(
-                    self.spatial_input_head.out_features
-                    + self.non_spatial_input_head.out_features
-                    + self.final_embedding_dim
-                )
-                // 2,
+                out_features=self.final_embedding_dim,
             ),
             nn.ReLU(inplace=True),
             nn.Dropout(self.dropout_rate),
             nn.Linear(
-                in_features=(
-                    self.spatial_input_head.out_features
-                    + self.non_spatial_input_head.out_features
-                    + self.final_embedding_dim
-                )
-                // 2,
+                in_features=self.final_embedding_dim,
                 out_features=self.final_embedding_dim,
             ),
             nn.ReLU(inplace=True),
@@ -618,14 +668,16 @@ class SkyNet1D(nn.Module):
         self,
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
+        mask: torch.Tensor,
     ) -> SkyNetOutput:
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
         mlp_out = self.mlp(combined_out)
         value_out = self.value_tail(mlp_out)
-        policy_out = self.policy_tail(mlp_out)
+        policy_out = self.policy_tail(mlp_out, mask)
         points_out = self.points_tail(mlp_out)
+        # policy_out = batch_mask_and_renormalize_policy_probabilities(policy_out, mask)
         return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
@@ -648,7 +700,10 @@ class SkyNet1D(nn.Module):
             ),
             "f -> 1 f",
         ).contiguous()
-        output = self.forward(spatial_tensor, non_spatial_tensor)
+        mask_tensor = torch.tensor(
+            sj.actions(skyjo), dtype=torch.float32, device=self.device
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
         return SkyNetPrediction.from_skynet_output(output)
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:
@@ -752,14 +807,16 @@ class SkyNet2D(nn.Module):
         self,
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
+        mask: torch.Tensor,
     ) -> SkyNetOutput:
         spatial_out = self.spatial_input_head(spatial_tensor)
         non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
         combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
         mlp_out = self.mlp(combined_out)
         value_out = self.value_tail(mlp_out)
-        policy_out = self.policy_tail(mlp_out)
+        policy_out = self.policy_tail(mlp_out, mask)
         points_out = self.points_tail(mlp_out)
+        # policy_out = batch_mask_and_renormalize_policy_probabilities(policy_out, mask)
         return value_out, points_out, policy_out
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
@@ -782,8 +839,385 @@ class SkyNet2D(nn.Module):
             ),
             "f -> 1 f",
         )
-        output = self.forward(spatial_tensor, non_spatial_tensor)
+        mask_tensor = torch.tensor(
+            sj.actions(skyjo), dtype=torch.float32, device=self.device
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
 
+        return SkyNetPrediction.from_skynet_output(output)
+
+    def save(self, dir: pathlib.Path) -> pathlib.Path:
+        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
+        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
+        torch.save(
+            self.state_dict(),
+            model_path,
+        )
+        return model_path
+
+
+class SimpleSkyNet(nn.Module):
+    def __init__(
+        self,
+        hidden_layers: list[int],
+        spatial_input_shape: tuple[int, ...],  # (players, )
+        non_spatial_input_shape: tuple[int],
+        value_output_shape: tuple[int],  # (players,)
+        policy_output_shape: tuple[int],  # (mask_size,)
+        device: torch.device = torch.device("cpu"),
+        dropout_rate: float = 0.5,
+    ):
+        import math
+
+        super(SimpleSkyNet, self).__init__()
+        self.spatial_input_shape = spatial_input_shape
+        self.non_spatial_input_shape = non_spatial_input_shape
+        self.value_output_shape = value_output_shape
+        self.policy_output_shape = policy_output_shape
+        self.device = device
+        self.dropout_rate = dropout_rate
+        self.set_device(device)
+        in_features = [
+            math.prod(spatial_input_shape) + math.prod(non_spatial_input_shape)
+        ] + hidden_layers[:-1]
+        out_features = hidden_layers
+        self.mlp = nn.Sequential(
+            *[
+                nn.Linear(in_features=in_features, out_features=out_features)
+                for in_features, out_features in zip(in_features, out_features)
+            ]
+        )
+        self.value_tail = ValueTail(hidden_layers[-1], value_output_shape[0])
+        self.policy_tail = PolicyTail(hidden_layers[-1], policy_output_shape[0])
+
+    def forward(
+        self,
+        spatial_tensor: torch.Tensor,
+        non_spatial_tensor: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> SkyNetOutput:
+        spatial_tensor = einops.rearrange(
+            spatial_tensor, "b p h w c -> b (p h w c)"
+        ).contiguous()
+        x = torch.cat((spatial_tensor, non_spatial_tensor), dim=1)
+        x = self.mlp(x)
+        value_out = self.value_tail(x)
+        policy_out = self.policy_tail(x, mask)
+        return value_out, torch.zeros_like(value_out), policy_out
+
+    def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
+        spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "p h w c -> 1 p h w c",
+        )
+        non_spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "f -> 1 f",
+        )
+        mask_tensor = torch.tensor(
+            sj.actions(skyjo), dtype=torch.float32, device=self.device
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
+
+        return SkyNetPrediction.from_skynet_output(output)
+
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
+
+    def save(self, dir: pathlib.Path) -> pathlib.Path:
+        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
+        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
+        torch.save(
+            self.state_dict(),
+            model_path,
+        )
+        return model_path
+
+
+class SkyNetAttentionPolicyTail(nn.Module):
+    def __init__(
+        self,
+        card_embedding_dimensions: int,
+        column_embedding_dimensions: int,
+        board_embedding_dimensions: int,
+        global_state_embedding_dimensions: int,
+        non_positional_actions: int = 4,
+        rows: int = 3,
+        columns: int = 4,
+    ):
+        super(SkyNetAttentionPolicyTail, self).__init__()
+        self.card_embedding_dimensions = card_embedding_dimensions
+        self.column_embedding_dimensions = column_embedding_dimensions
+        self.board_embedding_dimensions = board_embedding_dimensions
+        self.global_state_embedding_dimensions = global_state_embedding_dimensions
+        self.non_positional_actions = non_positional_actions
+        self.rows = rows
+        self.columns = columns
+        self.flip_logits_mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.card_embedding_dimensions
+                # + self.column_embedding_dimensions
+                # + self.board_embedding_dimensions
+                + self.global_state_embedding_dimensions,
+                out_features=self.card_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_features=self.card_embedding_dimensions,
+                out_features=1,
+            ),
+        )
+        self.replace_logits_mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.card_embedding_dimensions
+                # + self.column_embedding_dimensions
+                # + self.board_embedding_dimensions
+                + self.global_state_embedding_dimensions,
+                out_features=self.card_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_features=self.card_embedding_dimensions,
+                out_features=1,
+            ),
+        )
+        self.non_positional_logits_mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.global_state_embedding_dimensions,
+                out_features=self.non_positional_actions,
+            ),
+        )
+
+    def forward(
+        self,
+        card_embeddings: torch.Tensor,
+        column_summaries: torch.Tensor,
+        board_summaries: torch.Tensor,
+        global_state_tensor: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        flattened_card_embeddings = einops.rearrange(
+            card_embeddings[:, 0, :, :],
+            "b h w f -> b (h w) f",
+        )  # only current player's board
+        # expanded_column_summaries = einops.repeat(
+        #     column_summaries[:, 0, :, :],
+        #     "b w f -> b (h w) f",
+        #     h=self.rows,
+        # )
+        # expanded_board_summaries = einops.repeat(
+        #     board_summaries[:, 0, :],
+        #     "b f -> b (h w) f",
+        #     h=self.rows,
+        #     w=self.columns,
+        # )
+        expanded_global_state_tensor = einops.repeat(
+            global_state_tensor,
+            "b f -> b (h w) f",
+            h=self.rows,
+            w=self.columns,
+        )
+        full_input = torch.cat(
+            (
+                flattened_card_embeddings,
+                # expanded_column_summaries,
+                # expanded_board_summaries,
+                expanded_global_state_tensor,
+            ),
+            dim=2,
+        )
+        flip_logits = einops.rearrange(
+            self.flip_logits_mlp(full_input),
+            "... 1 -> ...",
+        )
+        replace_logits = einops.rearrange(
+            self.replace_logits_mlp(full_input),
+            "... 1 -> ...",
+        )
+        non_positional_logits = self.non_positional_logits_mlp(global_state_tensor)
+        unmasked_logits = torch.cat(
+            (non_positional_logits, flip_logits, replace_logits), dim=1
+        )
+        masked_logits = unmasked_logits.masked_fill(~mask.bool(), -1e10)
+        return masked_logits
+
+
+class SkyNetAttentionValueTail(nn.Module):
+    def __init__(
+        self, embedding_dimensions: int, players: int = 2, dropout_rate: float = 0.5
+    ):
+        super(SkyNetAttentionValueTail, self).__init__()
+        self.embedding_dimensions = embedding_dimensions
+        self.dropout_rate = dropout_rate
+        self.players = players
+        self.mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.embedding_dimensions,
+                out_features=self.players,
+            ),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.mlp(x)
+
+
+class SkyNetAttention(nn.Module):
+    def __init__(
+        self,
+        spatial_input_shape: tuple[int, ...],  # (players, )
+        non_spatial_input_shape: tuple[int],
+        value_output_shape: tuple[int],  # (players,)
+        policy_output_shape: tuple[int],  # (mask_size,)
+        device: torch.device = torch.device("cpu"),
+        card_embedding_dimensions: int = 32,
+        non_spatial_embedding_dimensions: int = 32,
+        column_embedding_dimensions: int = 64,
+        board_embedding_dimensions: int = 128,
+        global_state_embedding_dimensions: int = 256,
+        heads: int = 1,
+    ):
+        super(SkyNetAttention, self).__init__()
+        self.spatial_input_shape = spatial_input_shape
+        self.non_spatial_input_shape = non_spatial_input_shape
+        self.value_output_shape = value_output_shape
+        self.policy_output_shape = policy_output_shape
+        self.device = device
+        self.card_embedding_dimensions = card_embedding_dimensions
+        self.column_embedding_dimensions = column_embedding_dimensions
+        self.board_embedding_dimensions = board_embedding_dimensions
+        self.players = self.spatial_input_shape[0]
+        self.rows = self.spatial_input_shape[1]
+        self.columns = self.spatial_input_shape[2]
+        self.card_types = self.spatial_input_shape[3]
+
+        # Card Embedding
+        self.card_embedder = nn.Linear(
+            in_features=self.card_types,
+            out_features=self.card_embedding_dimensions,
+            bias=False,
+        )
+
+        # Non-Spatial Embedding
+        self.non_spatial_embedding_dimensions = non_spatial_embedding_dimensions
+        self.non_spatial_embedder = nn.Linear(
+            in_features=self.non_spatial_input_shape[0],
+            out_features=self.non_spatial_embedding_dimensions,
+            bias=False,
+        )
+        self.column_summarizer = nn.Sequential(
+            nn.Linear(
+                in_features=self.card_embedding_dimensions,
+                out_features=self.column_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+        )
+
+        self.board_summarizer = nn.Sequential(
+            nn.Linear(
+                in_features=self.column_embedding_dimensions,
+                out_features=self.board_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+        )
+
+        self.global_state_embedding_dimensions = global_state_embedding_dimensions
+        self.global_state_embedder = nn.Sequential(
+            nn.Linear(
+                in_features=self.non_spatial_embedding_dimensions
+                + self.board_embedding_dimensions * self.players,
+                out_features=self.global_state_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_features=self.global_state_embedding_dimensions,
+                out_features=self.global_state_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+        )
+
+        # Tails
+        self.value_tail = SkyNetAttentionValueTail(
+            embedding_dimensions=self.global_state_embedding_dimensions,
+            players=self.players,
+        )
+        self.policy_tail = SkyNetAttentionPolicyTail(
+            card_embedding_dimensions=self.card_embedding_dimensions,
+            column_embedding_dimensions=self.column_embedding_dimensions,
+            board_embedding_dimensions=self.board_embedding_dimensions,
+            global_state_embedding_dimensions=self.global_state_embedding_dimensions,
+        )
+
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
+
+    def forward(
+        self,
+        spatial_tensor: torch.Tensor,
+        non_spatial_tensor: torch.Tensor,
+        mask: torch.Tensor,
+    ):
+        spatial_tensor = einops.rearrange(spatial_tensor, "b p h w c -> (b p h w) c")
+        card_embeddings = self.card_embedder(spatial_tensor)
+        card_embeddings = einops.rearrange(
+            card_embeddings,
+            "(b p h w) f -> b p h w f",
+            h=self.rows,
+            w=self.columns,
+            p=self.players,
+        )
+        non_spatial_embeddings = self.non_spatial_embedder(non_spatial_tensor)
+
+        pooled_columns = einops.reduce(
+            card_embeddings, "b p h w f -> b p w f", reduction="mean"
+        )
+        column_summaries = self.column_summarizer(pooled_columns)
+        pooled_boards = einops.reduce(
+            column_summaries, "b p w f -> b p f", reduction="mean"
+        )
+        board_summaries = self.board_summarizer(pooled_boards)
+        global_state_embedding = self.global_state_embedder(
+            torch.cat(
+                (
+                    einops.rearrange(board_summaries, "b p f -> b (p f)"),
+                    non_spatial_embeddings,
+                ),
+                dim=1,
+            )
+        )
+        value_out = self.value_tail(global_state_embedding)
+        policy_out = self.policy_tail(
+            card_embeddings,
+            column_summaries,
+            board_summaries,
+            global_state_embedding,
+            mask,
+        )
+        return value_out, torch.zeros_like(value_out), policy_out
+
+    def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
+        spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "p h w c -> 1 p h w c",
+        ).contiguous()
+        non_spatial_tensor = einops.rearrange(
+            torch.tensor(
+                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+            ),
+            "f -> 1 f",
+        ).contiguous()
+        mask_tensor = torch.tensor(
+            sj.actions(skyjo), dtype=torch.float32, device=self.device
+        )
+        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
         return SkyNetPrediction.from_skynet_output(output)
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:

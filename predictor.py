@@ -43,6 +43,8 @@ class PredictorInputQueue:
         self.free_non_spatial_input_queue = mp.Queue()
         self.prediction_ids_queue = mp.Queue()
         self.free_prediction_ids_queue = mp.Queue()
+        self.mask_queue = mp.Queue()
+        self.free_mask_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
         self.max_batch_size = max_batch_size
 
@@ -52,6 +54,7 @@ class PredictorInputQueue:
             and self.non_spatial_input_queue.empty()
             and self.prediction_ids_queue.empty()
             and self.batch_size_queue.empty()
+            and self.mask_queue.empty()
         )
 
     def has_free(self) -> bool:
@@ -59,6 +62,7 @@ class PredictorInputQueue:
             not self.free_prediction_ids_queue.empty()
             or not self.free_spatial_input_queue.empty()
             or not self.free_non_spatial_input_queue.empty()
+            or not self.free_mask_queue.empty()
         )
 
     def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -66,6 +70,7 @@ class PredictorInputQueue:
             self.free_prediction_ids_queue.get(),
             self.free_spatial_input_queue.get(),
             self.free_non_spatial_input_queue.get(),
+            self.free_mask_queue.get(),
         )
 
     def put_free(
@@ -73,16 +78,19 @@ class PredictorInputQueue:
         prediction_ids_tensor: torch.Tensor,
         spatial_input_tensor: torch.Tensor,
         non_spatial_input_tensor: torch.Tensor,
+        mask_tensor: torch.Tensor,
     ) -> None:
         self.free_spatial_input_queue.put(spatial_input_tensor)
         self.free_non_spatial_input_queue.put(non_spatial_input_tensor)
         self.free_prediction_ids_queue.put(prediction_ids_tensor)
+        self.free_mask_queue.put(mask_tensor)
 
     def put(
         self,
         prediction_ids_tensor: torch.Tensor,
         spatial_input_tensor: torch.Tensor,
         non_spatial_input_tensor: torch.Tensor,
+        mask_tensor: torch.Tensor,
         batch_size: int,
     ) -> None:
         assert batch_size <= self.max_batch_size, (
@@ -92,6 +100,7 @@ class PredictorInputQueue:
             prediction_ids_tensor.shape[0]
             == spatial_input_tensor.shape[0]
             == non_spatial_input_tensor.shape[0]
+            == mask_tensor.shape[0]
             == self.max_batch_size
         ), (
             "All input actual tensors must have the same batch size, got:",
@@ -103,17 +112,20 @@ class PredictorInputQueue:
         self.spatial_input_queue.put(spatial_input_tensor)
         self.non_spatial_input_queue.put(non_spatial_input_tensor)
         self.prediction_ids_queue.put(prediction_ids_tensor)
+        self.mask_queue.put(mask_tensor)
         self.batch_size_queue.put(batch_size)
 
     def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         spatial_input_tensor = self.spatial_input_queue.get()
         non_spatial_input_tensor = self.non_spatial_input_queue.get()
         prediction_ids_tensor = self.prediction_ids_queue.get()
+        mask_tensor = self.mask_queue.get()
         batch_size = self.batch_size_queue.get()
         return (
             prediction_ids_tensor,
             spatial_input_tensor,
             non_spatial_input_tensor,
+            mask_tensor,
             batch_size,
         )
 
@@ -209,12 +221,14 @@ class UnifiedPredictorInputQueue:
         prediction_ids_tensor: torch.Tensor,
         spatial_input_tensor: torch.Tensor,
         non_spatial_input_tensor: torch.Tensor,
+        mask_tensor: torch.Tensor,
         batch_size: int,
     ):
         assert (
             len(prediction_ids_tensor)
             == len(spatial_input_tensor)
             == len(non_spatial_input_tensor)
+            == len(mask_tensor)
             == batch_size
         ), (
             "All input tensors must have the same batch size",
@@ -229,17 +243,21 @@ class UnifiedPredictorInputQueue:
                 prediction_ids_tensor,
                 spatial_input_tensor,
                 non_spatial_input_tensor,
+                mask_tensor,
                 batch_size,
             )
         )
         self.input_count += batch_size
 
-    def get(self) -> tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    def get(
+        self,
+    ) -> tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
         (
             queue_id,
             prediction_ids_tensor,
             spatial_input_tensor,
             non_spatial_input_tensor,
+            mask_tensor,
             batch_size,
         ) = self._queue.pop(0)
         self.input_count -= batch_size
@@ -248,6 +266,7 @@ class UnifiedPredictorInputQueue:
             prediction_ids_tensor,
             spatial_input_tensor,
             non_spatial_input_tensor,
+            mask_tensor,
             batch_size,
         )
 
@@ -259,6 +278,7 @@ class UnifiedPredictorInputQueue:
         max_batch_size: int,
     ) -> tuple[
         list[tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]],
+        torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -285,9 +305,11 @@ class UnifiedPredictorInputQueue:
             queue_ids,
             spatial_tensors,
             non_spatial_tensors,
+            mask_tensors,
             prediction_id_tensors,
             batch_sizes,
         ) = (
+            [],
             [],
             [],
             [],
@@ -299,12 +321,14 @@ class UnifiedPredictorInputQueue:
             prediction_ids_tensor,
             spatial_input_tensor,
             non_spatial_input_tensor,
+            mask_tensor,
             batch_size,
         ) = self.peek()
         while sum(batch_sizes) + batch_size <= max_batch_size and self.input_count > 0:
             queue_ids.append(queue_id)
             spatial_tensors.append(spatial_input_tensor)
             non_spatial_tensors.append(non_spatial_input_tensor)
+            mask_tensors.append(mask_tensor)
             prediction_id_tensors.append(prediction_ids_tensor)
             batch_sizes.append(batch_size)
             self.get()
@@ -315,16 +339,19 @@ class UnifiedPredictorInputQueue:
                 prediction_ids_tensor,
                 spatial_input_tensor,
                 non_spatial_input_tensor,
+                mask_tensor,
                 batch_size,
             ) = self._queue[0]
         spatial_input_tensor = torch.cat(spatial_tensors).to(self.device)
         non_spatial_input_tensor = torch.cat(non_spatial_tensors).to(self.device)
+        mask_tensor = torch.cat(mask_tensors).to(self.device)
         prediction_id_tensor = torch.cat(prediction_id_tensors).to(self.device)
         return (
             queue_ids,
             prediction_id_tensor,
             spatial_input_tensor,
             non_spatial_input_tensor,
+            mask_tensor,
             batch_sizes,
         )
 
@@ -387,6 +414,13 @@ class PredictorProcess(mp.Process):
                         ),
                         dtype=torch.float32,
                     ).share_memory_(),  # non spatial input
+                    torch.zeros(
+                        size=(
+                            input_queue.max_batch_size,
+                            sj.MASK_SIZE,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # policy output
                 )
 
     def _populate_free_output_queues(self, model: skynet.SkyNet):
@@ -452,6 +486,7 @@ class PredictorProcess(mp.Process):
                     prediction_ids_tensor,
                     spatial_input_tensor,
                     non_spatial_input_tensor,
+                    mask_tensor,
                     batch_size,
                 ) = input_queue.get()
 
@@ -460,6 +495,7 @@ class PredictorProcess(mp.Process):
                     prediction_ids_tensor[:batch_size].clone(),
                     spatial_input_tensor[:batch_size].clone(),
                     non_spatial_input_tensor[:batch_size].clone(),
+                    mask_tensor[:batch_size].clone(),
                     batch_size,
                 )
                 # logging.info(
@@ -469,6 +505,7 @@ class PredictorProcess(mp.Process):
                     prediction_ids_tensor,
                     spatial_input_tensor,
                     non_spatial_input_tensor,
+                    mask_tensor,
                 )
 
     def run(self):
@@ -507,13 +544,16 @@ class PredictorProcess(mp.Process):
                         prediction_ids,
                         spatial_input_tensor,
                         non_spatial_input_tensor,
+                        mask_tensor,
                         batch_sizes,
                     ) = unified_input_queue.get_batch(self.max_batch_size)
 
                     # Model Inference
                     with torch.no_grad():
                         value_output, points_output, policy_output = model(
-                            spatial_input_tensor, non_spatial_input_tensor
+                            spatial_input_tensor,
+                            non_spatial_input_tensor,
+                            mask_tensor,
                         )
 
                     # Send outputs back to clients
@@ -665,17 +705,19 @@ class MultiProcessPredictorClient(PredictorClient):
         list[PredictionId],
         list[np.ndarray[tuple[int], np.float32]],
         list[np.ndarray[tuple[int], np.float32]],
+        list[np.ndarray[tuple[int], np.float32]],
         int,
     ]:
         batch_size = min(len(self.current_inputs), self.input_queue.max_batch_size)
         assert batch_size > 0, "Batch size must be greater than 0"
         batch = self.current_inputs[:batch_size]
         self.current_inputs = self.current_inputs[batch_size:]
-        prediction_ids, spatial_inputs, nonspatial_inputs = zip(*batch)
+        prediction_ids, spatial_inputs, nonspatial_inputs, masks = zip(*batch)
         return (
             prediction_ids,
             spatial_inputs,
             nonspatial_inputs,
+            masks,
             batch_size,
         )
 
@@ -683,16 +725,22 @@ class MultiProcessPredictorClient(PredictorClient):
         prediction_id = self._get_unique_prediction_id()
         spatial_numpy = skynet.get_spatial_state_numpy(state)
         nonspatial_numpy = skynet.get_non_spatial_state_numpy(state)
-        self.current_inputs.append((prediction_id, spatial_numpy, nonspatial_numpy))
+        mask_numpy = sj.actions(state)
+        self.current_inputs.append(
+            (prediction_id, spatial_numpy, nonspatial_numpy, mask_numpy)
+        )
         return prediction_id
 
     def send(self) -> None:
-        prediction_ids, spatial_inputs, nonspatial_inputs, batch_size = (
+        prediction_ids, spatial_inputs, nonspatial_inputs, masks, batch_size = (
             self._get_current_batch()
         )
-        prediction_ids_tensor, spatial_input_tensor, nonspatial_input_tensor = (
-            self.input_queue.get_free()
-        )
+        (
+            prediction_ids_tensor,
+            spatial_input_tensor,
+            nonspatial_input_tensor,
+            mask_tensor,
+        ) = self.input_queue.get_free()
         prediction_ids_tensor[:batch_size] = torch.tensor(
             np.array(prediction_ids),
             dtype=torch.int64,
@@ -705,10 +753,15 @@ class MultiProcessPredictorClient(PredictorClient):
             np.array(nonspatial_inputs),
             dtype=torch.float32,
         )
+        mask_tensor[:batch_size] = torch.tensor(
+            np.array(masks),
+            dtype=torch.float32,
+        )
         self.input_queue.put(
             prediction_ids_tensor,
             spatial_input_tensor,
             nonspatial_input_tensor,
+            mask_tensor,
             batch_size,
         )
         # logging.info(
@@ -813,17 +866,19 @@ class NaivePredictorClient(PredictorClient):
         list[PredictionId],
         list[np.ndarray[tuple[int], np.float32]],
         list[np.ndarray[tuple[int], np.float32]],
+        list[np.ndarray[tuple[int], np.float32]],
         int,
     ]:
         batch_size = min(len(self.current_inputs), self.max_batch_size)
         assert batch_size > 0, "Batch size must be greater than 0"
         batch = self.current_inputs[:batch_size]
         self.current_inputs = self.current_inputs[batch_size:]
-        prediction_ids, spatial_inputs, nonspatial_inputs = zip(*batch)
+        prediction_ids, spatial_inputs, nonspatial_inputs, masks = zip(*batch)
         return (
             prediction_ids,
             spatial_inputs,
             nonspatial_inputs,
+            masks,
             batch_size,
         )
 
@@ -831,11 +886,14 @@ class NaivePredictorClient(PredictorClient):
         prediction_id = self._get_unique_prediction_id()
         spatial_numpy = skynet.get_spatial_state_numpy(state)
         nonspatial_numpy = skynet.get_non_spatial_state_numpy(state)
-        self.current_inputs.append((prediction_id, spatial_numpy, nonspatial_numpy))
+        mask_numpy = sj.actions(state)
+        self.current_inputs.append(
+            (prediction_id, spatial_numpy, nonspatial_numpy, mask_numpy)
+        )
         return prediction_id
 
     def send(self) -> None:
-        prediction_ids, spatial_inputs, nonspatial_inputs, batch_size = (
+        prediction_ids, spatial_inputs, nonspatial_inputs, masks, batch_size = (
             self._get_current_batch()
         )
 
@@ -849,9 +907,14 @@ class NaivePredictorClient(PredictorClient):
             device=self.device,
             dtype=torch.float32,
         )
+        mask_tensor = torch.tensor(
+            np.array(masks),
+            device=self.device,
+            dtype=torch.float32,
+        )
         with torch.no_grad():
             value_output, points_output, policy_output = self.model(
-                spatial_input_tensor, nonspatial_input_tensor
+                spatial_input_tensor, nonspatial_input_tensor, mask_tensor
             )
             if self.device != torch.device("cpu"):
                 value_output = value_output.cpu()

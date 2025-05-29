@@ -4,7 +4,6 @@ import logging
 
 import numpy as np
 import torch
-import torch.nn as nn
 
 import skyjo as sj
 import skynet
@@ -73,6 +72,38 @@ def create_almost_surely_losing_position() -> sj.Skyjo:
     return game_state
 
 
+def create_obvious_take_position() -> sj.Skyjo:
+    """Creates a position where the current player can replace a card with a higher value card."""
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        player2_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        top_card=sj.CARD_N2,
+    )
+    for i in range(2, 7):
+        row, col = divmod(i, sj.COLUMN_COUNT)
+        game_state = sj.preordain(game_state, sj.CARD_P12)
+        game_state = sj.flip(game_state, row, col)
+        game_state = sj.preordain(game_state, sj.CARD_P12)
+        game_state = sj.flip(game_state, row, col)
+    return game_state
+
+
+def create_obvious_draw_position() -> sj.Skyjo:
+    """Creates a position where the current player can replace a card with a higher value card."""
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        player2_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        top_card=sj.CARD_P12,
+    )
+    for i in range(2, 7):
+        row, col = divmod(i, sj.COLUMN_COUNT)
+        game_state = sj.preordain(game_state, sj.CARD_P11)
+        game_state = sj.flip(game_state, row, col)
+        game_state = sj.preordain(game_state, sj.CARD_P11)
+        game_state = sj.flip(game_state, row, col)
+    return game_state
+
+
 # MARK: Evaluation
 
 
@@ -108,6 +139,21 @@ def evaluate_almost_surely_winning_position_after_draw(model: skynet.SkyNet):
     with torch.no_grad():
         model_output = model.predict(game_state)
         logging.debug(f"MODEL_EVALUATION:\n{model_output}")
+        logging.info(f"drawn card: {sj.get_top(game_state)}")
+        logging.info(f"{model_output.value_output}")
+        logging.info(f"{model_output.policy_output}")
+        logging.info(f"{model_output.points_output}")
+    return model_output
+
+
+def evaluate_almost_surely_winning_position_after_take(model: skynet.SkyNet):
+    logging.info("Evaluating almost surely winning position after take")
+    model.eval()
+    game_state = create_almost_surely_winning_position()
+    game_state = sj.apply_action(game_state, sj.MASK_TAKE)
+    with torch.no_grad():
+        model_output = model.predict(game_state)
+        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
         logging.info(f"{model_output.value_output}")
         logging.info(f"{model_output.policy_output}")
         logging.info(f"{model_output.points_output}")
@@ -122,6 +168,7 @@ def evaluate_almost_surely_losing_position_after_draw(model: skynet.SkyNet):
     with torch.no_grad():
         model_output = model.predict(game_state)
         logging.debug(f"MODEL_EVALUATION:\n{model_output}")
+        logging.info(f"drawn card: {sj.get_top(game_state)}")
         logging.info(f"{model_output.value_output}")
         logging.info(f"{model_output.policy_output}")
         logging.info(f"{model_output.points_output}")
@@ -131,7 +178,7 @@ def evaluate_almost_surely_losing_position_after_draw(model: skynet.SkyNet):
 def validate_model_on_known_positions(model: skynet.SkyNet):
     _ = evaluate_almost_surely_winning_position(model)
     _ = evaluate_almost_surely_losing_position(model)
-    _ = evaluate_almost_surely_winning_position_after_draw(model)
+    _ = evaluate_almost_surely_winning_position_after_take(model)
     _ = evaluate_almost_surely_losing_position_after_draw(model)
 
 
@@ -139,11 +186,10 @@ def validate_model_with_games_data(
     model: skynet.SkyNet,
     games_data: list[
         tuple[
-            sj.Game,
-            sj.Table,
-            np.ndarray[tuple[int], np.float32],
-            np.ndarray[tuple[int], np.float32],
-            np.ndarray[tuple[int], np.float32],
+            sj.Skyjo,
+            np.ndarray[tuple[int], np.float32],  # action probabilities
+            np.ndarray[tuple[int], np.float32],  # outcome
+            np.ndarray[tuple[int], np.float32],  # points
         ]
     ],
 ):
@@ -151,12 +197,17 @@ def validate_model_with_games_data(
     with torch.no_grad():
         batch = games_data
         spatial_inputs = torch.tensor(
-            np.array([data[1] for data in batch]),
+            np.array([skynet.get_spatial_state_numpy(data[0]) for data in batch]),
             dtype=torch.float32,
             device=model.device,
         )
         non_spatial_inputs = torch.tensor(
-            np.array([data[0] for data in batch]),
+            np.array([skynet.get_non_spatial_state_numpy(data[0]) for data in batch]),
+            dtype=torch.float32,
+            device=model.device,
+        )
+        masks = torch.tensor(
+            np.array([sj.actions(data[0]) for data in batch]),
             dtype=torch.float32,
             device=model.device,
         )
@@ -164,19 +215,19 @@ def validate_model_with_games_data(
             torch_predicted_value,
             torch_predicted_points,
             torch_predicted_policy,
-        ) = model(spatial_inputs, non_spatial_inputs)
+        ) = model(spatial_inputs, non_spatial_inputs, masks)
         policy_targets_tensor = torch.tensor(
-            np.array([data[2] for data in batch]),
+            np.array([data[1] for data in batch]),
             dtype=torch.float32,
             device=model.device,
         )
         value_targets_tensor = torch.tensor(
-            np.array([data[3] for data in batch]),
+            np.array([data[2] for data in batch]),
             dtype=torch.float32,
             device=model.device,
         )
         points_targets_tensor = torch.tensor(
-            np.array([data[4] for data in batch]),
+            np.array([data[3] for data in batch]),
             dtype=torch.float32,
             device=model.device,
         )
@@ -187,20 +238,24 @@ def validate_model_with_games_data(
             torch_predicted_value, value_targets_tensor
         )
         value_loss_scale = 3
-        points_loss = nn.L1Loss()(
-            torch_predicted_points,
-            points_targets_tensor,
-        )
-        points_loss_scale = 1 / 1000
+        # points_loss = nn.L1Loss()(
+        #     torch_predicted_points,
+        #     points_targets_tensor,
+        # )
+        # points_loss_scale = 1 / 1000
         total_loss = (
             value_loss_scale * value_loss
-            + points_loss_scale * points_loss
+            # + points_loss_scale * points_loss
             + policy_loss
         )
+        policy_entropies = -(
+            policy_targets_tensor * torch.log(policy_targets_tensor + 1e-12)
+        ).sum(dim=1)
         logging.info(
             f"value loss: {value_loss_scale * value_loss.item()} "
-            f"points loss: {points_loss_scale * points_loss.item()} "
+            # f"points loss: {points_loss_scale * points_loss.item()} "
             f"policy loss: {policy_loss.item()} "
+            f"policy entropy: {policy_entropies.mean()} "
             f"total loss: {total_loss.item()} "
         )
         return total_loss

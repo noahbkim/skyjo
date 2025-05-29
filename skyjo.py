@@ -851,9 +851,7 @@ def flip(
     # draw card is now considered the discard. Rotate scores after.
     new_game = game.copy()
     if is_turn:
-        countdown = _update_countdown(countdown, table, players, turn, turn)
         _update_last_revealed_turns(new_game, turn)
-        turn = turn + 1
 
     if rotate:
         _rotate_scores(new_game, players)
@@ -869,6 +867,10 @@ def flip(
     _clear_columns(new_game, new_table)
     if rotate:
         _rotate_table(new_table, players)
+
+    if is_turn:
+        countdown = _update_countdown(countdown, new_table, players, turn, turn)
+        turn = turn + 1
 
     # Copy the deck, removing the card we chose.
     new_deck = deck.copy()
