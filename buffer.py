@@ -27,6 +27,7 @@ class ReplayBuffer:
         self.outcome_target_buffer = []
         self.points_target_buffer = []
         self.action_masks = []
+        self.count = 0
 
     @classmethod
     def load(cls, path: pathlib.Path) -> "ReplayBuffer":
@@ -72,9 +73,6 @@ class ReplayBuffer:
 
     def add_game_data_with_symmetry(self, game_data: list[tuple]):
         """Adds a game's worth of training data to the buffer."""
-        # Buffer is full
-        if self.games_count == self.max_games:
-            self._remove_oldest_game()
         for game_state, policy_target, outcome_target, points_target in game_data:
             for (
                 symmetric_game_state,

@@ -318,11 +318,13 @@ if __name__ == "__main__":
     players = 2
     game_state = sj.new(players=players)
     players = game_state[3]
-    model = skynet.SkyNet1D(
+    model = skynet.SimpleSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
+        hidden_layers=[64, 64],
+        device=torch.device("cpu"),
     )
     # game_state = sj.start_round(game_state)
     game_state = explain.create_almost_surely_winning_position()

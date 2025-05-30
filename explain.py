@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import torch
 
+import play
 import skyjo as sj
 import skynet
 
@@ -184,14 +185,7 @@ def validate_model_on_known_positions(model: skynet.SkyNet):
 
 def validate_model_with_games_data(
     model: skynet.SkyNet,
-    games_data: list[
-        tuple[
-            sj.Skyjo,
-            np.ndarray[tuple[int], np.float32],  # action probabilities
-            np.ndarray[tuple[int], np.float32],  # outcome
-            np.ndarray[tuple[int], np.float32],  # points
-        ]
-    ],
+    games_data: list[play.GameData],
 ):
     model.eval()
     with torch.no_grad():
@@ -263,29 +257,24 @@ def validate_model_with_games_data(
 
 def validate_model(
     model: skynet.SkyNet,
-    games_data: list[
-        tuple[
-            sj.Game,
-            sj.Table,
-            np.ndarray[tuple[int], np.float32],
-            np.ndarray[tuple[int], np.float32],
-            np.ndarray[tuple[int], np.float32],
-        ]
-    ],
+    games_data: list[play.GameData] | None = None,
 ):
     validate_model_on_known_positions(model)
-    validate_model_with_games_data(model, games_data)
+    if games_data is not None:
+        validate_model_with_games_data(model, games_data)
 
 
 if __name__ == "__main__":
     import pathlib
 
     logging.basicConfig(level=logging.INFO)
-    model = skynet.SkyNet1D(
+    model = skynet.SimpleSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
+        hidden_layers=[64, 64],
+        device=torch.device("cpu"),
     )
     saved_model_path = pathlib.Path("./models/model_20250423_141907.pth")
     model.load_state_dict(torch.load(saved_model_path, weights_only=True))

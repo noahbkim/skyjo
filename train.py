@@ -1,3 +1,4 @@
+import itertools
 import logging
 import pathlib
 import random
@@ -81,12 +82,12 @@ def train(
 def multiprocessed_learn(
     factory: model_factory.SkyNetModelFactory,
     device: torch.device,
-    training_steps,
-    training_data_buffer_max_games: int = 250,
+    learn_steps: int,
+    training_data_buffer_max_size: int = 10_000_000,
     predictor_batch_size: int = 1024,
     selfplay_processes: int = 1,
     greedy_play_processes: int = 0,
-    training_batch_size: int = 256,
+    training_batch_size: int = 512,
     min_games_before_training: int = 250,
     validation_function: typing.Callable[[skynet.SkyNet], None] = None,
     validation_step_interval: int = 1000,
@@ -158,20 +159,22 @@ def multiprocessed_learn(
             actor.start()
 
         training_data_buffer = buffer.ReplayBuffer(
-            max_games=training_data_buffer_max_games
+            max_size=training_data_buffer_max_size
         )
-        logging.info(f"Training for {training_steps} steps")
+        logging.info(f"Training for {learn_steps} steps")
         model = factory.get_latest_model()
         model.set_device(device)
         start_time = time.time()
-        for train_iter in range(training_steps):
+        games_count = 0
+        for train_iter in range(learn_steps):
             # Add training data from the queue into the buffer
             while (
                 not selfplay_data_queue.empty()
-                or training_data_buffer.games_count <= min_games_before_training
+                or games_count <= min_games_before_training
             ):
                 game_data = selfplay_data_queue.get()
-                training_data_buffer.add_game_data_with_symmetry(game_data)
+                training_data_buffer.add_game_data(game_data)
+                games_count += 1
             if train_iter == 0:
                 logging.info("Enough selfplay data collected, starting training")
             batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
@@ -191,7 +194,7 @@ def multiprocessed_learn(
 
             if train_iter > 0 and train_iter % update_best_model_step_interval == 0:
                 logging.info(
-                    f"Training data buffer games: {training_data_buffer.games_count}, total buffer size: {len(training_data_buffer)}"
+                    f"Training data buffer length: {len(training_data_buffer)}, total buffer size: {len(training_data_buffer)}"
                 )
                 logging.info(
                     f"Ran {update_best_model_step_interval} train steps in {time.time() - start_time} seconds"
@@ -257,168 +260,76 @@ def learn(
             validation_function(model)
 
 
-def main():
-    import datetime
-    import pickle as pkl
-
-    import explain
-
-    debug = False
-    log_dir = pathlib.Path(
-        f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
-    )
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filename=log_dir / "main.log",
-        filemode="w",
-    )
-    np.random.seed(0)
-    torch.manual_seed(0)
-    random.seed(0)
-    players = 2
-    selfplay_processes = 0
-    greedy_play_processes = 1
-    device = torch.device("mps")
-    models_dir = (
-        pathlib.Path("./models")
-        / "distributed"
-        / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    )
+def main_train_on_greedy_ev_player_games(
+    model: skynet.SkyNet,
+    models_dir: pathlib.Path,
+    validation_games_data: list[play.GameData] | None = None,
+    learn_steps: int = 100,
+    training_epochs: int = 1,
+    batch_count: int = 10_000,
+    buffer_max_size: int = 10_000_000,
+    games_per_step: int = 100_000,
+    training_batch_size: int = 512,
+):
     models_dir.mkdir(parents=True, exist_ok=True)
-    factory = model_factory.SkyNetModelFactory(
-        players=players,
-        dropout_rate=0.3,
-        device=device,
-        models_dir=models_dir,
-        model_callable=skynet.SkyNet2D,
-        model_kwargs={
-            "hand_embedding_channels": 128,
-            "spatial_out_features": 128,
-            "non_spatial_out_features": 64,
-            "final_embedding_dim": 128,
-        },
-    )
-    with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
-        validation_games_data = pkl.load(f)
-    multiprocessed_learn(
-        factory,
-        selfplay_processes=selfplay_processes,
-        greedy_play_processes=greedy_play_processes,
-        training_steps=int(1e7),
-        device=device,
-        debug=debug,
-        training_batch_size=64,
-        predictor_batch_size=512,
-        training_data_buffer_max_games=500,
-        validation_function=lambda model: explain.validate_model(
-            model, validation_games_data
-        ),
-        validation_step_interval=10000,
-        update_best_model_step_interval=10000,
-        min_games_before_training=250,
-    )
-
-
-def main_train_greedy_ev():
-    import datetime
-    import pickle as pkl
-
-    import explain
-    import skyjo as sj
-
-    with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
-        validation_games_data = pkl.load(f)
-    with open("./data/validation/greedy_ev_fixed_training_games_data.pkl", "rb") as f:
-        fixed_training_games_data = pkl.load(f)
-    debug = False
-    log_dir = pathlib.Path(
-        f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
-    )
-    log_dir.mkdir(parents=True, exist_ok=True)
-    models_dir = (
-        pathlib.Path("./models")
-        / "distributed"
-        / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    )
-    models_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filename=log_dir / "main.log",
-        filemode="w",
-    )
-    np.random.seed(0)
-    torch.manual_seed(0)
-    random.seed(0)
-    learn_steps = 1000
-    training_epochs = 1
-    training_data_buffer_max_games = 100000
-    training_batch_size = 512
-    device = torch.device("mps")
-    # model = skynet.SkyNet2D(
-    #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-    #     non_spatial_input_shape=(sj.GAME_SIZE,),
-    #     value_output_shape=(2,),
-    #     policy_output_shape=(sj.MASK_SIZE,),
-    #     hand_embedding_channels=128,
-    #     spatial_out_features=128,
-    #     non_spatial_out_features=64,
-    #     final_embedding_dim=128,
-    # )
-    # model = skynet.SkyNet1D(
-    #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-    #     non_spatial_input_shape=(sj.GAME_SIZE,),
-    #     value_output_shape=(2,),
-    #     policy_output_shape=(sj.MASK_SIZE,),
-    #     column_embedding_features=64,
-    #     hand_embedding_features=128,
-    #     spatial_out_features=256,
-    #     non_spatial_out_features=32,
-    #     final_embedding_dim=256,
-    #     dropout_rate=0.0,
-    # )
-    model = skynet.SkyNetAttention(
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(2,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        card_embedding_dimensions=8,
-        column_embedding_dimensions=32,
-        board_embedding_dimensions=256,
-        global_state_embedding_dimensions=512,
-        non_spatial_embedding_dimensions=16,
-    )
-    # model = skynet.SimpleSkyNet(
-    #     [256, 256, 256],
-    #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-    #     non_spatial_input_shape=(sj.GAME_SIZE,),
-    #     value_output_shape=(2,),
-    #     policy_output_shape=(sj.MASK_SIZE,),
-    # )
-    model.set_device(device)
     model_path = model.save(models_dir)
     logging.info(f"Saved model to {model_path}")
-    logging.info("Starting")
-    for learn_iter in range(learn_steps):
-        training_data_buffer = buffer.ReplayBuffer(
-            max_games=training_data_buffer_max_games
-        )
 
-        for _ in range(training_data_buffer.max_games):
+    training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    logging.info("Starting Training")
+    for _ in range(learn_steps):
+        for _ in range(games_per_step):
             game_data = play.multiprocessed_play_greedy_players()
             training_data_buffer.add_game_data(game_data)
-        # for game_data in fixed_training_games_data:
-        #     training_data_buffer.add_game_data(game_data)
-        logging.info(f"Added {training_data_buffer.games_count} games to the buffer")
+
+        logging.info(f"Added {games_per_step} games to the buffer")
         logging.info(f"Training data buffer size: {len(training_data_buffer)}")
-        for _ in range(training_epochs):
+        for learn_iter in range(training_epochs):
             explain.validate_model(model, validation_games_data)
             training_losses = []
-            for batch_iter in range(10000):
+            for batch_iter in range(batch_count):
+                batch = training_data_buffer.sample_batch(
+                    batch_size=training_batch_size
+                )
+                loss = train(
+                    model,
+                    batch,
+                    loss_function=skynet.base_total_loss,
+                    learning_rate=1e-3,
+                )
+                training_losses.append(loss)
+            logging.info(
+                f"Mean training loss: {sum(training_losses) / len(training_losses)}"
+            )
+        model_path = model.save(models_dir)
+        logging.info(f"Saved model to {model_path}")
+
+
+def main_overfit_small_training_sample(
+    model: skynet.SkyNet,
+    models_dir: pathlib.Path,
+    training_sample: list[list[play.GameData]],
+    learn_steps: int = 100,
+    training_epochs: int = 1,
+    batch_count: int = 1000,
+    buffer_max_size: int = 10_000_000,
+    training_batch_size: int = 512,
+):
+    models_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model.save(models_dir)
+    logging.info(f"Saved model to {model_path}")
+    training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    logging.info("Adding fixed training data sample to buffer")
+    for game_data in training_sample:
+        training_data_buffer.add_game_data(game_data)
+    validation_games_data = list(itertools.chain.from_iterable(training_sample))
+    logging.info("Starting Training")
+    for _ in range(learn_steps):
+        logging.info(f"Training data buffer size: {len(training_data_buffer)}")
+        for learn_iter in range(training_epochs):
+            explain.validate_model(model, validation_games_data)
+            training_losses = []
+            for batch_iter in range(batch_count):
                 batch = training_data_buffer.sample_batch(
                     batch_size=training_batch_size
                 )
@@ -437,59 +348,58 @@ def main_train_greedy_ev():
 
 
 if __name__ == "__main__":
-    main_train_greedy_ev()
-    # batch_size = 32
-    # model_runner_model_update_queue = mp.Queue()
-    # model_runner_input_queues = {i: mp.Queue() for i in range(selfplay_processes)}
-    # model_runner_output_queues = {i: mp.Queue() for i in range(selfplay_processes)}
-    # predictor_process = predictor.PredictorProcess(
-    #     model_factory,
-    #     model_runner_model_update_queue,
-    #     model_runner_input_queues,
-    #     model_runner_output_queues,
-    #     batch_size,
-    #     device=device,
-    #     max_wait_seconds=0.2,
-    #     debug=True,
+    import datetime
+    import pickle as pkl
+
+    import explain
+    import skyjo as sj
+
+    np.random.seed(0)
+    torch.manual_seed(0)
+    random.seed(0)
+    debug = False
+    log_dir = pathlib.Path(
+        f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
+    )
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filename=log_dir / "main.log",
+        filemode="w",
+    )
+
+    with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
+        validation_games_data = pkl.load(f)
+    with open("./data/validation/greedy_ev_fixed_training_games_data.pkl", "rb") as f:
+        small_fixed_training_sample = pkl.load(f)
+
+    models_dir = (
+        pathlib.Path("./models")
+        / "distributed"
+        / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    device = torch.device("mps")
+    model = skynet.EquivariantSkyNet(
+        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        value_output_shape=(2,),
+        policy_output_shape=(sj.MASK_SIZE,),
+        device=device,
+        card_embedding_dimensions=8,
+        column_embedding_dimensions=32,
+        board_embedding_dimensions=256,
+        global_state_embedding_dimensions=512,
+        non_spatial_embedding_dimensions=16,
+    )
+    # model = skynet.SimpleSkyNet(
+    #     [256, 256, 256],
+    #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+    #     non_spatial_input_shape=(sj.GAME_SIZE,),
+    #     value_output_shape=(2,),
+    #     policy_output_shape=(sj.MASK_SIZE,),
     # )
-    # try:
-    #     predictor_process.start()
-    #     predictor = predictor.MultiProcessPredictorClient(
-    #         model_runner_input_queues[0], model_runner_output_queues[0]
-    #     )
-    #     game_state = sj.new(players=players)
-    #     game_state = sj.start_round(game_state)
-    #     # game_state = explain.create_almost_surely_winning_position()
-    #     logging.debug(sj.visualize_state(game_state))
-    #     start_time = time.time()
-    #     while not sj.get_game_over(game_state):
-    #         root_node = parallel_mcts.run_mcts(
-    #             game_state,
-    #             predictor,
-    #             1600,
-    #             afterstate_initial_realizations=100,
-    #             max_parallel_evaluations=32,
-    #         )
-    #         logging.debug(f"Visit count: {root_node.visit_count}")
-    #         logging.debug(f"State value: {root_node.state_value}")
-    #         logging.debug(
-    #             f"MCTS Visit Probabilities: {root_node.sample_child_visit_probabilities(temperature=1.0)}"
-    #         )
-    #         logging.debug(
-    #             f"MCTS Visit Probabilities (temp=0.5): {root_node.sample_child_visit_probabilities(temperature=0.5)}"
-    #         )
-    #         mcts_probs = root_node.sample_child_visit_probabilities(temperature=1.0)
-    #         action = np.random.choice(sj.MASK_SIZE, p=mcts_probs)
-    #         assert sj.actions(game_state)[action]
-    #         game_state = sj.apply_action(game_state, action)
-    #         logging.debug(f"ACTION: {sj.get_action_name(action)}")
-    #         logging.debug(sj.visualize_state(game_state))
-    #     winner = sj.get_fixed_perspective_winner(game_state)
-    #     logging.debug(f"Winner: {winner}")
-    #     logging.debug(f"Scores: {sj.get_fixed_perspective_round_scores(game_state)}")
-    #     logging.debug(f"Time: {time.time() - start_time}")
-    # finally:
-    #     logging.info("Terminating predictor")
-    #     predictor_process.terminate()
-    #     predictor_process.join()
-    #     predictor_process.join()
+
+    main_train_on_greedy_ev_player_games(model, models_dir, validation_games_data)
+    # main_overfit_small_training_sample(model, models_dir, small_fixed_training_sample)

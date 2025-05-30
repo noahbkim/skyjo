@@ -459,7 +459,7 @@ class SimpleSkyNet(nn.Module):
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
         device: torch.device = torch.device("cpu"),
-        dropout_rate: float = 0.5,
+        dropout_rate: float = 0.0,
     ):
         import math
 
@@ -475,12 +475,15 @@ class SimpleSkyNet(nn.Module):
             math.prod(spatial_input_shape) + math.prod(non_spatial_input_shape)
         ] + hidden_layers[:-1]
         out_features = hidden_layers
-        self.mlp = nn.Sequential(
-            *[
-                nn.Linear(in_features=in_features, out_features=out_features)
-                for in_features, out_features in zip(in_features, out_features)
-            ]
-        )
+        linear_layers = [
+            nn.Linear(in_features=in_features, out_features=out_features)
+            for in_features, out_features in zip(in_features, out_features)
+        ]
+        with_activations = []
+        for layer in range(len(linear_layers)):
+            with_activations.append(linear_layers[layer])
+            with_activations.append(nn.ReLU(inplace=True))
+        self.mlp = nn.Sequential(*with_activations, nn.Dropout(self.dropout_rate))
         self.value_tail = SimpleValueTail(hidden_layers[-1], value_output_shape[0])
         self.policy_tail = SimplePolicyLogitTail(
             hidden_layers[-1], policy_output_shape[0]
@@ -552,7 +555,6 @@ class EquivariantSkyNet(nn.Module):
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
-        self.device = device
         self.card_embedding_dimensions = card_embedding_dimensions
         self.column_embedding_dimensions = column_embedding_dimensions
         self.board_embedding_dimensions = board_embedding_dimensions
@@ -619,6 +621,7 @@ class EquivariantSkyNet(nn.Module):
             board_embedding_dimensions=self.board_embedding_dimensions,
             global_state_embedding_dimensions=self.global_state_embedding_dimensions,
         )
+        self.set_device(device)
 
     def forward(
         self,

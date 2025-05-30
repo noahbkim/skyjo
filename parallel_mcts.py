@@ -467,11 +467,13 @@ if __name__ == "__main__":
     np.random.seed(42)
     torch.manual_seed(42)
     players = 2
-    model = skynet.SkyNet1D(
+    model = skynet.SimpleSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
+        hidden_layers=[64, 64],
+        device=torch.device("cpu"),
     )
     predictor_client = predictor.NaivePredictorClient(model)
     winning_state = explain.create_almost_surely_winning_position()

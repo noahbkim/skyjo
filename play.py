@@ -96,7 +96,7 @@ def normalize_action(action: int, skyjo: sj.Skyjo) -> int:
 
 
 def training_data_from_game_data(
-    game_data: SingleGameData,
+    game_data: GameData,
 ) -> list[skynet.TrainingDataPoint]:
     """Converts game data to training data.
 
@@ -133,7 +133,7 @@ def training_data_from_game_data(
 
 
 def outcome_and_scores_from_game_data(
-    game_data: SingleGameData,
+    game_data: GameData,
     simulations: int = 1000,
 ) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
     """Returns the outcome of the game"""
@@ -214,7 +214,7 @@ def play(
     players: list[player.AbstractPlayer],
     debug: bool = False,
     start_state: sj.Skyjo | None = None,
-) -> SingleGameData:
+) -> GameData:
     if start_state is None:
         game_state = sj.new(players=len(players))
         game_state = sj.start_round(game_state)
@@ -376,7 +376,7 @@ class MultiProcessedPlayGreedyPlayersGenerator(TrainingDataGenerator):
 
 # MARK: Types
 
-SingleGameData: typing.TypeAlias = list[
+GameData: typing.TypeAlias = list[
     tuple[sj.Skyjo, sj.SkyjoAction, np.ndarray[tuple[int], np.float32]]
     # (game state, action, action probabilities)
 ]

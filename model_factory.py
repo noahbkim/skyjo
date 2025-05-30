@@ -15,11 +15,11 @@ import skynet
 class SkyNetModelFactory:
     def __init__(
         self,
+        model_callable: typing.Callable[[], skynet.SkyNet],
         players: int = 2,
         dropout_rate: float = 0.5,
         device: torch.device = torch.device("cpu"),
         models_dir: pathlib.Path = pathlib.Path("models"),
-        model_callable: typing.Callable[[], skynet.SkyNet] = skynet.SkyNet1D,
         model_kwargs: dict[str, typing.Any] = {},
     ):
         self.models_dir = models_dir

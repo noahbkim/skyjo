@@ -984,7 +984,9 @@ class NaivePredictorClient(PredictorClient):
 if __name__ == "__main__":
     import time
 
-    factory = model_factory.SkyNetModelFactory()
+    factory = model_factory.SkyNetModelFactory(
+        skynet.SimpleSkyNet, model_kwargs={"hidden_layers": [64, 64]}
+    )
     input_queues = {0: PredictorInputQueue(0, 512)}
     output_queues = {0: PredictorOutputQueue(0, 512)}
     device = torch.device("cpu")
