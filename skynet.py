@@ -60,9 +60,6 @@ def to_state_value(
     return np.roll(value_output, shift=curr_player)
 
 
-## Training Data
-
-
 TrainingDataPoint: typing.TypeAlias = tuple[
     np.ndarray[tuple[int], np.float32],  # spatial input
     np.ndarray[tuple[int], np.float32],  # non-spatial input
@@ -91,34 +88,9 @@ def get_non_spatial_state_numpy(
     return sj.get_game(skyjo).astype(np.float32)
 
 
-def get_policy_target(
-    batch: TrainingBatch,
-    device: torch.device = torch.device("cpu"),
-) -> torch.Tensor:
-    return torch.tensor(
-        np.array([data_point[0] for data_point in batch]), device=device
-    )
+# MARK: Loss
 
 
-def get_value_target(
-    batch: TrainingBatch,
-    device: torch.device = torch.device("cpu"),
-) -> torch.Tensor:
-    return torch.tensor(
-        np.array([data_point[1] for data_point in batch]), device=device
-    )
-
-
-def get_points_target(
-    batch: TrainingBatch,
-    device: torch.device = torch.device("cpu"),
-) -> torch.Tensor:
-    return torch.tensor(
-        np.array([data_point[2] for data_point in batch]), device=device
-    )
-
-
-## LOSS FUNCTIONS
 def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     # loss = -(target * torch.log(predicted + 1e-9)).sum(
     #     dim=1
@@ -157,6 +129,9 @@ def base_total_loss(
         torch.tensor(value_targets, device=value_output.device, dtype=torch.float32),
     )
     return policy_loss + value_scale * value_loss
+
+
+# MARK: Model Output
 
 
 def batch_mask_and_renormalize_policy_probabilities(
@@ -239,7 +214,6 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     return value_output.numpy(), points_output.numpy(), policy_output.numpy()
 
 
-# Prediction dataclasses
 @dataclasses.dataclass(slots=True)
 class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]
@@ -290,577 +264,197 @@ class SkyNetPrediction:
         )
 
 
-# NETWORKS
-class ResBlock(nn.Module):
-    """Residual Block"""
+SkyNetOutput: typing.TypeAlias = tuple[
+    torch.Tensor,  # value
+    torch.Tensor,  # points
+    torch.Tensor,  # policy
+]
+SkyNetNumpyOutput: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int, ...], np.float32],  # value
+    np.ndarray[tuple[int, ...], np.float32],  # points
+    np.ndarray[tuple[int, ...], np.float32],  # policy
+]
 
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: list[int],
-        kernel_sizes: list[tuple[int, int]] | tuple[int, int] = [(1, 1), (1, 1)],
-        strides: list[tuple[int, int]] | tuple[int, int] = [(1, 1), (1, 1)],
-        paddings: list[tuple[int, int]] | tuple[int, int] = [(0, 0), (0, 0)],
-        activations: list[nn.Module] = [nn.ReLU(inplace=True), nn.ReLU(inplace=True)],
-        batch_norm_kwargs: list[dict[str, typing.Any]] = [{}, {}],
-    ):
+
+# MARK: Tail Modules
+
+
+class SimplePolicyLogitTail(nn.Module):
+    """Simple tail that outputs policy logits.
+
+    Transforms input using a single linear layer and applies optional
+    masking to logits if provided."""
+
+    def __init__(self, input_dimensions: int, output_dimensisons: int):
+        super(SimplePolicyLogitTail, self).__init__()
+        self.input_dimensions = input_dimensions
+        self.output_dimensisons = output_dimensisons
+        self.mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.input_dimensions,
+                out_features=self.output_dimensisons,
+            ),
+        )
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None):
         """
-        Initializes a Residual Block.
+        Input: (N, F)
+        Output: (N, A)
         """
-        super(ResBlock, self).__init__()
-        # Input: (N, in_channels, H_in, W_in)
-        # Output: (N, out_channels[0], (H_in + 2*padding - kernel) / padding + 1, (H_in + 2*padding - kernel) / padding + 1)
-        #   for kernel = (1, 1), stride = (1, 1), and padding = (0, 0) -> (N, out_channels[0], H_in, W_in)
-        #   for kernel = (3, 1), stride = (1, 1), and padding = (1, 0) -> (N, out_channels[0], H_in, W_in)
-        self.conv1 = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=out_channels[0],
-            stride=strides[0],
-            kernel_size=kernel_sizes[0],
-            padding=paddings[0],
-        )
-        # Input: (N, out_channels[0], H_in, W_in)
-        # Output: (N, out_channels[0], H_in, W_in)
-        self.bn1 = nn.BatchNorm2d(num_features=out_channels[0], **batch_norm_kwargs[0])
-        self.activation1 = activations[0]
-        self.conv2 = nn.Conv2d(
-            in_channels=out_channels[1],
-            out_channels=out_channels[1],
-            stride=strides[1],
-            kernel_size=kernel_sizes[1],
-            padding=paddings[1],
-        )
-        self.bn2 = nn.BatchNorm2d(num_features=out_channels[1], **batch_norm_kwargs[1])
-        self.activation2 = activations[1]
-
-    def forward(self, x):
-        assert len(x.shape) == 4, f"expected 4D input (N, C, H, W), got {x.shape}"
-        identity = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.activation1(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-
-        out += identity
-        out = self.activation2(out)
-        return out
-
-
-# MODEL HEADS (INPUT)
-class Spatia1DInputHead(nn.Module):
-    def __init__(
-        self,
-        input_shape: tuple[int, ...],
-        column_embedding_features: int,
-        hand_embedding_features: int,
-        out_features: int,
-        dropout_rate: float = 0.5,
-    ):
-        super(Spatia1DInputHead, self).__init__()
-        assert len(input_shape) == 4, (
-            f"expected 4D input (P, H, W, C), got {input_shape}"
-        )
-
-        self.input_shape = input_shape
-        self.num_players = input_shape[0]
-        self.num_rows = input_shape[1]
-        self.num_columns = input_shape[2]
-        self.num_channels = input_shape[3]
-        self.column_embedding_features = column_embedding_features
-        self.column_encoder = nn.Sequential(
-            nn.Linear(
-                in_features=self.num_channels,
-                out_features=self.column_embedding_features,
-                bias=False,
-            ),
-            nn.ReLU(inplace=True),
-        )
-        self.hand_embedding_features = hand_embedding_features
-        self.hand_encoder = nn.Sequential(
-            nn.Linear(
-                in_features=self.column_embedding_features,
-                out_features=self.hand_embedding_features,
-            ),
-            nn.ReLU(inplace=True),
-        )
-
-        self.out_features = out_features
-        self.transform_encoded_hands = nn.Sequential(
-            nn.Linear(
-                in_features=self.num_players * hand_embedding_features,
-                out_features=self.out_features,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Linear(in_features=self.out_features, out_features=self.out_features),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
-        )
-
-    def forward(self, x):
-        assert x.shape[1:] == (
-            self.num_players,
-            self.num_rows,
-            self.num_columns,
-            self.num_channels,
-        ), f"expected input shape (B, P, H, W, C), got {x.shape}"
-        x = einops.reduce(x, "b p h w c -> b p w c", "sum")
-        x = einops.rearrange(x, "b p w c -> (b p w) c")
-        x = self.column_encoder(x)
-        x = einops.rearrange(
-            x, "(b p w) f -> (b p) w f", w=self.num_columns, p=self.num_players
-        )
-        x = einops.reduce(x, "bp w f -> bp f", "sum")
-        encoded_hands = self.hand_encoder(x)
-        x = einops.rearrange(encoded_hands, "(b p) f -> b (p f)", p=self.num_players)
-        x = self.transform_encoded_hands(x)
+        assert len(x.shape) == 2, f"expected 2D input (N, F), got {x.shape}"
+        logits = self.mlp(x)
+        if mask is not None:
+            logits = logits.masked_fill(~mask.bool(), -1e10)
         return x
 
 
-class Spatial2DInputHead(nn.Module):
-    def __init__(
-        self,
-        input_shape: tuple[int, ...],
-        hand_embedding_channels: int,
-        out_features: int,
-        dropout_rate: float = 0.5,
-    ):
-        super(Spatial2DInputHead, self).__init__()
-        assert len(input_shape) == 4, (
-            f"expected 4D input (P, H, W, C), got {input_shape}"
-        )
-        self.input_shape = input_shape
-        self.players = input_shape[0]
-        self.row_count = input_shape[1]
-        self.column_count = input_shape[2]
-        self.out_features = out_features
-        self.hand_embedding_channels = hand_embedding_channels
-        self.conv1 = nn.Conv2d(
-            in_channels=self.input_shape[3],
-            out_channels=self.hand_embedding_channels,
-            kernel_size=(self.row_count, self.column_count),
-            stride=(1, 1),
-            padding="same",
-        )
-        self.resblock1 = ResBlock(
-            in_channels=(self.hand_embedding_channels),
-            out_channels=[
-                self.hand_embedding_channels,
-                self.hand_embedding_channels,
-            ],
-            kernel_sizes=[(3, 4), (3, 4)],
-            strides=[(1, 1), (1, 1)],
-            paddings=["same", "same"],
-        )
-        self.resblock2 = ResBlock(
-            in_channels=(self.hand_embedding_channels),
-            out_channels=[
-                self.hand_embedding_channels,
-                self.hand_embedding_channels,
-            ],
-            kernel_sizes=[(3, 4), (3, 4)],
-            strides=[(1, 1), (1, 1)],
-            paddings=["same", "same"],
-        )
-        self.max_pool = nn.MaxPool2d(kernel_size=(self.row_count, 1), stride=(3, 1))
-        self.combiner = nn.Sequential(
+class SimpleValueTail(nn.Module):
+    """Simple value tail to predict win probability of players.
+
+    Tranforms input using an MLP with final sigmoid activation."""
+
+    def __init__(self, input_dimensions: int, players: int):
+        super(SimpleValueTail, self).__init__()
+        self.players = players
+        self.input_dimensions = input_dimensions
+        self.mlp = nn.Sequential(
             nn.Linear(
-                in_features=self.hand_embedding_channels * self.players * 4,
-                out_features=self.out_features,
+                in_features=self.input_dimensions,
+                out_features=self.players,
             ),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
-            nn.Linear(
-                in_features=self.out_features,
-                out_features=self.out_features,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
+            nn.Sigmoid(),
         )
-
-    def forward(self, x):
-        assert x.shape[1:] == self.input_shape, (
-            f"expected input shape {self.input_shape}, got {x.shape}"
-        )
-        x = einops.rearrange(x, "b p h w c -> (b p) c h w").contiguous()
-        x = self.conv1(x)
-        x = self.resblock1(x)
-        x = self.resblock2(x)
-        x = self.max_pool(x)  # (bp, c, 1, 4)
-        x = einops.rearrange(x, "(b p) c h w -> b (p c h w)", p=self.players)
-        x = self.combiner(x)  # (b, out_features)
-        return x
-
-
-class NonSpatialInputHead(nn.Module):
-    """Handles the non-spatial features of the current skyjo state (i.e. the top card, discard pile, etc.)"""
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        activations: list[nn.Module] = [nn.ReLU(inplace=True), nn.ReLU(inplace=True)],
-        dropout_rate: float = 0.5,
-    ):
-        assert len(activations) == 2, "expected 2 activations, got {}".format(
-            len(activations)
-        )
-        super(NonSpatialInputHead, self).__init__()
-        self.out_features = out_features
-        self.in_features = in_features
-        self.linear1 = nn.Linear(in_features=in_features, out_features=out_features)
-        self.dropout1 = nn.Dropout(dropout_rate)
-        self.activation1 = activations[0]
-        self.linear2 = nn.Linear(in_features=out_features, out_features=out_features)
-        self.activation2 = activations[1]
 
     def forward(self, x):
         """
         Input: (N, F)
-        Output: (N, out_features)
-        """
-        assert len(x.shape) == 2, f"expected 2D input (N, F), got {x.shape}"
-        x = self.linear1(x)
-        x = self.activation1(x)
-        x = self.linear2(x)
-        x = self.activation2(x)
-        x = self.dropout1(x)
-        return x
-
-
-# MODEL TAILS (OUTPUT HEADS)
-class PolicyTail(nn.Module):
-    def __init__(self, num_features: int, out_features: tuple[int, int, int]):
-        super(PolicyTail, self).__init__()
-        self.num_features = num_features
-        self.out_features = out_features
-        self.linear1 = nn.Linear(
-            in_features=num_features,
-            out_features=out_features,  # number of possible moves
-        )
-        self.activation1 = nn.ReLU(inplace=True)
-        self.softmax1 = nn.Softmax(dim=1)
-
-    def forward(self, x, mask):
-        """
-        Input: (N, num_features)
-        Output: (N, output_shape_size)
-        """
-        assert len(x.shape) == 2, f"expected 2D input (N, F), got {x.shape}"
-        x = self.linear1(x)
-        x = x + (mask - 1) * 1e9
-        # x = self.softmax1(x)
-        return x
-
-
-class ValueTail(nn.Module):
-    def __init__(self, num_features: int, num_players: int):
-        super(ValueTail, self).__init__()
-        # INPUT: (N, F)
-        # OUTPUT: (N, P)
-        self.linear1 = nn.Linear(in_features=num_features, out_features=num_players)
-        self.activation1 = nn.Sigmoid()
-
-    def forward(self, x):
-        """
-        Input: (N, num_features)
         Output: (N, P)
         """
-        x = self.linear1(x)
-        x = self.activation1(x)
-        return x
+        return self.mlp(x)
 
 
-class PointsTail(nn.Module):
-    def __init__(self, num_features: int, num_players: int):
-        super(PointsTail, self).__init__()
-        self.linear1 = nn.Linear(in_features=num_features, out_features=num_players)
+class EquivariantPolicyLogitTail(nn.Module):
+    """Policy tail that outputs policy logits for Skyjo.
 
-    def forward(self, x):
-        """
-        Input: (N, num_features)
-        Output: (N, P)
-        """
-        return self.linear1(x)
+    Designed to be equivariant so swapping cards within a column will exactly
+    swap the output logits in the flip and replace actions. Similar swapping
+    whole columns will swap the logits corresponding to those columns.
 
+    For the non-board based actions (initial flip, draw, take) the logits are a
+    function of the global state embedding.
 
-class SkyNet1D(nn.Module):
-    """SkyNet that flattens spatial features and runs simpleler tranformations rather than ResBlock and Convoluational Layers"""
+    For the flip and replace logits each board slot is transformed using a module
+    that maps a slot + global state embedding to exactly one logit, the logit
+    representing the flip or replace action on that slot. Since, the
+    same transformation is applied to each board slot individually
+    it is equivariant."""
 
     def __init__(
         self,
-        spatial_input_shape: tuple[int, ...],  # (players, )
-        non_spatial_input_shape: tuple[int],
-        value_output_shape: tuple[int],  # (players,)
-        policy_output_shape: tuple[int],  # (mask_size,)
-        device: torch.device = torch.device("cpu"),
-        dropout_rate: float = 0.5,
-        column_embedding_features: int = 32,
-        hand_embedding_features: int = 64,
-        spatial_out_features: int = 64,
-        non_spatial_out_features: int = 48,
-        final_embedding_dim: int = 128,
+        card_embedding_dimensions: int,
+        column_embedding_dimensions: int,
+        board_embedding_dimensions: int,
+        global_state_embedding_dimensions: int,
+        non_positional_actions: int = 4,
+        rows: int = 3,
+        columns: int = 4,
     ):
-        super(SkyNet1D, self).__init__()
-        self.spatial_input_shape = spatial_input_shape
-        self.non_spatial_input_shape = non_spatial_input_shape
-        self.value_output_shape = value_output_shape
-        self.policy_output_shape = policy_output_shape
-        self.points_output_shape = value_output_shape
-        self.dropout_rate = dropout_rate
-        self.set_device(device)
+        super(EquivariantPolicyLogitTail, self).__init__()
+        self.card_embedding_dimensions = card_embedding_dimensions
+        self.column_embedding_dimensions = column_embedding_dimensions
+        self.board_embedding_dimensions = board_embedding_dimensions
+        self.global_state_embedding_dimensions = global_state_embedding_dimensions
+        self.non_positional_actions = non_positional_actions
+        self.rows = rows
+        self.columns = columns
 
-        # Spatial Input
-        self.column_embedding_features = column_embedding_features
-        self.hand_embedding_features = hand_embedding_features
-        self.spatial_out_features = spatial_out_features
-        self.spatial_input_head = Spatia1DInputHead(
-            input_shape=spatial_input_shape,
-            column_embedding_features=self.column_embedding_features,
-            hand_embedding_features=self.hand_embedding_features,
-            out_features=self.spatial_out_features,
-        )
-
-        # Non-Spatial Input
-        self.non_spatial_out_features = non_spatial_out_features
-        self.non_spatial_input_head = NonSpatialInputHead(
-            in_features=non_spatial_input_shape[0],
-            out_features=self.non_spatial_out_features,
-        )
-
-        # MLP
-        self.final_embedding_dim = final_embedding_dim
-        self.mlp = nn.Sequential(
+        # Currently the flip and replace logit transformation is down
+        # with just a multi-layer perceptron (MLP). But, this could be swapped
+        # for an self-attention block -> MLP or something else as long as the
+        # transformation process preserves equivariance.
+        self.flip_logits_mlp = nn.Sequential(
             nn.Linear(
-                in_features=self.spatial_input_head.out_features
-                + self.non_spatial_input_head.out_features,
-                out_features=self.final_embedding_dim,
+                in_features=self.card_embedding_dimensions
+                + self.global_state_embedding_dimensions,
+                out_features=self.card_embedding_dimensions,
             ),
             nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout_rate),
             nn.Linear(
-                in_features=self.final_embedding_dim,
-                out_features=self.final_embedding_dim,
+                in_features=self.card_embedding_dimensions,
+                out_features=1,
+            ),
+        )
+        self.replace_logits_mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.card_embedding_dimensions
+                + self.global_state_embedding_dimensions,
+                out_features=self.card_embedding_dimensions,
             ),
             nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout_rate),
+            nn.Linear(
+                in_features=self.card_embedding_dimensions,
+                out_features=1,
+            ),
         )
-        self.value_tail = ValueTail(
-            num_features=self.final_embedding_dim,
-            num_players=self.value_output_shape[0],
+        self.non_positional_logits_mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.global_state_embedding_dimensions,
+                out_features=self.non_positional_actions,
+            ),
         )
-        self.policy_tail = PolicyTail(
-            num_features=self.final_embedding_dim,
-            out_features=self.policy_output_shape[0],
-        )
-        self.points_tail = PointsTail(
-            num_features=self.final_embedding_dim,
-            num_players=self.value_output_shape[0],
-        )
-
-    def set_device(self, device: torch.device):
-        self.device = device
-        self.to(device)
 
     def forward(
         self,
-        spatial_tensor: torch.Tensor,
-        non_spatial_tensor: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> SkyNetOutput:
-        spatial_out = self.spatial_input_head(spatial_tensor)
-        non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
-        combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
-        mlp_out = self.mlp(combined_out)
-        value_out = self.value_tail(mlp_out)
-        policy_out = self.policy_tail(mlp_out, mask)
-        points_out = self.points_tail(mlp_out)
-        # policy_out = batch_mask_and_renormalize_policy_probabilities(policy_out, mask)
-        return value_out, points_out, policy_out
-
-    def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
-        """Takes a single skyjo representation and returns a prediction object.
-
-        Prediction object returned contains numpy arrays instead of tensors.
-        This function is mostly a convenience function for testing and
-        debugging. For actual optimized usage the `forward` method offers less
-        overhead and flexibility.
-        """
-        spatial_tensor = einops.rearrange(
-            torch.tensor(
-                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
+        current_board_card_embeddings: torch.Tensor,
+        global_state_tensor: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        flattened_card_embeddings = einops.rearrange(
+            current_board_card_embeddings,
+            "b h w f -> b (h w) f",
+        )  # only current player's board
+        expanded_global_state_tensor = einops.repeat(
+            global_state_tensor,
+            "b f -> b (h w) f",
+            h=self.rows,
+            w=self.columns,
+        )
+        board_cards_with_global_context = torch.cat(
+            (
+                flattened_card_embeddings,
+                expanded_global_state_tensor,
             ),
-            "p h w c -> 1 p h w c",
-        ).contiguous()
-        non_spatial_tensor = einops.rearrange(
-            torch.tensor(
-                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
-            ),
-            "f -> 1 f",
-        ).contiguous()
-        mask_tensor = torch.tensor(
-            sj.actions(skyjo), dtype=torch.float32, device=self.device
+            dim=2,
         )
-        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
-        return SkyNetPrediction.from_skynet_output(output)
-
-    def save(self, dir: pathlib.Path) -> pathlib.Path:
-        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
-        torch.save(
-            self.state_dict(),
-            model_path,
+        flip_logits = einops.rearrange(
+            self.flip_logits_mlp(board_cards_with_global_context),
+            "... 1 -> ...",
         )
-        return model_path
+        replace_logits = einops.rearrange(
+            self.replace_logits_mlp(board_cards_with_global_context),
+            "... 1 -> ...",
+        )
+        non_positional_logits = self.non_positional_logits_mlp(global_state_tensor)
+        logits = torch.cat((non_positional_logits, flip_logits, replace_logits), dim=1)
+        if mask is not None:
+            logits = logits.masked_fill(~mask.bool(), -1e10)
+        return logits
 
 
-class SkyNet2D(nn.Module):
-    def __init__(
-        self,
-        spatial_input_shape: tuple[int, ...],  # (players, )
-        non_spatial_input_shape: tuple[int],
-        value_output_shape: tuple[int],  # (players,)
-        policy_output_shape: tuple[int],  # (mask_size,)
-        device: torch.device = torch.device("cpu"),
-        dropout_rate: float = 0.5,
-        hand_embedding_channels: int = 128,
-        spatial_out_features: int = 256,
-        non_spatial_out_features: int = 48,
-        final_embedding_dim: int = 256,
-    ):
-        super(SkyNet2D, self).__init__()
-        self.spatial_input_shape = spatial_input_shape
-        self.non_spatial_input_shape = non_spatial_input_shape
-        self.value_output_shape = value_output_shape
-        self.policy_output_shape = policy_output_shape
-        self.points_output_shape = value_output_shape
-        self.dropout_rate = dropout_rate
-        self.device = device
-        self.hand_embedding_channels = hand_embedding_channels
-        self.spatial_out_features = spatial_out_features
-        self.spatial_input_head = Spatial2DInputHead(
-            input_shape=spatial_input_shape,
-            hand_embedding_channels=self.hand_embedding_channels,
-            out_features=self.spatial_out_features,
-            dropout_rate=self.dropout_rate,
-        )
-        self.non_spatial_out_features = non_spatial_out_features
-        self.non_spatial_input_head = NonSpatialInputHead(
-            in_features=non_spatial_input_shape[0],
-            out_features=self.non_spatial_out_features,
-            dropout_rate=self.dropout_rate,
-        )
-
-        # MLP
-        self.final_embedding_dim = final_embedding_dim
-        self.mlp = nn.Sequential(
-            nn.Linear(
-                in_features=self.spatial_input_head.out_features
-                + self.non_spatial_input_head.out_features,
-                out_features=(
-                    self.spatial_input_head.out_features
-                    + self.non_spatial_input_head.out_features
-                    + self.final_embedding_dim
-                )
-                // 2,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout_rate),
-            nn.Linear(
-                in_features=(
-                    self.spatial_input_head.out_features
-                    + self.non_spatial_input_head.out_features
-                    + self.final_embedding_dim
-                )
-                // 2,
-                out_features=self.final_embedding_dim,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout_rate),
-            nn.Linear(
-                in_features=self.final_embedding_dim,
-                out_features=self.final_embedding_dim,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout_rate),
-        )
-        self.value_tail = ValueTail(
-            num_features=self.final_embedding_dim,
-            num_players=self.value_output_shape[0],
-        )
-        self.policy_tail = PolicyTail(
-            num_features=self.final_embedding_dim,
-            out_features=self.policy_output_shape[0],
-        )
-        self.points_tail = PointsTail(
-            num_features=self.final_embedding_dim,
-            num_players=self.value_output_shape[0],
-        )
-
-    def set_device(self, device: torch.device):
-        self.device = device
-        self.to(device)
-
-    def forward(
-        self,
-        spatial_tensor: torch.Tensor,
-        non_spatial_tensor: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> SkyNetOutput:
-        spatial_out = self.spatial_input_head(spatial_tensor)
-        non_spatial_out = self.non_spatial_input_head(non_spatial_tensor)
-        combined_out = torch.cat((spatial_out, non_spatial_out), dim=1)
-        mlp_out = self.mlp(combined_out)
-        value_out = self.value_tail(mlp_out)
-        policy_out = self.policy_tail(mlp_out, mask)
-        points_out = self.points_tail(mlp_out)
-        # policy_out = batch_mask_and_renormalize_policy_probabilities(policy_out, mask)
-        return value_out, points_out, policy_out
-
-    def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
-        """Takes a single skyjo representation and returns a prediction object.
-
-        Prediction object returned contains numpy arrays instead of tensors.
-        This function is mostly a convenience function for testing and
-        debugging. For actual optimized usage the `forward` method offers less
-        overhead and flexibility.
-        """
-        spatial_tensor = einops.rearrange(
-            torch.tensor(
-                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
-            ),
-            "p h w c -> 1 p h w c",
-        )
-        non_spatial_tensor = einops.rearrange(
-            torch.tensor(
-                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
-            ),
-            "f -> 1 f",
-        )
-        mask_tensor = torch.tensor(
-            sj.actions(skyjo), dtype=torch.float32, device=self.device
-        )
-        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
-
-        return SkyNetPrediction.from_skynet_output(output)
-
-    def save(self, dir: pathlib.Path) -> pathlib.Path:
-        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
-        torch.save(
-            self.state_dict(),
-            model_path,
-        )
-        return model_path
+# MARK: SkyNets
 
 
 class SimpleSkyNet(nn.Module):
+    """Simple SkyNet Model.
+
+    Leverages a single MLP to transform the concatenated spatial and non-spatial
+    skyjo state features. Takes MLP output and passes to policy and value heads
+    for final outputs."""
+
     def __init__(
         self,
         hidden_layers: list[int],
-        spatial_input_shape: tuple[int, ...],  # (players, )
+        spatial_input_shape: tuple[int, ...],  # (players, ...)
         non_spatial_input_shape: tuple[int],
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
@@ -887,8 +481,10 @@ class SimpleSkyNet(nn.Module):
                 for in_features, out_features in zip(in_features, out_features)
             ]
         )
-        self.value_tail = ValueTail(hidden_layers[-1], value_output_shape[0])
-        self.policy_tail = PolicyTail(hidden_layers[-1], policy_output_shape[0])
+        self.value_tail = SimpleValueTail(hidden_layers[-1], value_output_shape[0])
+        self.policy_tail = SimplePolicyLogitTail(
+            hidden_layers[-1], policy_output_shape[0]
+        )
 
     def forward(
         self,
@@ -896,9 +492,7 @@ class SimpleSkyNet(nn.Module):
         non_spatial_tensor: torch.Tensor,
         mask: torch.Tensor,
     ) -> SkyNetOutput:
-        spatial_tensor = einops.rearrange(
-            spatial_tensor, "b p h w c -> b (p h w c)"
-        ).contiguous()
+        spatial_tensor = einops.rearrange(spatial_tensor, "b p h w c -> b (p h w c)")
         x = torch.cat((spatial_tensor, non_spatial_tensor), dim=1)
         x = self.mlp(x)
         value_out = self.value_tail(x)
@@ -939,150 +533,21 @@ class SimpleSkyNet(nn.Module):
         return model_path
 
 
-class SkyNetAttentionPolicyTail(nn.Module):
-    def __init__(
-        self,
-        card_embedding_dimensions: int,
-        column_embedding_dimensions: int,
-        board_embedding_dimensions: int,
-        global_state_embedding_dimensions: int,
-        non_positional_actions: int = 4,
-        rows: int = 3,
-        columns: int = 4,
-    ):
-        super(SkyNetAttentionPolicyTail, self).__init__()
-        self.card_embedding_dimensions = card_embedding_dimensions
-        self.column_embedding_dimensions = column_embedding_dimensions
-        self.board_embedding_dimensions = board_embedding_dimensions
-        self.global_state_embedding_dimensions = global_state_embedding_dimensions
-        self.non_positional_actions = non_positional_actions
-        self.rows = rows
-        self.columns = columns
-        self.flip_logits_mlp = nn.Sequential(
-            nn.Linear(
-                in_features=self.card_embedding_dimensions
-                # + self.column_embedding_dimensions
-                # + self.board_embedding_dimensions
-                + self.global_state_embedding_dimensions,
-                out_features=self.card_embedding_dimensions,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Linear(
-                in_features=self.card_embedding_dimensions,
-                out_features=1,
-            ),
-        )
-        self.replace_logits_mlp = nn.Sequential(
-            nn.Linear(
-                in_features=self.card_embedding_dimensions
-                # + self.column_embedding_dimensions
-                # + self.board_embedding_dimensions
-                + self.global_state_embedding_dimensions,
-                out_features=self.card_embedding_dimensions,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Linear(
-                in_features=self.card_embedding_dimensions,
-                out_features=1,
-            ),
-        )
-        self.non_positional_logits_mlp = nn.Sequential(
-            nn.Linear(
-                in_features=self.global_state_embedding_dimensions,
-                out_features=self.non_positional_actions,
-            ),
-        )
-
-    def forward(
-        self,
-        card_embeddings: torch.Tensor,
-        column_summaries: torch.Tensor,
-        board_summaries: torch.Tensor,
-        global_state_tensor: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> torch.Tensor:
-        flattened_card_embeddings = einops.rearrange(
-            card_embeddings[:, 0, :, :],
-            "b h w f -> b (h w) f",
-        )  # only current player's board
-        # expanded_column_summaries = einops.repeat(
-        #     column_summaries[:, 0, :, :],
-        #     "b w f -> b (h w) f",
-        #     h=self.rows,
-        # )
-        # expanded_board_summaries = einops.repeat(
-        #     board_summaries[:, 0, :],
-        #     "b f -> b (h w) f",
-        #     h=self.rows,
-        #     w=self.columns,
-        # )
-        expanded_global_state_tensor = einops.repeat(
-            global_state_tensor,
-            "b f -> b (h w) f",
-            h=self.rows,
-            w=self.columns,
-        )
-        full_input = torch.cat(
-            (
-                flattened_card_embeddings,
-                # expanded_column_summaries,
-                # expanded_board_summaries,
-                expanded_global_state_tensor,
-            ),
-            dim=2,
-        )
-        flip_logits = einops.rearrange(
-            self.flip_logits_mlp(full_input),
-            "... 1 -> ...",
-        )
-        replace_logits = einops.rearrange(
-            self.replace_logits_mlp(full_input),
-            "... 1 -> ...",
-        )
-        non_positional_logits = self.non_positional_logits_mlp(global_state_tensor)
-        unmasked_logits = torch.cat(
-            (non_positional_logits, flip_logits, replace_logits), dim=1
-        )
-        masked_logits = unmasked_logits.masked_fill(~mask.bool(), -1e10)
-        return masked_logits
-
-
-class SkyNetAttentionValueTail(nn.Module):
-    def __init__(
-        self, embedding_dimensions: int, players: int = 2, dropout_rate: float = 0.5
-    ):
-        super(SkyNetAttentionValueTail, self).__init__()
-        self.embedding_dimensions = embedding_dimensions
-        self.dropout_rate = dropout_rate
-        self.players = players
-        self.mlp = nn.Sequential(
-            nn.Linear(
-                in_features=self.embedding_dimensions,
-                out_features=self.players,
-            ),
-            nn.Sigmoid(),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.mlp(x)
-
-
-class SkyNetAttention(nn.Module):
+class EquivariantSkyNet(nn.Module):
     def __init__(
         self,
         spatial_input_shape: tuple[int, ...],  # (players, )
-        non_spatial_input_shape: tuple[int],
+        non_spatial_input_shape: tuple[int],  # (sj.GAME_SIZE,)
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
-        device: torch.device = torch.device("cpu"),
+        device: torch.device,
         card_embedding_dimensions: int = 32,
         non_spatial_embedding_dimensions: int = 32,
         column_embedding_dimensions: int = 64,
         board_embedding_dimensions: int = 128,
         global_state_embedding_dimensions: int = 256,
-        heads: int = 1,
     ):
-        super(SkyNetAttention, self).__init__()
+        super(EquivariantSkyNet, self).__init__()
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
@@ -1110,6 +575,8 @@ class SkyNetAttention(nn.Module):
             out_features=self.non_spatial_embedding_dimensions,
             bias=False,
         )
+
+        # Spatial Layers
         self.column_summarizer = nn.Sequential(
             nn.Linear(
                 in_features=self.card_embedding_dimensions,
@@ -1142,20 +609,16 @@ class SkyNetAttention(nn.Module):
         )
 
         # Tails
-        self.value_tail = SkyNetAttentionValueTail(
-            embedding_dimensions=self.global_state_embedding_dimensions,
+        self.value_tail = SimpleValueTail(
+            input_dimensions=self.global_state_embedding_dimensions,
             players=self.players,
         )
-        self.policy_tail = SkyNetAttentionPolicyTail(
+        self.policy_tail = EquivariantPolicyLogitTail(
             card_embedding_dimensions=self.card_embedding_dimensions,
             column_embedding_dimensions=self.column_embedding_dimensions,
             board_embedding_dimensions=self.board_embedding_dimensions,
             global_state_embedding_dimensions=self.global_state_embedding_dimensions,
         )
-
-    def set_device(self, device: torch.device):
-        self.device = device
-        self.to(device)
 
     def forward(
         self,
@@ -1193,9 +656,7 @@ class SkyNetAttention(nn.Module):
         )
         value_out = self.value_tail(global_state_embedding)
         policy_out = self.policy_tail(
-            card_embeddings,
-            column_summaries,
-            board_summaries,
+            card_embeddings[:, 0, :, :],
             global_state_embedding,
             mask,
         )
@@ -1229,18 +690,12 @@ class SkyNetAttention(nn.Module):
         )
         return model_path
 
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
 
-SkyNetOutput: typing.TypeAlias = tuple[
-    torch.Tensor,  # value
-    torch.Tensor,  # points
-    torch.Tensor,  # policy
-]
-SkyNetNumpyOutput: typing.TypeAlias = tuple[
-    np.ndarray[tuple[int, ...], np.float32],  # value
-    np.ndarray[tuple[int, ...], np.float32],  # points
-    np.ndarray[tuple[int, ...], np.float32],  # policy
-]
-SkyNet: typing.TypeAlias = SkyNet1D | SkyNet2D
+
+SkyNet: typing.TypeAlias = SimpleSkyNet | EquivariantSkyNet
 
 if __name__ == "__main__":
     np.random.seed(0)
@@ -1248,11 +703,12 @@ if __name__ == "__main__":
     players = 2
     game_state = sj.new(players=players)
     players = game_state[3]
-    model = SkyNet1D(
+    model = SimpleSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
+        hidden_layers=[32, 32],
     )
     model.set_device(torch.device("mps"))
     game_state = sj.start_round(game_state)
@@ -1261,12 +717,12 @@ if __name__ == "__main__":
     print(prediction)
 
     model_path = model.save(pathlib.Path("models/test/"))
-    loaded_model = SkyNet1D(
+    loaded_model = SimpleSkyNet(
         spatial_input_shape=model.spatial_input_shape,
         non_spatial_input_shape=model.non_spatial_input_shape,
         value_output_shape=model.value_output_shape,
         policy_output_shape=model.policy_output_shape,
-        dropout_rate=model.dropout_rate,
+        hidden_layers=[32, 32],
     )
     loaded_model.load_state_dict(torch.load(model_path, weights_only=True))
     loaded_model.set_device(model.device)
@@ -1274,14 +730,14 @@ if __name__ == "__main__":
     loaded_prediction = loaded_model.predict(game_state)
     print(loaded_prediction)
     assert np.allclose(
-        prediction.policy_output.probabilities,
-        loaded_prediction.policy_output.probabilities,
+        prediction.policy_output,
+        loaded_prediction.policy_output,
     )
     assert np.allclose(
-        prediction.value_output.state_values,
-        loaded_prediction.value_output.state_values,
+        prediction.value_output,
+        loaded_prediction.value_output,
     )
     assert np.allclose(
-        prediction.points_output.points,
-        loaded_prediction.points_output.points,
+        prediction.points_output,
+        loaded_prediction.points_output,
     )
