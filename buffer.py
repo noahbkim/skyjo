@@ -1,8 +1,11 @@
+import pathlib
+import pickle
 import typing
 
 import numpy as np
 
-import selfplay
+import play
+import skyjo as sj
 import skynet
 
 
@@ -14,65 +17,75 @@ class ReplayBuffer:
 
         Sampling from the buffer returns a random batch of training data points
     from across all games.
-
-    This is NOT thread safe.
     """
 
-    def __init__(self, max_games: int):
-        self.max_games = max_games
-        self.game_data_lengths = []
+    def __init__(self, max_size: int):
+        self.max_size = max_size
         self.spatial_input_buffer = []
         self.non_spatial_input_buffer = []
         self.policy_target_buffer = []
         self.outcome_target_buffer = []
         self.points_target_buffer = []
-        self.games_count = 0
+        self.action_masks = []
+
+    @classmethod
+    def load(cls, path: pathlib.Path) -> "ReplayBuffer":
+        with open(path, "rb") as f:
+            return pickle.load(f)
 
     def __len__(self):
         return len(self.spatial_input_buffer)
 
-    def _remove_oldest_game(self):
-        self.spatial_input_buffer = self.spatial_input_buffer[
-            self.game_data_lengths[0] :
-        ]
-        self.non_spatial_input_buffer = self.non_spatial_input_buffer[
-            self.game_data_lengths[0] :
-        ]
-        self.policy_target_buffer = self.policy_target_buffer[
-            self.game_data_lengths[0] :
-        ]
-        self.outcome_target_buffer = self.outcome_target_buffer[
-            self.game_data_lengths[0] :
-        ]
-        self.points_target_buffer = self.points_target_buffer[
-            self.game_data_lengths[0] :
-        ]
-        self.game_data_lengths = self.game_data_lengths[1:]
-        self.games_count -= 1
+    def add(
+        self,
+        game_state: sj.Skyjo,
+        policy_target: np.ndarray,
+        outcome_target: np.ndarray,
+        points_target: np.ndarray,
+    ):
+        if self.count < self.max_size:
+            self.spatial_input_buffer.append(skynet.get_spatial_state_numpy(game_state))
+            self.non_spatial_input_buffer.append(
+                skynet.get_non_spatial_state_numpy(game_state)
+            )
+            self.policy_target_buffer.append(policy_target)
+            self.outcome_target_buffer.append(outcome_target)
+            self.points_target_buffer.append(points_target)
+            self.action_masks.append(sj.actions(game_state))
+        else:
+            self.spatial_input_buffer[self.count % self.max_size] = (
+                skynet.get_spatial_state_numpy(game_state)
+            )
+            self.non_spatial_input_buffer[self.count % self.max_size] = (
+                skynet.get_non_spatial_state_numpy(game_state)
+            )
+            self.policy_target_buffer[self.count % self.max_size] = policy_target
+            self.outcome_target_buffer[self.count % self.max_size] = outcome_target
+            self.points_target_buffer[self.count % self.max_size] = points_target
+            self.action_masks[self.count % self.max_size] = sj.actions(game_state)
+        self.count += 1
+
+    def add_game_data(self, game_data: list[tuple]):
+        """Adds a game's worth of training data to the buffer."""
+        for game_state, policy_target, outcome_target, points_target in game_data:
+            self.add(game_state, policy_target, outcome_target, points_target)
 
     def add_game_data_with_symmetry(self, game_data: list[tuple]):
         """Adds a game's worth of training data to the buffer."""
         # Buffer is full
         if self.games_count == self.max_games:
             self._remove_oldest_game()
-        game_data_length = 0
         for game_state, policy_target, outcome_target, points_target in game_data:
             for (
                 symmetric_game_state,
                 symmetric_policy_target,
-            ) in selfplay.get_skyjo_symmetries(game_state, policy_target):
-                self.spatial_input_buffer.append(
-                    skynet.get_spatial_state_numpy(symmetric_game_state)
+            ) in play.get_skyjo_symmetries(game_state, policy_target):
+                self.add(
+                    symmetric_game_state,
+                    symmetric_policy_target,
+                    outcome_target,
+                    points_target,
                 )
-                self.non_spatial_input_buffer.append(
-                    skynet.get_non_spatial_state_numpy(symmetric_game_state)
-                )
-                self.policy_target_buffer.append(symmetric_policy_target)
-                self.outcome_target_buffer.append(outcome_target)
-                self.points_target_buffer.append(points_target)
-                game_data_length += 1
-        self.game_data_lengths.append(game_data_length)
-        self.games_count += 1
 
     def sample_element(self) -> skynet.TrainingDataPoint:
         assert (
@@ -81,6 +94,7 @@ class ReplayBuffer:
             == len(self.policy_target_buffer)
             == len(self.outcome_target_buffer)
             == len(self.points_target_buffer)
+            == len(self.action_masks)
         ), "All buffers must be the same length"
         assert len(self.spatial_input_buffer) > 0, "Buffer is empty"
         # Select a random index first
@@ -91,6 +105,7 @@ class ReplayBuffer:
             self.policy_target_buffer[index],
             self.outcome_target_buffer[index],
             self.points_target_buffer[index],
+            self.action_masks[index],
         )
 
     def sample_batch(self, batch_size: int) -> skynet.TrainingBatch:
@@ -100,14 +115,15 @@ class ReplayBuffer:
             == len(self.policy_target_buffer)
             == len(self.outcome_target_buffer)
             == len(self.points_target_buffer)
+            == len(self.action_masks)
         ), "All buffers must be the same length"
         assert len(self.spatial_input_buffer) > 0, "Buffer is empty"
         assert batch_size <= len(self.spatial_input_buffer), (
             f"Batch size {batch_size} cannot be larger than buffer size {len(self.spatial_input_buffer)} when sampling without replacement."
         )
         indices = np.random.choice(
-            len(self.spatial_input_buffer), size=batch_size, replace=False
-        )
+            len(self.spatial_input_buffer), size=batch_size
+        )  # replace=False is ~30,0000x slower
         # Retrieve elements using the sampled indices
         batch = (
             np.array([self.spatial_input_buffer[i] for i in indices]),
@@ -115,6 +131,7 @@ class ReplayBuffer:
             np.array([self.policy_target_buffer[i] for i in indices]),
             np.array([self.outcome_target_buffer[i] for i in indices]),
             np.array([self.points_target_buffer[i] for i in indices]),
+            np.array([self.action_masks[i] for i in indices]),
         )
         return batch
 
@@ -123,3 +140,7 @@ class ReplayBuffer:
     ) -> typing.Generator[skynet.TrainingBatch, None, None]:
         for _ in range(batch_count):
             yield self.sample_batch(batch_size)
+
+    def save(self, path: pathlib.Path):
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
