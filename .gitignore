@@ -1,14 +1,20 @@
+## data
+data/
+
+## models
+models/
+
 ## jupyter notebooks
 notebooks/
 
 ## macOS
-
 .DS_Store
 
 ## IDEs
 
 .vscode
 .idea
+.cursorrules
 
 ## Python
 

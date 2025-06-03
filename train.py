@@ -1,187 +1,405 @@
-import dataclasses
+import itertools
 import logging
+import pathlib
+import random
 import time
 import typing
 
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 
-import mcts
-import skyjo_immutable as sj
+import buffer
+import model_factory
+import play
+import predictor
 import skynet
 
 
-@dataclasses.dataclass(slots=True)
-class DataPoint:
-    state: np.ndarray
-    policy_target: np.ndarray
-    value_target: float
+def constant_basic_learning_rate(train_iter: int) -> float:
+    return 1e-4
 
 
-@dataclasses.dataclass(slots=True)
-class DataBatch:
-    states_tensor: torch.Tensor
-    policy_tensor: torch.Tensor
-    values_tensor: torch.Tensor
-
-    @property
-    def batch_size(self) -> int:
-        return len(self.states_tensor)
-
-    @classmethod
-    def from_data_points(
-        cls, data_points: list[DataPoint], device: torch.device
-    ) -> typing.Self:
-        states_tensor = torch.tensor(
-            [data_point.state for data_point in data_points], dtype=torch.float32
-        )
-        policy_tensor = torch.tensor(
-            [data_point.policy_target for data_point in data_points],
-            dtype=torch.float32,
-        )
-        values_tensor = torch.tensor(
-            [data_point.value_target for data_point in data_points],
-            dtype=torch.float32,
-        )
-        if device == torch.device("cuda"):
-            return cls(
-                states_tensor.contiguous().cuda(),
-                policy_tensor.contiguous().cuda(),
-                values_tensor.contiguous().cuda(),
-            )
-        return cls(states_tensor, policy_tensor, values_tensor)
-
-
-def sample_action(action_probs: np.ndarray) -> int:
-    """Returns an action index sampled according to the action probabilities"""
-    actions = [action for action, _ in action_probs.items()]
-    prob_dist = [action_prob for _, action_prob in action_probs.items()]
-    return actions[np.random.choice(len(actions), p=prob_dist)]
-
-
-def selfplay_game(
-    model: skynet.SkyNet,
-    num_players: int,
-    mcts_iterations: int = 10,
-    temperature: float = 1.0,
-    c_puct: float = 1.0,
-) -> list[tuple[np.array, np.array, float]]:
-    """Runs a selfplay game and returns training data generated.
-    Training data is a list of tuples of the form (numpy_state, mcts_action_probs, canonical_outcome_value)"""
-    mcts_simulator = mcts.Tree(c_puct=c_puct)
-    state = sj.ImmutableState(
-        num_players=num_players,
-        player_scores=np.zeros(num_players, dtype=np.int16),
-        remaining_card_counts=sj.CardCounts.create_initial_deck_counts(),
-        valid_actions=[sj.SkyjoAction(sj.SkyjoActionType.START_ROUND)],
-    ).apply_action(sj.SkyjoAction(sj.SkyjoActionType.START_ROUND))
-    training_data = []
-    episode_step = 0
-    while state.winning_player is None:
-        episode_step += 1
-        # This is the canonical representation of the state
-        # (i.e. always oriented with the current player's perspective)
-        numpy_state = state.numpy()
-        root_node = mcts_simulator.run(state, model, iterations=mcts_iterations)
-        mcts_action_probs = root_node.sample_action_probabilities(temperature)
-        policy_target = sum(
-            [
-                action.numpy() * prob / action.numpy().sum()
-                for action, prob in mcts_action_probs.items()
-            ]
-        )
-        training_data.append(
-            # TODO: we may want to create a dataclass for this
-            (numpy_state, policy_target, state.curr_player)
-        )
-
-        # Move to next state based on sampled action
-        random_action = sample_action(mcts_action_probs)
-        state = state.apply_action(random_action)
-
-        # Game is over
-        if state.winning_player is not None:
-            outcome = skynet.GameStateValue.from_winning_player(
-                state.winning_player, state.num_players
-            )
-            return [
-                DataPoint(
-                    numpy_state,
-                    policy_target,
-                    outcome.value_from_perspective_of(data_player),
-                )
-                for numpy_state, policy_target, data_player in training_data
-            ]
+def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
+    return {
+        "players": 2,
+        "mcts_iterations": 400,
+        "mcts_temperature": 1.0,
+        "afterstate_initial_realizations": 1,
+        "virtual_loss": 0.5,
+        "max_parallel_evaluations": 64,
+    }
 
 
 def train(
     model: skynet.SkyNet,
-    num_epochs: int,
-    batches: list[DataBatch],
+    batch: skynet.TrainingBatch,
+    loss_function: typing.Callable[
+        [
+            skynet.SkyNetOutput,
+            np.ndarray[tuple[int, int], np.float32],
+            np.ndarray[tuple[int, int], np.float32],
+            np.ndarray[tuple[int, int], np.float32],
+        ],
+        torch.Tensor,
+    ],
+    learning_rate: float = 1e-4,
+) -> None:
+    """Performs a single training step on the model."""
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=learning_rate, weight_decay=1e-4
+    )
+    model.train()
+    (
+        spatial_inputs,
+        non_spatial_inputs,
+        policy_targets,
+        outcome_targets,
+        points_targets,
+        masks,
+    ) = batch
+    spatial_inputs = torch.tensor(
+        spatial_inputs,
+        dtype=torch.float32,
+        device=model.device,
+    )
+    non_spatial_inputs = torch.tensor(
+        non_spatial_inputs,
+        dtype=torch.float32,
+        device=model.device,
+    )
+    masks = torch.tensor(masks, dtype=torch.float32, device=model.device)
+    model_output = model(spatial_inputs, non_spatial_inputs, masks)
+
+    loss = loss_function(model_output, outcome_targets, points_targets, policy_targets)
+    # compute gradient and do SGD step
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    return loss.item()
+
+
+def multiprocessed_learn(
+    factory: model_factory.SkyNetModelFactory,
+    device: torch.device,
+    learn_steps: int,
+    training_data_buffer_max_size: int = 10_000_000,
+    predictor_batch_size: int = 1024,
+    selfplay_processes: int = 1,
+    greedy_play_processes: int = 0,
+    training_batch_size: int = 512,
+    min_games_before_training: int = 250,
+    validation_function: typing.Callable[[skynet.SkyNet], None] = None,
+    validation_step_interval: int = 1000,
+    update_best_model_step_interval: int = 1000,
+    loss_function: typing.Callable[
+        [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
+    ] = skynet.base_total_loss,
+    debug: bool = False,
 ):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    policy_losses = []
-    value_losses = []
-
-    for _ in range(num_epochs):
-        model.train()
-
-        for batch in batches:
-            torch_predicted_policy, torch_predicted_value = model(batch.states_tensor)
-
-            policy_loss = skynet.compute_policy_loss(
-                torch_predicted_policy, batch.policy_tensor
+    try:
+        predictor_model_update_queue = mp.Queue()
+        predictor_input_queues = {
+            i: predictor.PredictorInputQueue(
+                queue_id=i,
+                max_batch_size=predictor_batch_size,
             )
-            value_loss = skynet.compute_value_loss(
-                torch_predicted_value, batch.values_tensor
+            for i in range(selfplay_processes + greedy_play_processes)
+        }
+        predictor_output_queues = {
+            i: predictor.PredictorOutputQueue(
+                queue_id=i,
+                max_batch_size=predictor_batch_size,
             )
-            total_loss = policy_loss + value_loss
+            for i in range(selfplay_processes + greedy_play_processes)
+        }
+        predictor_process = predictor.PredictorProcess(
+            factory,
+            predictor_model_update_queue,
+            predictor_input_queues,
+            predictor_output_queues,
+            min_batch_size=predictor_batch_size // 4,
+            max_batch_size=predictor_batch_size,
+            device=device,
+            debug=debug,
+        )
+        predictor_process.start()
+        predictor_clients = {
+            i: predictor.MultiProcessPredictorClient(
+                predictor_input_queues[i], predictor_output_queues[i]
+            )
+            for i in range(selfplay_processes + greedy_play_processes)
+        }
+        selfplay_data_queue = mp.Queue()
+        logging.info(f"Starting {selfplay_processes} selfplay processes")
+        selfplay_actors = [
+            play.MultiProcessedSelfplayGenerator(
+                predictor_clients[i],
+                selfplay_data_queue,
+                id=i,
+                debug=debug,
+                **constant_basic_selfplay_params(0),
+            )
+            for i in range(selfplay_processes)
+        ]
+        for actor in selfplay_actors:
+            actor.start()
+        greedy_play_actors = [
+            play.MultiProcessedPlayGreedyPlayersGenerator(
+                predictor_clients[i + selfplay_processes],
+                selfplay_data_queue,
+                id=i + selfplay_processes,
+                debug=debug,
+                episodes=500,
+                **constant_basic_selfplay_params(0),
+            )
+            for i in range(greedy_play_processes)
+        ]
+        for actor in greedy_play_actors:
+            actor.start()
 
+        training_data_buffer = buffer.ReplayBuffer(
+            max_size=training_data_buffer_max_size
+        )
+        logging.info(f"Training for {learn_steps} steps")
+        model = factory.get_latest_model()
+        model.set_device(device)
+        start_time = time.time()
+        games_count = 0
+        for train_iter in range(learn_steps):
+            # Add training data from the queue into the buffer
+            while (
+                not selfplay_data_queue.empty()
+                or games_count <= min_games_before_training
+            ):
+                game_data = selfplay_data_queue.get()
+                training_data_buffer.add_game_data(game_data)
+                games_count += 1
+            if train_iter == 0:
+                logging.info("Enough selfplay data collected, starting training")
+            batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
+
+            train(
+                model,
+                batch,
+                loss_function=loss_function,
+                learning_rate=constant_basic_learning_rate(train_iter),
+            )
+
+            if (
+                train_iter % validation_step_interval == 0
+                and validation_function is not None
+            ):
+                validation_function(model)
+
+            if train_iter > 0 and train_iter % update_best_model_step_interval == 0:
+                logging.info(
+                    f"Training data buffer length: {len(training_data_buffer)}, total buffer size: {len(training_data_buffer)}"
+                )
+                logging.info(
+                    f"Ran {update_best_model_step_interval} train steps in {time.time() - start_time} seconds"
+                )
+                saved_path = factory.save_model(model)
+                logging.info(f"Saved model to {saved_path}")
+                predictor_model_update_queue.put(f"new_model {saved_path}")
+                start_time = time.time()
+    finally:
+        predictor_process.terminate()
+        for actor in selfplay_actors:
+            actor.terminate()
+        for actor in greedy_play_actors:
+            actor.terminate()
+        for actor in selfplay_actors:
+            actor.join()
+        for actor in greedy_play_actors:
+            actor.join()
+        predictor_process.join()
+
+
+def learn(
+    model: skynet.SkyNet,
+    players: int,
+    training_steps: int = 10000,
+    training_epochs: int = 2,
+    training_episodes: int = 64,
+    training_batch_size: int = 256,
+    selfplay_kwargs: typing.Callable[[int], dict[str, typing.Any]]
+    | dict[str, typing.Any] = {},
+    training_data_buffer_max_games: int = 250,
+    validation_function: typing.Callable[[skynet.SkyNet], None] = None,
+    validation_step_interval: int = 10,
+):
+    training_data_buffer = buffer.ReplayBuffer(max_games=training_data_buffer_max_games)
+    for train_iter in range(training_steps):
+        if callable(selfplay_kwargs):
+            selfplay_kwargs = selfplay_kwargs(train_iter)
+        selfplay_games_data = []
+        for _ in range(training_episodes):
+            selfplay_games_data.append(play.selfplay(model, players, **selfplay_kwargs))
+        for game_data in selfplay_games_data:
+            training_data_buffer.add_game_data_with_symmetry(game_data)
+
+        for _ in range(training_epochs):
+            training_losses = []
+            for _ in range(len(training_data_buffer) // training_batch_size):
+                batch = training_data_buffer.sample_batch(
+                    batch_size=training_batch_size
+                )
+                loss = train(
+                    model,
+                    batch,
+                    loss_function=skynet.base_total_loss,
+                    learning_rate=constant_basic_learning_rate(train_iter),
+                )
+                training_losses.append(loss)
+
+        if (
+            train_iter % validation_step_interval == 0
+            and validation_function is not None
+        ):
+            validation_function(model)
+
+
+def main_train_on_greedy_ev_player_games(
+    model: skynet.SkyNet,
+    models_dir: pathlib.Path,
+    validation_games_data: list[play.GameData] | None = None,
+    learn_steps: int = 100,
+    training_epochs: int = 1,
+    batch_count: int = 10_000,
+    buffer_max_size: int = 10_000_000,
+    games_per_step: int = 100_000,
+    training_batch_size: int = 512,
+):
+    models_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model.save(models_dir)
+    logging.info(f"Saved model to {model_path}")
+
+    training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    logging.info("Starting Training")
+    for _ in range(learn_steps):
+        for _ in range(games_per_step):
+            game_data = play.multiprocessed_play_greedy_players()
+            training_data_buffer.add_game_data(game_data)
+
+        logging.info(f"Added {games_per_step} games to the buffer")
+        logging.info(f"Training data buffer size: {len(training_data_buffer)}")
+        for learn_iter in range(training_epochs):
+            explain.validate_model(model, validation_games_data)
+            training_losses = []
+            for batch_iter in range(batch_count):
+                batch = training_data_buffer.sample_batch(
+                    batch_size=training_batch_size
+                )
+                loss = train(
+                    model,
+                    batch,
+                    loss_function=skynet.base_total_loss,
+                    learning_rate=1e-3,
+                )
+                training_losses.append(loss)
             logging.info(
-                f"value loss: {value_loss.item()} policy loss: {policy_loss.item()} total loss: {total_loss.item()}"
+                f"Mean training loss: {sum(training_losses) / len(training_losses)}"
             )
-
-            policy_losses.append(policy_loss.item())
-            value_losses.append(value_loss.item())
-
-            # compute gradient and do SGD step
-            optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
+        model_path = model.save(models_dir)
+        logging.info(f"Saved model to {model_path}")
 
 
-# Simple example of training from a single selfplay game
+def main_overfit_small_training_sample(
+    model: skynet.SkyNet,
+    models_dir: pathlib.Path,
+    training_sample: list[list[play.GameData]],
+    learn_steps: int = 100,
+    training_epochs: int = 1,
+    batch_count: int = 1000,
+    buffer_max_size: int = 10_000_000,
+    training_batch_size: int = 512,
+):
+    models_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model.save(models_dir)
+    logging.info(f"Saved model to {model_path}")
+    training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    logging.info("Adding fixed training data sample to buffer")
+    for game_data in training_sample:
+        training_data_buffer.add_game_data(game_data)
+    validation_games_data = list(itertools.chain.from_iterable(training_sample))
+    logging.info("Starting Training")
+    for _ in range(learn_steps):
+        logging.info(f"Training data buffer size: {len(training_data_buffer)}")
+        for learn_iter in range(training_epochs):
+            explain.validate_model(model, validation_games_data)
+            training_losses = []
+            for batch_iter in range(batch_count):
+                batch = training_data_buffer.sample_batch(
+                    batch_size=training_batch_size
+                )
+                loss = train(
+                    model,
+                    batch,
+                    loss_function=skynet.base_total_loss,
+                    learning_rate=1e-3,
+                )
+                training_losses.append(loss)
+            logging.info(
+                f"Mean training loss: {sum(training_losses) / len(training_losses)}"
+            )
+        model_path = model.save(models_dir)
+        logging.info(f"Saved model to {model_path}")
+
+
 if __name__ == "__main__":
+    import datetime
+    import pickle as pkl
+
+    import explain
+    import skyjo as sj
+
     np.random.seed(0)
     torch.manual_seed(0)
-    example_game_state = sj.ImmutableState(
-        num_players=2,
-        player_scores=np.array([0, 0], dtype=np.int16),
-        remaining_card_counts=sj.CardCounts.create_initial_deck_counts(),
-        valid_actions=[sj.SkyjoAction(sj.SkyjoActionType.START_ROUND)],
+    random.seed(0)
+    debug = False
+    log_dir = pathlib.Path(
+        f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
     )
-    model = skynet.SkyNet(
-        spatial_input_channels=sj.CARD_TYPES,
-        non_spatial_features=example_game_state.non_spatial_numpy().shape[0],
-        num_players=example_game_state.num_players,
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filename=log_dir / "main.log",
+        filemode="w",
     )
-    training_data = []
-    start_time = time.perf_counter()
-    for num_episodes in range(1):
-        training_data += selfplay_game(model, 2)
-    end_time = time.perf_counter()
-    duration = end_time - start_time
-    print(f"Finished 1 selfplay games in {duration:.2f} seconds")
 
-    # random.shuffle(training_data)
-    # batches = [
-    #     DataBatch.from_data_points(
-    #         [
-    #             training_data[data_idx]
-    #             for data_idx in np.random.randint(len(training_data), size=64)
-    #         ],
-    #         torch.device("cpu"),
-    #     )
-    #     for _ in range(len(training_data) // 64)
-    # ]
-    # train(model, 10, batches)
+    with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
+        validation_games_data = pkl.load(f)
+    with open("./data/validation/greedy_ev_fixed_training_games_data.pkl", "rb") as f:
+        small_fixed_training_sample = pkl.load(f)
+
+    models_dir = (
+        pathlib.Path("./models")
+        / "distributed"
+        / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    device = torch.device("mps")
+    model = skynet.EquivariantSkyNet(
+        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        value_output_shape=(2,),
+        policy_output_shape=(sj.MASK_SIZE,),
+        device=device,
+        card_embedding_dimensions=8,
+        column_embedding_dimensions=32,
+        board_embedding_dimensions=256,
+        global_state_embedding_dimensions=512,
+        non_spatial_embedding_dimensions=16,
+    )
+    # model = skynet.SimpleSkyNet(
+    #     [256, 256, 256],
+    #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+    #     non_spatial_input_shape=(sj.GAME_SIZE,),
+    #     value_output_shape=(2,),
+    #     policy_output_shape=(sj.MASK_SIZE,),
+    # )
+
+    main_train_on_greedy_ev_player_games(model, models_dir, validation_games_data)
+    # main_overfit_small_training_sample(model, models_dir, small_fixed_training_sample)
