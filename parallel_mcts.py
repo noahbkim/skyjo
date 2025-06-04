@@ -53,7 +53,7 @@ class DecisionStateNode:
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
     is_expanded: bool = False
-    virtual_loss: float = 0.0
+    virtual_loss_total: float = 0.0
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -68,6 +68,12 @@ class DecisionStateNode:
             f"Is Expanded: {self.is_expanded}\n"
             f"Children: {len(self.children)}\n"
         )
+
+    @property
+    def virtual_loss(self) -> float:
+        if self.visit_count == 0:
+            return self.virtual_loss_total
+        return self.virtual_loss_total / self.visit_count
 
     @property
     def state_value(self) -> skynet.StateValue:
@@ -149,7 +155,7 @@ class AfterStateNode:
     realized_counts: dict[sj.Skyjo, int] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
     is_expanded: bool = False
-    virtual_loss: float = 0.0
+    virtual_loss_total: float = 0.0
 
     def __post_init__(self):
         self.state_value_total = np.zeros(sj.get_player_count(self.state))
@@ -164,6 +170,12 @@ class AfterStateNode:
             f"Is Expanded: {self.is_expanded}\n"
             f"Children: {len(self.children)}\n"
         )
+
+    @property
+    def virtual_loss(self) -> float:
+        if self.visit_count == 0:
+            return self.virtual_loss_total
+        return self.virtual_loss_total / self.visit_count
 
     @property
     def state_value(self) -> skynet.StateValue:
@@ -207,16 +219,16 @@ class AfterStateNode:
     def expand(self, initial_realizations: int = 10):
         # Placeholder for now we may want to simulate many random outcomes here
         self.is_expanded = True
-        # self.realize_outcomes(n=initial_realizations)
-        self.realize_outcomes(n=1)
+        # self.realize_outcomes(n=1)
+        self.realize_outcomes(n=initial_realizations)
 
     def select_child(
         self,
     ) -> DecisionStateNode | TerminalStateNode:
         """Realize next state by applying action. Returns node in game tree that represents realized next state."""
-        # realized_next_state = self._realize_outcome()
-        return list(self.children.values())[0]
-        # return self.children[sj.hash_skyjo(realized_next_state)]
+        # return list(self.children.values())[0]
+        realized_next_state = self._realize_outcome()
+        return self.children[sj.hash_skyjo(realized_next_state)]
 
 
 @dataclasses.dataclass(slots=True)
@@ -443,7 +455,7 @@ def find_leaf(
         node = node.select_child()
         search_path.append(node)
         if not isinstance(node, TerminalStateNode):
-            node.virtual_loss += virtual_loss
+            node.virtual_loss_total += virtual_loss
     return search_path
 
 
@@ -452,7 +464,7 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual
     for node in reversed(search_path):
         if not isinstance(node, TerminalStateNode):
             node.state_value_total += value
-            node.virtual_loss -= virtual_loss
+            node.virtual_loss_total -= virtual_loss
         node.visit_count += 1
 
 
