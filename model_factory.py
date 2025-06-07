@@ -17,33 +17,35 @@ class SkyNetModelFactory:
         self,
         model_callable: typing.Callable[[], skynet.SkyNet],
         players: int = 2,
-        dropout_rate: float = 0.5,
         device: torch.device = torch.device("cpu"),
         models_dir: pathlib.Path = pathlib.Path("models"),
         model_kwargs: dict[str, typing.Any] = {},
+        initial_model: skynet.SkyNet | None = None,
     ):
         self.models_dir = models_dir
         self.players = players
-        self.dropout_rate = dropout_rate
         self.device = device
         self.model_kwargs = model_kwargs
         self.model_callable = model_callable
-        self.training_model = self.model_callable(
-            spatial_input_shape=(
-                players,
-                sj.ROW_COUNT,
-                sj.COLUMN_COUNT,
-                sj.FINGER_SIZE,
-            ),
-            non_spatial_input_shape=(sj.GAME_SIZE,),
-            value_output_shape=(players,),
-            policy_output_shape=(sj.MASK_SIZE,),
-            dropout_rate=self.dropout_rate,
-            device=self.device,
-            **self.model_kwargs,
-        )
+        if initial_model is None:
+            initial_model = self.model_callable(
+                spatial_input_shape=(
+                    players,
+                    sj.ROW_COUNT,
+                    sj.COLUMN_COUNT,
+                    sj.FINGER_SIZE,
+                ),
+                non_spatial_input_shape=(sj.GAME_SIZE,),
+                value_output_shape=(players,),
+                policy_output_shape=(sj.MASK_SIZE,),
+                device=self.device,
+                **self.model_kwargs,
+            )
         # Save initial model
-        self.save_model(self.training_model)
+        self.save_model(initial_model)
+
+    def __str__(self) -> str:
+        return f"SkyNetModelFactory(model_callable={self.model_callable}, players={self.players}, device={self.device}, models_dir={self.models_dir}, model_kwargs={self.model_kwargs})"
 
     def _get_latest_model_path(self) -> pathlib.Path:
         """Finds the model file with the latest timestamp in the filename."""
@@ -94,7 +96,6 @@ class SkyNetModelFactory:
             non_spatial_input_shape=(sj.GAME_SIZE,),
             value_output_shape=(self.players,),
             policy_output_shape=(sj.MASK_SIZE,),
-            dropout_rate=self.dropout_rate,
             device=self.device,
             **self.model_kwargs,
         )

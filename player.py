@@ -240,16 +240,18 @@ class ModelPlayer(AbstractPlayer):
         predictor_client: predictor.PredictorClient,
         temperature: float,
         mcts_iterations: int,
-        afterstate_initial_realizations: int = 1,
+        afterstate_realizations: bool = False,
         virtual_loss: float = 0.5,
         max_parallel_evaluations: int = 16,
+        terminal_rollouts: int = 1,
     ):
         self.predictor_client = predictor_client
         self.temperature = temperature
         self.mcts_iterations = mcts_iterations
-        self.afterstate_initial_realizations = afterstate_initial_realizations
+        self.afterstate_realizations = afterstate_realizations
         self.virtual_loss = virtual_loss
         self.max_parallel_evaluations = max_parallel_evaluations
+        self.terminal_rollouts = terminal_rollouts
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -258,16 +260,18 @@ class ModelPlayer(AbstractPlayer):
             game_state,
             self.predictor_client,
             self.mcts_iterations,
-            self.afterstate_initial_realizations,
+            self.afterstate_realizations,
             self.virtual_loss,
             self.max_parallel_evaluations,
+            self.terminal_rollouts,
         )
         return root.sample_child_visit_probabilities(self.temperature)
 
 
 class PureModelPlayer(AbstractPlayer):
-    def __init__(self, model: skynet.SkyNet):
+    def __init__(self, model: skynet.SkyNet, temperature: float = 1.0):
         self.model = model
+        self.temperature = temperature
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -275,4 +279,10 @@ class PureModelPlayer(AbstractPlayer):
         self.model.eval()
         with torch.no_grad():
             prediction = self.model.predict(game_state)
-        return prediction.policy_output
+        if self.temperature == 0:
+            action_probabilities = np.zeros(prediction.policy_output.shape)
+            action_probabilities[prediction.policy_output.argmax().item()] = 1
+            return action_probabilities
+        action_probabilities = prediction.policy_output ** (1 / self.temperature)
+        action_probabilities = action_probabilities / action_probabilities.sum()
+        return action_probabilities

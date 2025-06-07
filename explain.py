@@ -73,6 +73,22 @@ def create_almost_surely_losing_position() -> sj.Skyjo:
     return game_state
 
 
+def create_obvious_take_and_clear_position() -> sj.Skyjo:
+    """Creates a position where the current player can replace a card with a higher value card."""
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        player2_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        top_card=sj.CARD_P12,
+    )
+    for i in range(2, 7):
+        row, col = divmod(i, sj.COLUMN_COUNT)
+        game_state = sj.preordain(game_state, sj.CARD_P12)
+        game_state = sj.flip(game_state, row, col)
+        game_state = sj.preordain(game_state, sj.CARD_P11)
+        game_state = sj.flip(game_state, row, col)
+    return game_state
+
+
 def create_obvious_take_position() -> sj.Skyjo:
     """Creates a position where the current player can replace a card with a higher value card."""
     game_state = create_initial_seperate_column_flip_game_state(
@@ -98,7 +114,7 @@ def create_obvious_draw_position() -> sj.Skyjo:
     )
     for i in range(2, 7):
         row, col = divmod(i, sj.COLUMN_COUNT)
-        game_state = sj.preordain(game_state, sj.CARD_P11)
+        game_state = sj.preordain(game_state, sj.CARD_P10)
         game_state = sj.flip(game_state, row, col)
         game_state = sj.preordain(game_state, sj.CARD_P11)
         game_state = sj.flip(game_state, row, col)

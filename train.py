@@ -24,10 +24,11 @@ def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
     return {
         "players": 2,
         "mcts_iterations": 400,
-        "mcts_temperature": 1.0,
-        "afterstate_initial_realizations": 1,
-        "virtual_loss": 0.5,
-        "max_parallel_evaluations": 64,
+        "mcts_temperature": 0.0,
+        "afterstate_realizations": False,
+        "virtual_loss": 0.0,
+        "max_parallel_evaluations": 16,
+        "terminal_rollouts": 100,
     }
 
 
@@ -79,6 +80,21 @@ def train(
     return loss.item()
 
 
+def train_epoch(
+    model: skynet.SkyNet,
+    training_data_buffer: buffer.ReplayBuffer,
+    batch_count: int,
+    training_batch_size: int,
+    learning_rate: float,
+    loss_function: typing.Callable[
+        [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
+    ],
+):
+    for _ in range(batch_count):
+        batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
+        train(model, batch, loss_function, learning_rate)
+
+
 def multiprocessed_learn(
     factory: model_factory.SkyNetModelFactory,
     device: torch.device,
@@ -90,13 +106,27 @@ def multiprocessed_learn(
     training_batch_size: int = 512,
     min_games_before_training: int = 250,
     validation_function: typing.Callable[[skynet.SkyNet], None] = None,
-    validation_step_interval: int = 1000,
-    update_best_model_step_interval: int = 1000,
+    validation_step_interval: int = 10,
+    update_best_model_step_interval: int = 10,
     loss_function: typing.Callable[
         [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
     ] = skynet.base_total_loss,
     debug: bool = False,
 ):
+    logging.info(f"""multiprocessed_learn(
+    factory={factory},
+    device={device},
+    learn_steps={learn_steps},
+    training_data_buffer_max_size={training_data_buffer_max_size},
+    predictor_batch_size={predictor_batch_size},
+    selfplay_processes={selfplay_processes},
+    greedy_play_processes={greedy_play_processes},
+    training_batch_size={training_batch_size},
+    min_games_before_training={min_games_before_training},
+    validation_step_interval={validation_step_interval},
+    update_best_model_step_interval={update_best_model_step_interval},
+    debug={debug},
+)""")
     try:
         predictor_model_update_queue = mp.Queue()
         predictor_input_queues = {
@@ -118,7 +148,7 @@ def multiprocessed_learn(
             predictor_model_update_queue,
             predictor_input_queues,
             predictor_output_queues,
-            min_batch_size=predictor_batch_size // 4,
+            min_batch_size=8,
             max_batch_size=predictor_batch_size,
             device=device,
             debug=debug,
@@ -166,7 +196,8 @@ def multiprocessed_learn(
         model.set_device(device)
         start_time = time.time()
         games_count = 0
-        for train_iter in range(learn_steps):
+        last_games_count = 0
+        for learn_step in range(learn_steps):
             # Add training data from the queue into the buffer
             while (
                 not selfplay_data_queue.empty()
@@ -175,24 +206,26 @@ def multiprocessed_learn(
                 game_data = selfplay_data_queue.get()
                 training_data_buffer.add_game_data(game_data)
                 games_count += 1
-            if train_iter == 0:
+            if learn_step == 0:
                 logging.info("Enough selfplay data collected, starting training")
-            batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
+            last_games_count += 1
 
-            train(
+            train_epoch(
                 model,
-                batch,
+                training_data_buffer,
+                batch_count=len(training_data_buffer) // training_batch_size,
+                training_batch_size=training_batch_size,
+                learning_rate=constant_basic_learning_rate(learn_step),
                 loss_function=loss_function,
-                learning_rate=constant_basic_learning_rate(train_iter),
             )
 
             if (
-                train_iter % validation_step_interval == 0
+                learn_step % validation_step_interval == 0
                 and validation_function is not None
             ):
                 validation_function(model)
 
-            if train_iter > 0 and train_iter % update_best_model_step_interval == 0:
+            if learn_step > 0 and learn_step % update_best_model_step_interval == 0:
                 logging.info(
                     f"Training data buffer length: {len(training_data_buffer)}, total buffer size: {len(training_data_buffer)}"
                 )
@@ -219,7 +252,7 @@ def multiprocessed_learn(
 def learn(
     model: skynet.SkyNet,
     players: int,
-    training_steps: int = 10000,
+    learn_steps: int = 100,
     training_epochs: int = 2,
     training_episodes: int = 64,
     training_batch_size: int = 256,
@@ -228,36 +261,47 @@ def learn(
     training_data_buffer_max_games: int = 250,
     validation_function: typing.Callable[[skynet.SkyNet], None] = None,
     validation_step_interval: int = 10,
+    update_best_model_step_interval: int = 10,
 ):
     training_data_buffer = buffer.ReplayBuffer(max_games=training_data_buffer_max_games)
-    for train_iter in range(training_steps):
+    start_time = time.time()
+
+    for learn_step in range(learn_steps):
         if callable(selfplay_kwargs):
-            selfplay_kwargs = selfplay_kwargs(train_iter)
+            selfplay_kwargs = selfplay_kwargs(learn_step)
         selfplay_games_data = []
         for _ in range(training_episodes):
             selfplay_games_data.append(play.selfplay(model, players, **selfplay_kwargs))
         for game_data in selfplay_games_data:
             training_data_buffer.add_game_data_with_symmetry(game_data)
 
+        training_losses = []
         for _ in range(training_epochs):
-            training_losses = []
-            for _ in range(len(training_data_buffer) // training_batch_size):
-                batch = training_data_buffer.sample_batch(
-                    batch_size=training_batch_size
-                )
-                loss = train(
-                    model,
-                    batch,
-                    loss_function=skynet.base_total_loss,
-                    learning_rate=constant_basic_learning_rate(train_iter),
-                )
-                training_losses.append(loss)
+            loss = train_epoch(
+                model,
+                training_data_buffer,
+                batch_count=len(training_data_buffer) // training_batch_size,
+                training_batch_size=training_batch_size,
+                learning_rate=constant_basic_learning_rate(learn_step),
+                loss_function=skynet.base_total_loss,
+            )
+            training_losses.append(loss)
 
         if (
-            train_iter % validation_step_interval == 0
+            learn_step % validation_step_interval == 0
             and validation_function is not None
         ):
             validation_function(model)
+
+        if learn_step > 0 and learn_step % update_best_model_step_interval == 0:
+            logging.info(
+                f"Training data buffer length: {len(training_data_buffer)}, total buffer size: {len(training_data_buffer)}"
+            )
+            logging.info(
+                f"Ran {update_best_model_step_interval} train steps in {time.time() - start_time} seconds"
+            )
+            saved_path = model.save(models_dir)
+            logging.info(f"Saved model to {saved_path}")
 
 
 def main_train_on_greedy_ev_player_games(
@@ -271,6 +315,16 @@ def main_train_on_greedy_ev_player_games(
     games_per_step: int = 100_000,
     training_batch_size: int = 512,
 ):
+    logging.info(
+        f"Training model on greedy ev player games with "
+        f"models_dir={models_dir}, "
+        f"validation_games_data={validation_games_data}, "
+        f"learn_steps={learn_steps}, "
+        f"training_epochs={training_epochs}, "
+        f"batch_count={batch_count}, "
+        f"games_per_step={games_per_step}, "
+        f"training_batch_size={training_batch_size}"
+    )
     models_dir.mkdir(parents=True, exist_ok=True)
     model_path = model.save(models_dir)
     logging.info(f"Saved model to {model_path}")
@@ -380,7 +434,7 @@ if __name__ == "__main__":
         / "distributed"
         / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
-    device = torch.device("mps")
+    device = torch.device("cpu")
     model = skynet.EquivariantSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
@@ -388,10 +442,16 @@ if __name__ == "__main__":
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
         card_embedding_dimensions=8,
-        column_embedding_dimensions=32,
-        board_embedding_dimensions=256,
-        global_state_embedding_dimensions=512,
+        column_embedding_dimensions=16,
+        board_embedding_dimensions=32,
+        global_state_embedding_dimensions=64,
         non_spatial_embedding_dimensions=16,
+    )
+    model.load_state_dict(
+        torch.load(
+            "./models/distributed/20250605_173148/model_20250605_215613.pth",
+            weights_only=True,
+        )
     )
     # model = skynet.SimpleSkyNet(
     #     [256, 256, 256],
@@ -401,5 +461,31 @@ if __name__ == "__main__":
     #     policy_output_shape=(sj.MASK_SIZE,),
     # )
 
-    main_train_on_greedy_ev_player_games(model, models_dir, validation_games_data)
+    # main_train_on_greedy_ev_player_games(model, models_dir, validation_games_data)
     # main_overfit_small_training_sample(model, models_dir, small_fixed_training_sample)
+
+    factory = model_factory.SkyNetModelFactory(
+        model_callable=skynet.EquivariantSkyNet,
+        players=2,
+        model_kwargs={
+            "card_embedding_dimensions": 8,
+            "column_embedding_dimensions": 16,
+            "board_embedding_dimensions": 32,
+            "global_state_embedding_dimensions": 64,
+            "non_spatial_embedding_dimensions": 16,
+        },
+        device=device,
+        models_dir=models_dir,
+        initial_model=model,
+    )
+    multiprocessed_learn(
+        factory,
+        device,
+        learn_steps=1000,
+        selfplay_processes=8,
+        greedy_play_processes=0,
+        predictor_batch_size=512,
+        validation_function=lambda model: explain.validate_model(
+            model, validation_games_data
+        ),
+    )

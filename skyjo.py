@@ -232,10 +232,15 @@ def _rotate_skyjo(skyjo: Skyjo) -> Skyjo:
     )
 
 
-def _clear_columns(game: Game, table: Table) -> int | None:
+def _clear_columns(game: Game, table: Table, column: int | None = None) -> int | None:
     """Clear any columns where all values match."""
 
-    for i in range(COLUMN_COUNT):
+    if column is None:
+        columns = range(COLUMN_COUNT)
+    else:
+        columns = [column]
+
+    for i in columns:
         for j in range(CARD_SIZE):  # Not finger size, skip hidden and cleared
             if table[0, 0, i, j] and table[0, 1, i, j] and table[0, 2, i, j]:
                 table[0, :, i, j] = 0
@@ -700,7 +705,8 @@ def randomize(skyjo: Skyjo, rng: Random = random) -> Skyjo:
     card = skyjo[5]
 
     if card is not None:
-        raise ValueError("A random card has already been selected")
+        # raise ValueError("A random card has already been selected")
+        return skyjo
 
     # Deck is empty, reset with discarded cards
     if not deck.any():
@@ -864,7 +870,7 @@ def flip(
     new_table = table.copy()
     new_table[0, row, column, FINGER_HIDDEN] = 0
     new_table[0, row, column, card] = 1
-    _clear_columns(new_game, new_table)
+    _clear_columns(new_game, new_table, column)
     if rotate:
         _rotate_table(new_table, players)
 
@@ -931,7 +937,7 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     new_table = table.copy()
     new_table[0, row, column, finger] = 0
     new_table[0, row, column, top] = 1
-    _clear_columns(new_game, new_table)
+    _clear_columns(new_game, new_table, column)
     _rotate_table(new_table, players)
 
     # Remove the card from the deck for the next iteration.

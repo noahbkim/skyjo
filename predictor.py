@@ -775,10 +775,12 @@ class MultiProcessPredictorClient(PredictorClient):
             self.current_output = self._get_new_output()
         to_return = (
             self.current_output[0][self.sample_count].item(),
-            skynet.SkyNetPrediction(
-                value_output=self.current_output[1][self.sample_count],
-                points_output=self.current_output[2][self.sample_count],
-                policy_output=self.current_output[3][self.sample_count],
+            skynet.SkyNetPrediction.from_skynet_output(
+                (
+                    self.current_output[1][self.sample_count].unsqueeze(0),
+                    self.current_output[2][self.sample_count].unsqueeze(0),
+                    self.current_output[3][self.sample_count].unsqueeze(0),
+                )
             ),
         )
         self.sample_count += 1
@@ -796,10 +798,12 @@ class MultiProcessPredictorClient(PredictorClient):
             outputs.append(
                 (
                     self.current_output[0][sample_idx].item(),
-                    skynet.SkyNetPrediction(
-                        value_output=self.current_output[1][sample_idx],
-                        points_output=self.current_output[2][sample_idx],
-                        policy_output=self.current_output[3][sample_idx],
+                    skynet.SkyNetPrediction.from_skynet_output(
+                        (
+                            self.current_output[1][sample_idx].unsqueeze(0),
+                            self.current_output[2][sample_idx].unsqueeze(0),
+                            self.current_output[3][sample_idx].unsqueeze(0),
+                        )
                     ),
                 )
             )
@@ -936,10 +940,12 @@ class NaivePredictorClient(PredictorClient):
             self.current_output = self._get_new_output()
         to_return = (
             self.current_output[0][self.sample_count],
-            skynet.SkyNetPrediction(
-                value_output=self.current_output[1][self.sample_count],
-                points_output=self.current_output[2][self.sample_count],
-                policy_output=self.current_output[3][self.sample_count],
+            skynet.SkyNetPrediction.from_skynet_output(
+                (
+                    self.current_output[1][self.sample_count].unsqueeze(0),
+                    self.current_output[2][self.sample_count].unsqueeze(0),
+                    self.current_output[3][self.sample_count].unsqueeze(0),
+                )
             ),
         )
         self.sample_count += 1
@@ -957,10 +963,12 @@ class NaivePredictorClient(PredictorClient):
             outputs.append(
                 (
                     self.current_output[0][sample_idx],
-                    skynet.SkyNetPrediction(
-                        value_output=self.current_output[1][sample_idx],
-                        points_output=self.current_output[2][sample_idx],
-                        policy_output=self.current_output[3][sample_idx],
+                    skynet.SkyNetPrediction.from_skynet_output(
+                        (
+                            self.current_output[1][sample_idx].unsqueeze(0),
+                            self.current_output[2][sample_idx].unsqueeze(0),
+                            self.current_output[3][sample_idx].unsqueeze(0),
+                        )
                     ),
                 )
             )

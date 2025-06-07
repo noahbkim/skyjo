@@ -156,9 +156,10 @@ def multiprocessed_selfplay(
     players: int = 2,
     mcts_iterations: int = 100,
     mcts_temperature: float = 1.0,
-    afterstate_initial_realizations: int = 50,
+    afterstate_realizations: bool = False,
     virtual_loss: float = 0.0,
     max_parallel_evaluations: int = 32,
+    terminal_rollouts: int = 100,
     debug: bool = False,
 ):
     game_players = [
@@ -166,9 +167,10 @@ def multiprocessed_selfplay(
             predictor_client,
             mcts_temperature,
             mcts_iterations,
-            afterstate_initial_realizations,
+            afterstate_realizations,
             virtual_loss,
             max_parallel_evaluations,
+            terminal_rollouts,
         )
         for _ in range(players)
     ]
@@ -186,7 +188,7 @@ def selfplay(
     debug: bool = False,
 ) -> list[skynet.TrainingDataPoint]:
     game_players = [player.GreedyExpectedValuePlayer() for _ in range(players - 1)] + [
-        player.Simple(
+        player.SimpleGreedyPlayer(
             model,
             mcts_iterations,
             mcts_temperature,
@@ -284,7 +286,7 @@ class TrainingDataGenerator(mp.Process):
         while (
             self.episodes is not None and self.count < self.episodes
         ) or self.episodes is None:
-            if self.count % 10 == 0:
+            if self.count % 1 == 0:
                 logging.info(f"Selfplay count: {self.count}")
             episode_data = self.run_episode()
             self.count += 1
@@ -302,9 +304,10 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         players: int = 2,
         mcts_iterations: int = 100,
         mcts_temperature: float = 1.0,
-        afterstate_initial_realizations: int = 50,
+        afterstate_realizations: bool = False,
         virtual_loss: float = 0.0,
         max_parallel_evaluations: int = 32,
+        terminal_rollouts: int = 100,
         debug: bool = False,
     ):
         super().__init__(id, debug)
@@ -313,9 +316,10 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         self.players = players
         self.mcts_iterations = mcts_iterations
         self.mcts_temperature = mcts_temperature
-        self.afterstate_initial_realizations = afterstate_initial_realizations
+        self.afterstate_realizations = afterstate_realizations
         self.virtual_loss = virtual_loss
         self.max_parallel_evaluations = max_parallel_evaluations
+        self.terminal_rollouts = terminal_rollouts
         self.debug = debug
         self.id = id
         self.count = 0
@@ -326,9 +330,10 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
             players=self.players,
             mcts_iterations=self.mcts_iterations,
             mcts_temperature=self.mcts_temperature,
-            afterstate_initial_realizations=self.afterstate_initial_realizations,
+            afterstate_realizations=self.afterstate_realizations,
             virtual_loss=self.virtual_loss,
             max_parallel_evaluations=self.max_parallel_evaluations,
+            terminal_rollouts=self.terminal_rollouts,
             debug=self.debug,
         )
 
@@ -380,3 +385,33 @@ GameData: typing.TypeAlias = list[
     tuple[sj.Skyjo, sj.SkyjoAction, np.ndarray[tuple[int], np.float32]]
     # (game state, action, action probabilities)
 ]
+
+
+if __name__ == "__main__":
+    import torch
+
+    import player
+
+    device = torch.device("mps")
+    model = skynet.EquivariantSkyNet(
+        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        value_output_shape=(2,),
+        policy_output_shape=(sj.MASK_SIZE,),
+        device=device,
+        card_embedding_dimensions=8,
+        column_embedding_dimensions=16,
+        board_embedding_dimensions=32,
+        global_state_embedding_dimensions=64,
+        non_spatial_embedding_dimensions=16,
+    )
+    trained_predictor_client = predictor.NaivePredictorClient(
+        model, max_batch_size=4096
+    )
+    while True:
+        data = play(
+            [
+                player.ModelPlayer(trained_predictor_client, 1.0, 400, 1, 0.5, 64),
+                player.ModelPlayer(trained_predictor_client, 1.0, 400, 1, 0.5, 64),
+            ]
+        )
