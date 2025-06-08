@@ -26,7 +26,7 @@ def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
         "mcts_iterations": 400,
         "mcts_temperature": 0.0,
         "afterstate_realizations": False,
-        "virtual_loss": 0.0,
+        "virtual_loss": 0.5,
         "max_parallel_evaluations": 16,
         "terminal_rollouts": 100,
     }
@@ -201,14 +201,14 @@ def multiprocessed_learn(
             # Add training data from the queue into the buffer
             while (
                 not selfplay_data_queue.empty()
-                or games_count <= min_games_before_training
+                or games_count - last_games_count <= min_games_before_training
             ):
                 game_data = selfplay_data_queue.get()
                 training_data_buffer.add_game_data(game_data)
                 games_count += 1
             if learn_step == 0:
                 logging.info("Enough selfplay data collected, starting training")
-            last_games_count += 1
+            last_games_count = games_count
 
             train_epoch(
                 model,
@@ -482,10 +482,11 @@ if __name__ == "__main__":
         factory,
         device,
         learn_steps=1000,
-        selfplay_processes=8,
+        selfplay_processes=16,
         greedy_play_processes=0,
         predictor_batch_size=512,
         validation_function=lambda model: explain.validate_model(
             model, validation_games_data
         ),
+        training_data_buffer_max_size=10_000_000,
     )
