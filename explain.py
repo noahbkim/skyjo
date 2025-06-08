@@ -121,6 +121,22 @@ def create_obvious_draw_position() -> sj.Skyjo:
     return game_state
 
 
+def create_obvious_clear_position() -> sj.Skyjo:
+    """Creates a position where the current player can replace a card with a higher value card."""
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P10, sj.CARD_P11),
+        player2_initial_flips=(sj.CARD_P11, sj.CARD_P12),
+        top_card=sj.CARD_P10,
+    )
+    game_state = sj.preordain(game_state, sj.CARD_P10)
+    game_state = sj.flip(game_state, 1, 0)
+    game_state = sj.preordain(game_state, sj.CARD_P11)
+    game_state = sj.flip(game_state, 1, 0)
+    game_state = sj.preordain(game_state, sj.CARD_P10)
+    game_state = sj.apply_action(game_state, sj.MASK_DRAW)
+    return game_state
+
+
 # MARK: Evaluation
 
 
