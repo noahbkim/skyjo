@@ -132,8 +132,9 @@ def create_obvious_clear_position() -> sj.Skyjo:
     game_state = sj.flip(game_state, 1, 0)
     game_state = sj.preordain(game_state, sj.CARD_P11)
     game_state = sj.flip(game_state, 1, 0)
-    game_state = sj.preordain(game_state, sj.CARD_P10)
-    game_state = sj.apply_action(game_state, sj.MASK_DRAW)
+
+    # game_state = sj.preordain(game_state, sj.CARD_P10)
+    # game_state = sj.apply_action(game_state, sj.MASK_DRAW)
     return game_state
 
 
@@ -208,11 +209,25 @@ def evaluate_almost_surely_losing_position_after_draw(model: skynet.SkyNet):
     return model_output
 
 
+def evaluate_obvious_clear_position(model: skynet.SkyNet):
+    logging.info("Evaluating obvious clear position")
+    model.eval()
+    game_state = create_obvious_clear_position()
+    with torch.no_grad():
+        model_output = model.predict(game_state)
+        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
+        logging.info(f"{model_output.value_output}")
+        logging.info(f"{model_output.policy_output}")
+        logging.info(f"{model_output.points_output}")
+    return model_output
+
+
 def validate_model_on_known_positions(model: skynet.SkyNet):
     _ = evaluate_almost_surely_winning_position(model)
     _ = evaluate_almost_surely_losing_position(model)
     _ = evaluate_almost_surely_winning_position_after_take(model)
     _ = evaluate_almost_surely_losing_position_after_draw(model)
+    _ = evaluate_obvious_clear_position(model)
 
 
 def validate_model_with_games_data(
