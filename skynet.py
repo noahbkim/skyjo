@@ -375,6 +375,7 @@ class EquivariantPolicyLogitTail(nn.Module):
         self.positional_logits_mlp = nn.Sequential(
             nn.Linear(
                 in_features=self.card_embedding_dimensions
+                + self.column_embedding_dimensions
                 + self.global_state_embedding_dimensions,
                 out_features=self.card_embedding_dimensions,
             ),
@@ -394,6 +395,7 @@ class EquivariantPolicyLogitTail(nn.Module):
     def forward(
         self,
         current_board_card_embeddings: torch.Tensor,
+        column_summaries: torch.Tensor,
         global_state_tensor: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -407,13 +409,20 @@ class EquivariantPolicyLogitTail(nn.Module):
             h=self.rows,
             w=self.columns,
         )
+        expanded_column_summaries = einops.repeat(
+            column_summaries,
+            "b w f -> b (h w) f",
+            h=self.rows,
+        )
         expanded_global_state_tensor = torch.cat(
             (
                 flattened_card_embeddings,
+                expanded_column_summaries,
                 expanded_global_state_tensor,
             ),
             dim=2,
         )
+
         positional_logits = self.positional_logits_mlp(expanded_global_state_tensor)
         flip_logits = positional_logits[:, :, 0]
         replace_logits = positional_logits[:, :, 1]
@@ -650,6 +659,7 @@ class EquivariantSkyNet(nn.Module):
         value_out = self.value_tail(global_state_embedding)
         policy_out = self.policy_tail(
             card_embeddings[:, 0, :, :],
+            column_summaries[:, 0, :],
             global_state_embedding,
             mask,
         )

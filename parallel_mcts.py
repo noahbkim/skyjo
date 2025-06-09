@@ -32,7 +32,12 @@ def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
         action = child.previous_action
     action_probability = 1
     if parent.model_prediction is not None:
-        action_probability = parent.model_prediction.policy_output[action].item()
+        action_probability = (
+            parent.model_prediction.policy_output[action].item()
+            * (1 - parent.dirichlet_epsilon)
+            + parent.dirichlet_epsilon * parent.dirichlet_noise[action]
+        )
+
     return (
         skynet.state_value_for_player(child.state_value, sj.get_player(parent.state))
         + action_probability * np.sqrt(parent.visit_count) / (1 + child.visit_count)
@@ -55,12 +60,15 @@ class DecisionStateNode:
     is_expanded: bool = False
     are_children_discovered: bool = False
     virtual_loss_total: float = 0.0
+    dirichlet_noise: np.ndarray[tuple[int], np.float32] | None = None
+    dirichlet_epsilon: float = 0.0
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
         self.state_value_total = np.zeros(
             sj.get_player_count(self.state), dtype=np.float32
         )
+        self.dirichlet_noise = np.zeros(sj.MASK_SIZE, dtype=np.float32)
 
     def __str__(self) -> str:
         return (
@@ -231,7 +239,13 @@ class AfterStateNode:
         # Game is about to end
         # perform terminal rollouts
         if sj.get_countdown(self.state) == 1:
-            self.realize_outcomes(n=terminal_rollouts)
+            for _ in range(terminal_rollouts):
+                next_state = self._realize_outcome()
+                next_state_hash = sj.hash_skyjo(next_state)
+                self.child_weights[next_state_hash] = (
+                    self.child_weights.get(next_state_hash, 0) + 1
+                )
+                self.child_weight_total += 1
             return
 
         # realize a single next state to continue moving on
@@ -240,8 +254,6 @@ class AfterStateNode:
             next_state_hash = sj.hash_skyjo(next_state)
             self.child_weights[next_state_hash] = 1
             self.child_weight_total += 1
-            child = self.children[sj.hash_skyjo(next_state)]
-            child.preexpand()
             return
 
         self.all_children_discovered = True
@@ -277,7 +289,7 @@ class AfterStateNode:
         """Expands node after all initial children values are ready"""
         assert not self.is_expanded, "Node already expanded"
         self.is_expanded = True
-        if self.all_children_discovered:
+        if self.all_children_discovered or sj.get_countdown(self.state) == 1:
             self.state_value_total = self.compute_state_value_from_children()
 
     def select_child(
@@ -399,6 +411,7 @@ def run_mcts(
     virtual_loss: float = 0.5,
     max_parallel_evaluations: int = 100,
     terminal_rollouts: int = 100,
+    dirichlet_epsilon: float = 0.0,
 ) -> MCTSNode:
     # Get model prediction for root state
     _ = predictor_client.put(game_state)
@@ -411,7 +424,13 @@ def run_mcts(
     )
     root_node.preexpand()
     root_node.expand(model_prediction=prediction)
+    if dirichlet_epsilon > 0:
+        dirichlet_noise = np.random.dirichlet(
+            np.ones(sj.actions(root_node.state).sum().item()) * 10,
+        )
 
+        root_node.dirichlet_noise[sj.get_actions(root_node.state)] = dirichlet_noise
+        root_node.dirichlet_epsilon = dirichlet_epsilon
     # Holds map of prediction id to values needed to update and backpropagate
     # once the prediction is ready
     pending_decision_state_search_paths = {}
@@ -455,6 +474,7 @@ def run_mcts(
             # Add realized outcome children to prediction
             for child in leaf.children.values():
                 if isinstance(child, DecisionStateNode):
+                    child.preexpand()
                     prediction_id = predictor_client.put(child.state)
                     pending_after_state_search_paths[prediction_id] = search_path + [
                         child
@@ -548,9 +568,13 @@ def find_leaf(
 
 
 def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual_loss):
+    # if (value == np.zeros(2)).all():
+    #     print(search_path[-1])
     # Update each node's visited count, state_value_total
     prev_node = None
+    prev_node_prev_state_value = None
     for node in reversed(search_path):
+        original_state_value = node.state_value
         if isinstance(node, DecisionStateNode):
             node.state_value_total += value
             node.virtual_loss_total -= virtual_loss
@@ -559,20 +583,20 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual
             # If all children are discovered, we can update by just the change
             # in the state value of the previous (child) node since the weights
             # are constant
-            if node.all_children_discovered:
+            if node.all_children_discovered or sj.get_countdown(node.state) == 1:
                 # First backprop on afterstate node so correct state value already set
                 if prev_node is None:
                     continue
                 prev_node_state_hash = sj.hash_skyjo(prev_node.state)
-                if prev_node.visit_count == 1:
-                    prev_node_prev_state_value = skynet.to_state_value(
-                        prev_node.model_prediction.value_output,
-                        sj.get_player(prev_node.state),
-                    )
-                else:
-                    prev_node_prev_state_value = (
-                        prev_node.state_value_total - value
-                    ) / (prev_node.visit_count - 1)
+                # if prev_node.visit_count == 1:
+                #     prev_node_prev_state_value = skynet.to_state_value(
+                #         prev_node.model_prediction.value_output,
+                #         sj.get_player(prev_node.state),
+                #     )
+                # else:
+                #     prev_node_prev_state_value = (
+                #         prev_node.state_value_total - value
+                #     ) / (prev_node.visit_count - 1)
                 node.state_value_total += (
                     prev_node.state_value - prev_node_prev_state_value
                 ) * node.child_weights[prev_node_state_hash]
@@ -589,6 +613,7 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual
                 node.state_value_total += value
         node.visit_count += 1
         prev_node = node
+        prev_node_prev_state_value = original_state_value
 
 
 # MARK: TYPES

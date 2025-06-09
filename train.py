@@ -23,12 +23,13 @@ def constant_basic_learning_rate(train_iter: int) -> float:
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
     return {
         "players": 2,
-        "mcts_iterations": 400,
-        "mcts_temperature": 0.0,
+        "mcts_iterations": 1600,
+        "mcts_temperature": 0.5,
         "afterstate_realizations": False,
         "virtual_loss": 0.5,
         "max_parallel_evaluations": 16,
         "terminal_rollouts": 100,
+        "dirichlet_epsilon": 0.25,
     }
 
 
@@ -148,7 +149,7 @@ def multiprocessed_learn(
             predictor_model_update_queue,
             predictor_input_queues,
             predictor_output_queues,
-            min_batch_size=8,
+            min_batch_size=16,
             max_batch_size=predictor_batch_size,
             device=device,
             debug=debug,
@@ -449,7 +450,7 @@ if __name__ == "__main__":
     )
     model.load_state_dict(
         torch.load(
-            "./models/distributed/20250605_173148/model_20250605_215613.pth",
+            "./models/distributed/20250608_212522/model_20250609_023411.pth",
             weights_only=True,
         )
     )
@@ -482,11 +483,13 @@ if __name__ == "__main__":
         factory,
         device,
         learn_steps=1000,
-        selfplay_processes=16,
+        selfplay_processes=14,
         greedy_play_processes=0,
-        predictor_batch_size=512,
+        predictor_batch_size=1024,
         validation_function=lambda model: explain.validate_model(
             model, validation_games_data
         ),
         training_data_buffer_max_size=10_000_000,
+        update_best_model_step_interval=1,
+        validation_step_interval=1,
     )

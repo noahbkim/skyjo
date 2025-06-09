@@ -160,6 +160,7 @@ def multiprocessed_selfplay(
     virtual_loss: float = 0.0,
     max_parallel_evaluations: int = 32,
     terminal_rollouts: int = 100,
+    dirichlet_epsilon: float = 0.0,
     debug: bool = False,
 ):
     game_players = [
@@ -171,6 +172,7 @@ def multiprocessed_selfplay(
             virtual_loss,
             max_parallel_evaluations,
             terminal_rollouts,
+            dirichlet_epsilon,
         )
         for _ in range(players)
     ]
@@ -308,6 +310,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         virtual_loss: float = 0.0,
         max_parallel_evaluations: int = 32,
         terminal_rollouts: int = 100,
+        dirichlet_epsilon: float = 0.0,
         debug: bool = False,
     ):
         super().__init__(id, debug)
@@ -320,6 +323,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         self.virtual_loss = virtual_loss
         self.max_parallel_evaluations = max_parallel_evaluations
         self.terminal_rollouts = terminal_rollouts
+        self.dirichlet_epsilon = dirichlet_epsilon
         self.debug = debug
         self.id = id
         self.count = 0
@@ -334,6 +338,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
             virtual_loss=self.virtual_loss,
             max_parallel_evaluations=self.max_parallel_evaluations,
             terminal_rollouts=self.terminal_rollouts,
+            dirichlet_epsilon=self.dirichlet_epsilon,
             debug=self.debug,
         )
 
