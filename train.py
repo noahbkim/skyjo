@@ -1,3 +1,7 @@
+"""
+Module to Train Skyjo models
+"""
+
 import itertools
 import logging
 import pathlib
@@ -90,9 +94,21 @@ def train_epoch(
     training_batch_size: int,
     learning_rate: float,
     loss_function: typing.Callable[
-        [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
+        [skynet.SkyNetOutput, skynet.TrainingBatch], torch.Tensor
     ],
 ):
+    """Performs a single training epoch.
+
+    Runs train() for specified number of batches.
+
+    Args:
+        model (skynet.SkyNet): The model to train.
+        training_data_buffer (buffer.ReplayBuffer): The training data buffer to sample batches from.
+        batch_count (int): The number of batches to train on.
+        training_batch_size (int): The size of each batch.
+        learning_rate (float): The learning rate to use for training.
+        loss_function (typing.Callable): The loss function to use for training.
+    """
     training_losses = []
     for _ in range(batch_count):
         batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
@@ -120,6 +136,19 @@ def multiprocessed_learn(
     ] = skynet.base_total_loss,
     debug: bool = False,
 ):
+    """Runs a distributed training loop.
+
+    Runs a loop that:
+    - Creates a predictor process and clients
+    - Creates selfplay and greedy play actors
+    - Collects training data from the actors
+    - Trains the model on the collected data
+    - Saves the model periodically
+    - Validates the model periodically
+    - Terminates the actors and predictor process
+    - Joins the actors and predictor process
+    """
+
     logging.info(f"""multiprocessed_learn(
     factory={factory},
     device={device},
@@ -135,6 +164,7 @@ def multiprocessed_learn(
     debug={debug},
 )""")
     try:
+        # Predictor setup
         predictor_model_update_queue = mp.Queue()
         predictor_input_queues = {
             i: predictor.PredictorInputQueue(
@@ -167,6 +197,8 @@ def multiprocessed_learn(
             )
             for i in range(selfplay_processes + greedy_play_processes)
         }
+
+        # Selfplay setup
         selfplay_data_queue = mp.Queue()
         logging.info(f"Starting {selfplay_processes} selfplay processes")
         selfplay_actors = [
@@ -181,6 +213,8 @@ def multiprocessed_learn(
         ]
         for actor in selfplay_actors:
             actor.start()
+
+        # Greedy play setup
         greedy_play_actors = [
             play.MultiProcessedPlayGreedyPlayersGenerator(
                 predictor_clients[i + selfplay_processes],
@@ -195,6 +229,7 @@ def multiprocessed_learn(
         for actor in greedy_play_actors:
             actor.start()
 
+        # Main training loop
         training_data_buffer = buffer.ReplayBuffer(
             max_size=training_data_buffer_max_size
         )
@@ -271,6 +306,14 @@ def learn(
     validation_step_interval: int = 10,
     update_best_model_step_interval: int = 10,
 ):
+    """Single-processed training loop.
+
+    Runs a loop that:
+    1. Generates selfplay games
+    2. Adds the games to the training data buffer
+    3. Trains the model on the collected data
+    4. Saves and validates the model periodically
+    """
     training_data_buffer = buffer.ReplayBuffer(max_games=training_data_buffer_max_games)
     start_time = time.time()
 
@@ -323,6 +366,14 @@ def main_train_on_greedy_ev_player_games(
     games_per_step: int = 100_000,
     training_batch_size: int = 512,
 ):
+    """Trains the model on greedy ev player games.
+
+    Runs a loop that:
+    1. Generates games from greedy ev heuristic players
+    2. Adds the games to the training data buffer
+    3. Trains the model on the collected data
+    4. Saves and validates the model periodically
+    """
     logging.info(
         f"Training model on greedy ev player games with "
         f"models_dir={models_dir}, "
@@ -377,6 +428,11 @@ def main_overfit_small_training_sample(
     buffer_max_size: int = 10_000_000,
     training_batch_size: int = 512,
 ):
+    """Trains the model on a small fixed training sample.
+
+    Mainly used for debugging to determine whether a model is capable of
+    overfitting a small training sample.
+    """
     models_dir.mkdir(parents=True, exist_ok=True)
     model_path = model.save(models_dir)
     logging.info(f"Saved model to {model_path}")

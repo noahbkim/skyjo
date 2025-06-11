@@ -1,3 +1,5 @@
+"""Module for playing Skyjo games and generating training data."""
+
 from __future__ import annotations
 
 import datetime
@@ -23,6 +25,7 @@ COLUMN_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.COLUMN_COUNT)))
 ROW_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.ROW_COUNT)))
 
 
+# NOTE: These are not currently used.
 def get_symmetry_policy(
     original_policy: np.ndarray[tuple[int], np.float32],
     new_column_order: tuple[int, ...],
@@ -107,22 +110,17 @@ def training_data_from_game_data(
 
     Args:
         game_data: A list of tuples containing a skyjo state and mcts action probabilities.
-        outcome_state_value: The outcome state value.
-        fixed_perspective_score: The fixed perspective score.
+        terminal_rollouts: The number of terminal rollouts to use to compute the outcome
+            state value and fixed perspective score.
 
     Returns:
         A list of training data points.
     """
     training_data = []
     penultimate_state, penultimate_action = game_data[-2][0], game_data[-2][1]
-    outcome_state_value = np.zeros(sj.get_player_count(penultimate_state))
-    fixed_perspective_score = np.zeros(sj.get_player_count(penultimate_state))
-    for _ in range(terminal_rollouts):
-        outcome = sj.apply_action(penultimate_state, penultimate_action)
-        outcome_state_value += skynet.skyjo_to_state_value(outcome) / terminal_rollouts
-        fixed_perspective_score += (
-            sj.get_fixed_perspective_round_scores(outcome) / terminal_rollouts
-        )
+    outcome_state_value, fixed_perspective_score = simulate_game_end(
+        penultimate_state, penultimate_action, terminal_rollouts
+    )
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
     # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
@@ -143,20 +141,20 @@ def training_data_from_game_data(
     return training_data
 
 
-def outcome_and_scores_from_game_data(
-    game_data: GameData,
-    simulations: int = 1000,
+def simulate_game_end(
+    penultimate_state: sj.Skyjo,
+    last_action: sj.SkyjoAction,
+    simulations: int = 1,
 ) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
     """Returns the outcome of the game"""
-    penultimate_state, last_action, _ = game_data[-2]
     players = sj.get_player_count(penultimate_state)
     outcomes, scores = np.zeros(players), np.zeros(players)
     for _ in range(simulations):
         game_state = penultimate_state
         final_state = sj.apply_action(game_state, last_action)
-        outcomes[sj.get_fixed_perspective_winner(final_state)] += 1
-        scores += sj.get_fixed_perspective_round_scores(final_state)
-    return outcomes / simulations, scores / simulations
+        outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
+        scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
+    return outcomes, scores
 
 
 # MARK: Selfplay
@@ -189,7 +187,6 @@ def multiprocessed_selfplay(
         for _ in range(players)
     ]
     game_data = play(game_players, debug, start_position)
-    # outcome, scores = outcome_and_scores_from_game_data(game_data)
     return training_data_from_game_data(game_data, terminal_rollouts)
 
 
@@ -211,7 +208,6 @@ def selfplay(
     ]
     random.shuffle(game_players)
     game_data = play(game_players, debug)
-    # outcome, scores = outcome_and_scores_from_game_data(game_data)
     return training_data_from_game_data(game_data)
 
 
@@ -220,9 +216,7 @@ def multiprocessed_play_greedy_players(
     debug: bool = False,
 ) -> list[skynet.TrainingDataPoint]:
     game_players = [player.GreedyExpectedValuePlayer() for _ in range(players)]
-    # random.shuffle(game_players)
     game_data = play(game_players, debug)
-    # outcome, scores = outcome_and_scores_from_game_data(game_data)
     return training_data_from_game_data(game_data)
 
 
@@ -265,10 +259,16 @@ def play(
     return game_data
 
 
-# MARK: Processes
+# MARK: Data Generation Processes
 
 
 class TrainingDataGenerator(mp.Process):
+    """Base class for training data generators.
+
+    Implementations should override the `run_episode` method to run an episode
+    and return the training data.
+    """
+
     def __init__(
         self,
         id: str,

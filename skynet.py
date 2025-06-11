@@ -530,6 +530,25 @@ class SimpleSkyNet(nn.Module):
 
 
 class EquivariantSkyNet(nn.Module):
+    """Equivariant SkyNet Model.
+
+    The key property is that it is "equivariant" in the sense that swapping cards
+    within a column will exactly swap the output logits in the flip and replace
+    actions. Similar swapping whole columns will swap the logits corresponding
+    to those columns. This was done be design since in the Skyjo game the order
+    of the cards within the column do not matter in the evaluation of the game
+    and on the underlying policy.
+
+    This property was achieved by pooling the cards within a column and then pooling
+    those columns into a board summary. The board summaries of the players,
+    along with the non-spatial state, are then transformed into a global state
+    representation. This representation is then passed to with each card slot and
+    identically transformed to produce the logits for the flip and replace actions.
+    This way the logits for the flip and replace actions are equivariant since
+    the pooling and transformation process is agnostic of position. And the logit
+    transformation is identical for each card slot.
+    """
+
     def __init__(
         self,
         spatial_input_shape: tuple[int, ...],  # (players, )
