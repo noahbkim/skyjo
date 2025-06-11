@@ -1,3 +1,7 @@
+"""
+Module for Skyjo players.
+"""
+
 import abc
 
 import numpy as np
@@ -11,6 +15,12 @@ import skynet
 
 
 class AbstractPlayer(abc.ABC):
+    """Abstract base class for all players.
+
+    Each implementation must implement the `get_action_probabilities` method.
+    This method returns the probability distribution from which to sample the
+    next action."""
+
     def _action_to_action_probabilities(
         self, action: sj.SkyjoAction, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
@@ -44,6 +54,8 @@ class AbstractPlayer(abc.ABC):
 
 
 class NaiveQuickFinishPlayer(AbstractPlayer):
+    """A player that plays an action to finish the game as quickly as possible."""
+
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
@@ -53,6 +65,8 @@ class NaiveQuickFinishPlayer(AbstractPlayer):
 
 
 class RandomPlayer(AbstractPlayer):
+    """A player that plays a random valid action."""
+
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
@@ -62,6 +76,17 @@ class RandomPlayer(AbstractPlayer):
 
 
 class GreedyExpectedValuePlayer(AbstractPlayer):
+    """A player that plays the action with the best greedy expected value.
+
+    Computes the expected value of a remaining random card in the deck. Uses
+    this value to determine the 'expected value' of each valid action based on
+    how it would lower the board point total. Note this does not account for
+    clears and simply considers the raw point values of each card.
+
+    For example, for a replace action on a hidden slot the expected value would
+    be top card - average remaining card value. For flip, the value is 0 since
+    there is no change in the expected point value of that slot."""
+
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
@@ -208,6 +233,8 @@ class GreedyExpectedValuePlayer(AbstractPlayer):
 
 
 class SimpleModelPlayer(AbstractPlayer):
+    """Runs a simple (non-parallel) MCTS with specified model and parameters."""
+
     def __init__(
         self,
         model: skynet.SkyNet,
@@ -235,6 +262,8 @@ class SimpleModelPlayer(AbstractPlayer):
 
 
 class ModelPlayer(AbstractPlayer):
+    """Runs a parallel MCTS with specified model and parameters."""
+
     def __init__(
         self,
         predictor_client: predictor.PredictorClient,
@@ -273,6 +302,8 @@ class ModelPlayer(AbstractPlayer):
 
 
 class PureModelPlayer(AbstractPlayer):
+    """Uses only the model to predict the action probabilities."""
+
     def __init__(self, model: skynet.SkyNet, temperature: float = 1.0):
         self.model = model
         self.temperature = temperature
