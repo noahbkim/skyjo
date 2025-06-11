@@ -552,6 +552,10 @@ def get_game_over(skyjo: Skyjo) -> bool:
     return skyjo[6] == 0
 
 
+def get_game_about_to_end(skyjo: Skyjo) -> bool:
+    return skyjo[6] == 1
+
+
 def hash_skyjo(skyjo: Skyjo) -> int:
     """Hash the `skyjo` state.
 

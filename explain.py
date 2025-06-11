@@ -38,6 +38,32 @@ def create_initial_seperate_column_flip_game_state(
     return game_state
 
 
+def create_initial_same_column_flip_game_state(
+    player1_initial_flips: tuple[int, int] = (sj.CARD_P5, sj.CARD_P5),
+    player2_initial_flips: tuple[int, int] = (sj.CARD_P5, sj.CARD_P5),
+    top_card: int = sj.CARD_P5,
+):
+    """Create two player skyjo game with different column initial flips"""
+    assert len(player1_initial_flips) == 2, (
+        f"Please specify exactly two cards to be initially flipped for player 1, got {player1_initial_flips}"
+    )
+    assert len(player2_initial_flips) == 2, (
+        f"Please specify exactly two cards to be initially flipped for player 2, got {player2_initial_flips}"
+    )
+    game_state = sj.new(players=2)
+    game_state = sj.preordain(game_state, player1_initial_flips[0])
+    game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
+    game_state = sj.preordain(game_state, player2_initial_flips[0])
+    game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
+    game_state = sj.preordain(game_state, player1_initial_flips[1])
+    game_state = sj.flip(game_state, 1, 0, set_draw_or_take_action=False)
+    game_state = sj.preordain(game_state, player2_initial_flips[1])
+    game_state = sj.flip(game_state, 1, 0, set_draw_or_take_action=False)
+    game_state = sj.preordain(game_state, top_card)
+    game_state = sj.begin(game_state)
+    return game_state
+
+
 def create_almost_surely_winning_position() -> sj.Skyjo:
     """Creates an almost surely winning (current player perspective) position."""
     game_state = create_initial_seperate_column_flip_game_state(
@@ -135,6 +161,31 @@ def create_obvious_clear_position() -> sj.Skyjo:
 
     # game_state = sj.preordain(game_state, sj.CARD_P10)
     # game_state = sj.apply_action(game_state, sj.MASK_DRAW)
+    return game_state
+
+
+def create_random_clear_starting_position() -> sj.Skyjo:
+    random_starting_card = np.random.randint(0, sj.CARD_SIZE)
+    game_state = create_initial_same_column_flip_game_state(
+        player1_initial_flips=(random_starting_card, random_starting_card),
+        player2_initial_flips=(sj.CARD_P3, sj.CARD_P2),
+        top_card=random_starting_card,
+    )
+    return game_state
+
+
+def create_close_end_game_position() -> sj.Skyjo:
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P6, sj.CARD_P7),
+        player2_initial_flips=(sj.CARD_P6, sj.CARD_P7),
+        top_card=sj.CARD_P5,
+    )
+    for i in range(2, 11):
+        row, col = divmod(i, 4)
+        game_state = sj.preordain(game_state, row + 2 + 3)
+        game_state = sj.flip(game_state, row, col)
+        game_state = sj.preordain(game_state, row + 2 + 3)
+        game_state = sj.flip(game_state, row, col)
     return game_state
 
 

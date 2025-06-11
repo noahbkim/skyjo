@@ -25,7 +25,9 @@ def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
         f"Parent must be DecisionStateNode, got {type(parent)}"
     )
     if isinstance(child, TerminalStateNode):
-        return skynet.state_value_for_player(child.outcome, sj.get_player(parent.state))
+        return skynet.state_value_for_player(
+            child.state_value, sj.get_player(parent.state)
+        )
     if isinstance(child, AfterStateNode):
         action = child.action
     else:
@@ -111,13 +113,13 @@ class DecisionStateNode:
         self.model_prediction = model_prediction
         self.is_expanded = True
 
-    def preexpand(self):
+    def preexpand(self, terminal_rollouts: int = 1):
         assert not self.are_children_discovered, (
             "Children must not already be discovered before preexpanding"
         )
         self.are_children_discovered = True
         for action in sj.get_actions(self.state):
-            self.children[action] = self.create_child_node(action)
+            self.children[action] = self.create_child_node(action, terminal_rollouts)
 
     def select_child(
         self,
@@ -125,13 +127,18 @@ class DecisionStateNode:
         highest_ucb_child = self._select_highest_ucb_child()
         return highest_ucb_child
 
-    def create_child_node(self, action: sj.SkyjoAction) -> MCTSNode:
+    def create_child_node(
+        self, action: sj.SkyjoAction, terminal_rollouts: int = 1
+    ) -> MCTSNode:
         if sj.is_action_random(action, self.state):
             return AfterStateNode(state=self.state, action=action, parent=self)
         next_state = sj.apply_action(self.state, action)
         if sj.get_game_over(next_state):
             return TerminalStateNode(
-                state=next_state, parent=self, previous_action=action
+                pre_terminal_state=self.state,
+                parent=self,
+                action=action,
+                outcome_count=terminal_rollouts,
             )
         return DecisionStateNode(
             state=next_state,
@@ -209,10 +216,9 @@ class AfterStateNode:
         )  # visit_count == realized_count_total
 
     def _create_child(self, state: sj.Skyjo) -> MCTSNode:
-        if sj.get_game_over(state):
-            return TerminalStateNode(
-                state=state, parent=self, previous_action=self.action
-            )
+        assert not sj.get_game_over(state), (
+            "Create terminal state node explicitly instead"
+        )
         return DecisionStateNode(
             state=state,
             parent=self,
@@ -225,6 +231,9 @@ class AfterStateNode:
 
     def _realize_outcome(self) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
+        assert not sj.get_game_over(outcome_state), (
+            "Create terminal state node explicitly instead"
+        )
         outcome_state_hash = sj.hash_skyjo(outcome_state)
         if outcome_state_hash not in self.children:
             self.children[outcome_state_hash] = self._create_child(outcome_state)
@@ -238,14 +247,22 @@ class AfterStateNode:
 
         # Game is about to end
         # perform terminal rollouts
-        if sj.get_countdown(self.state) == 1:
-            for _ in range(terminal_rollouts):
-                next_state = self._realize_outcome()
-                next_state_hash = sj.hash_skyjo(next_state)
-                self.child_weights[next_state_hash] = (
-                    self.child_weights.get(next_state_hash, 0) + 1
-                )
-                self.child_weight_total += 1
+        if sj.get_game_about_to_end(self.state):
+            self.children[sj.hash_skyjo(self.state)] = TerminalStateNode(
+                pre_terminal_state=self.state,
+                parent=self,
+                action=self.action,
+                outcome_count=terminal_rollouts,
+            )
+            self.child_weights[sj.hash_skyjo(self.state)] = 1
+            self.child_weight_total += 1
+            # for _ in range(terminal_rollouts):
+            #     next_state = self._realize_outcome()
+            #     next_state_hash = sj.hash_skyjo(next_state)
+            #     self.child_weights[next_state_hash] = (
+            #         self.child_weights.get(next_state_hash, 0) + 1
+            #     )
+            #     self.child_weight_total += 1
             return
 
         # realize a single next state to continue moving on
@@ -289,7 +306,7 @@ class AfterStateNode:
         """Expands node after all initial children values are ready"""
         assert not self.is_expanded, "Node already expanded"
         self.is_expanded = True
-        if self.all_children_discovered or sj.get_countdown(self.state) == 1:
+        if self.all_children_discovered or sj.get_game_about_to_end(self.state):
             self.state_value_total = self.compute_state_value_from_children()
 
     def select_child(
@@ -298,6 +315,8 @@ class AfterStateNode:
         """Realize next state by applying action. Returns node in game tree that represents realized next state."""
         # return list(self.children.values())[0]
         # TODO: should preexpand any new realized children
+        if sj.get_game_about_to_end(self.state):
+            return self.children[sj.hash_skyjo(self.state)]
         realized_next_state = self._realize_outcome()
         next_state_hash = sj.hash_skyjo(realized_next_state)
         if update_child_weights:
@@ -310,27 +329,40 @@ class AfterStateNode:
 
 @dataclasses.dataclass(slots=True)
 class TerminalStateNode:
-    state: sj.Skyjo
+    pre_terminal_state: sj.Skyjo
     parent: AfterStateNode | DecisionStateNode
-    previous_action: sj.SkyjoAction
+    action: sj.SkyjoAction
+    outcome_count: int
     visit_count: int = 0
     is_expanded: bool = False
     are_children_discovered: bool = False
-    outcome: skynet.StateValue | None = None
+    outcome_total: skynet.StateValue | None = None
 
     def __post_init__(self):
-        self.outcome = skynet.skyjo_to_state_value(self.state)
+        self.outcome_total = np.zeros(
+            sj.get_player_count(self.pre_terminal_state), dtype=np.float32
+        )
+        self.realize_outcomes()
 
     def __str__(self) -> str:
         return (
             f"TerminalStateNode\n"
-            f"{sj.visualize_state(self.state)}\n"
-            f"Outcome: {self.outcome}\n"
+            f"{sj.visualize_state(self.pre_terminal_state)}\n"
+            f"state value: {self.state_value}\n"
         )
 
     @property
+    def state(self) -> sj.Skyjo:
+        return self.pre_terminal_state
+
+    @property
     def state_value(self) -> skynet.StateValue:
-        return self.outcome
+        return self.outcome_total / self.outcome_count
+
+    def realize_outcomes(self) -> None:
+        for _ in range(self.outcome_count):
+            terminal_state = sj.apply_action(self.pre_terminal_state, self.action)
+            self.outcome_total += skynet.skyjo_to_state_value(terminal_state)
 
     def expand(self):
         raise ValueError("Terminal nodes should not need to be expanded")
@@ -454,7 +486,7 @@ def run_mcts(
         # We can backpropagate immediately since we don't need to wait on a model
         # prediction to get the value of the state
         if isinstance(leaf, TerminalStateNode):
-            backpropagate(search_path, leaf.outcome, virtual_loss)
+            backpropagate(search_path, leaf.state_value, virtual_loss)
             continue
 
         # AFTER STATE LEAF
@@ -583,7 +615,7 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual
             # If all children are discovered, we can update by just the change
             # in the state value of the previous (child) node since the weights
             # are constant
-            if node.all_children_discovered or sj.get_countdown(node.state) == 1:
+            if node.all_children_discovered or sj.get_game_about_to_end(node.state):
                 # First backprop on afterstate node so correct state value already set
                 if prev_node is None:
                     continue

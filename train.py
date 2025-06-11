@@ -10,26 +10,28 @@ import torch
 import torch.multiprocessing as mp
 
 import buffer
+import explain
 import model_factory
 import play
 import predictor
+import skyjo as sj
 import skynet
 
 
 def constant_basic_learning_rate(train_iter: int) -> float:
-    return 1e-4
+    return 1e-3
 
 
 def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
     return {
         "players": 2,
         "mcts_iterations": 1600,
-        "mcts_temperature": 0.5,
+        "mcts_temperature": 1.0,
         "afterstate_realizations": False,
         "virtual_loss": 0.5,
         "max_parallel_evaluations": 16,
         "terminal_rollouts": 100,
-        "dirichlet_epsilon": 0.25,
+        "dirichlet_epsilon": 0.4,
     }
 
 
@@ -91,9 +93,13 @@ def train_epoch(
         [skynet.SkyNetPrediction, skynet.TrainingBatch], torch.Tensor
     ],
 ):
+    training_losses = []
     for _ in range(batch_count):
         batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
-        train(model, batch, loss_function, learning_rate)
+        training_losses.append(train(model, batch, loss_function, learning_rate))
+    logging.info(
+        f"Mean batch training loss: {sum(training_losses) / len(training_losses)}"
+    )
 
 
 def multiprocessed_learn(
@@ -199,6 +205,24 @@ def multiprocessed_learn(
         games_count = 0
         last_games_count = 0
         for learn_step in range(learn_steps):
+            if (
+                learn_step % validation_step_interval == 0
+                and validation_function is not None
+            ):
+                validation_function(model)
+
+            if learn_step > 0 and learn_step % update_best_model_step_interval == 0:
+                logging.info(
+                    f"Training data buffer length: {len(training_data_buffer)}, total buffer size: {len(training_data_buffer)}"
+                )
+                logging.info(
+                    f"Ran {update_best_model_step_interval} train steps in {time.time() - start_time} seconds"
+                )
+                saved_path = factory.save_model(model)
+                logging.info(f"Saved model to {saved_path}")
+                predictor_model_update_queue.put(f"new_model {saved_path}")
+                start_time = time.time()
+
             # Add training data from the queue into the buffer
             while (
                 not selfplay_data_queue.empty()
@@ -220,23 +244,6 @@ def multiprocessed_learn(
                 loss_function=loss_function,
             )
 
-            if (
-                learn_step % validation_step_interval == 0
-                and validation_function is not None
-            ):
-                validation_function(model)
-
-            if learn_step > 0 and learn_step % update_best_model_step_interval == 0:
-                logging.info(
-                    f"Training data buffer length: {len(training_data_buffer)}, total buffer size: {len(training_data_buffer)}"
-                )
-                logging.info(
-                    f"Ran {update_best_model_step_interval} train steps in {time.time() - start_time} seconds"
-                )
-                saved_path = factory.save_model(model)
-                logging.info(f"Saved model to {saved_path}")
-                predictor_model_update_queue.put(f"new_model {saved_path}")
-                start_time = time.time()
     finally:
         predictor_process.terminate()
         for actor in selfplay_actors:
@@ -406,7 +413,6 @@ if __name__ == "__main__":
     import datetime
     import pickle as pkl
 
-    import explain
     import skyjo as sj
 
     np.random.seed(0)
@@ -448,12 +454,12 @@ if __name__ == "__main__":
         global_state_embedding_dimensions=64,
         non_spatial_embedding_dimensions=16,
     )
-    model.load_state_dict(
-        torch.load(
-            "./models/distributed/20250608_212522/model_20250609_023411.pth",
-            weights_only=True,
-        )
-    )
+    # model.load_state_dict(
+    #     torch.load(
+    #         "./models/distributed/20250608_212522/model_20250609_023411.pth",
+    #         weights_only=True,
+    #     )
+    # )
     # model = skynet.SimpleSkyNet(
     #     [256, 256, 256],
     #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
@@ -483,7 +489,7 @@ if __name__ == "__main__":
         factory,
         device,
         learn_steps=1000,
-        selfplay_processes=14,
+        selfplay_processes=9,
         greedy_play_processes=0,
         predictor_batch_size=1024,
         validation_function=lambda model: explain.validate_model(
@@ -491,5 +497,7 @@ if __name__ == "__main__":
         ),
         training_data_buffer_max_size=10_000_000,
         update_best_model_step_interval=1,
+        min_games_before_training=500,
         validation_step_interval=1,
+        training_batch_size=128,
     )

@@ -244,6 +244,7 @@ class ModelPlayer(AbstractPlayer):
         virtual_loss: float = 0.5,
         max_parallel_evaluations: int = 16,
         terminal_rollouts: int = 1,
+        dirichlet_epsilon: float = 0.0,
     ):
         self.predictor_client = predictor_client
         self.temperature = temperature
@@ -252,6 +253,7 @@ class ModelPlayer(AbstractPlayer):
         self.virtual_loss = virtual_loss
         self.max_parallel_evaluations = max_parallel_evaluations
         self.terminal_rollouts = terminal_rollouts
+        self.dirichlet_epsilon = dirichlet_epsilon
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -264,7 +266,9 @@ class ModelPlayer(AbstractPlayer):
             self.virtual_loss,
             self.max_parallel_evaluations,
             self.terminal_rollouts,
+            self.dirichlet_epsilon,
         )
+        # print(root)
         return root.sample_child_visit_probabilities(self.temperature)
 
 

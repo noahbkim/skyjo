@@ -97,6 +97,7 @@ def normalize_action(action: int, skyjo: sj.Skyjo) -> int:
 
 def training_data_from_game_data(
     game_data: GameData,
+    terminal_rollouts: int = 1,
 ) -> list[skynet.TrainingDataPoint]:
     """Converts game data to training data.
 
@@ -113,8 +114,18 @@ def training_data_from_game_data(
         A list of training data points.
     """
     training_data = []
-    outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
-    fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
+    penultimate_state, penultimate_action = game_data[-2][0], game_data[-2][1]
+    outcome_state_value = np.zeros(sj.get_player_count(penultimate_state))
+    fixed_perspective_score = np.zeros(sj.get_player_count(penultimate_state))
+    for _ in range(terminal_rollouts):
+        outcome = sj.apply_action(penultimate_state, penultimate_action)
+        outcome_state_value += skynet.skyjo_to_state_value(outcome) / terminal_rollouts
+        fixed_perspective_score += (
+            sj.get_fixed_perspective_round_scores(outcome) / terminal_rollouts
+        )
+
+    # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
+    # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
     for game_state, action, mcts_probs in game_data[:-1]:
         training_data.append(
             (
@@ -162,6 +173,7 @@ def multiprocessed_selfplay(
     terminal_rollouts: int = 100,
     dirichlet_epsilon: float = 0.0,
     debug: bool = False,
+    start_position: sj.Skyjo | None = None,
 ):
     game_players = [
         player.ModelPlayer(
@@ -176,9 +188,9 @@ def multiprocessed_selfplay(
         )
         for _ in range(players)
     ]
-    game_data = play(game_players, debug)
+    game_data = play(game_players, debug, start_position)
     # outcome, scores = outcome_and_scores_from_game_data(game_data)
-    return training_data_from_game_data(game_data)
+    return training_data_from_game_data(game_data, terminal_rollouts)
 
 
 def selfplay(
@@ -237,6 +249,7 @@ def play(
         game_data.append((game_state, action, action_probabilities))
         game_state = sj.apply_action(game_state, action)
         if debug:
+            print(sj.get_action_name(action))
             logging.info(f"ACTION PROBABILITIES\n{action_probabilities}")
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
