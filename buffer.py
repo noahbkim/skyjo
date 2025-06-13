@@ -1,3 +1,4 @@
+import dataclasses
 import pathlib
 import pickle
 import typing
@@ -7,6 +8,11 @@ import numpy as np
 import play
 import skyjo as sj
 import skynet
+
+
+@dataclasses.dataclass(slots=True)
+class Config:
+    max_size: int
 
 
 class ReplayBuffer:
@@ -28,6 +34,10 @@ class ReplayBuffer:
         self.points_target_buffer = []
         self.action_masks = []
         self.count = 0
+
+    @classmethod
+    def from_config(cls, config: Config) -> "ReplayBuffer":
+        return cls(config.max_size)
 
     @classmethod
     def load(cls, path: pathlib.Path) -> "ReplayBuffer":
@@ -66,12 +76,12 @@ class ReplayBuffer:
             self.action_masks[self.count % self.max_size] = sj.actions(game_state)
         self.count += 1
 
-    def add_game_data(self, game_data: list[tuple]):
+    def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
         for game_state, policy_target, outcome_target, points_target in game_data:
             self.add(game_state, policy_target, outcome_target, points_target)
 
-    def add_game_data_with_symmetry(self, game_data: list[tuple]):
+    def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
         for game_state, policy_target, outcome_target, points_target in game_data:
             for (
@@ -121,7 +131,7 @@ class ReplayBuffer:
         )
         indices = np.random.choice(
             len(self.spatial_input_buffer), size=batch_size
-        )  # replace=False is ~30,0000x slower
+        )  # replace=False is VERY slow
         # Retrieve elements using the sampled indices
         batch = (
             np.array([self.spatial_input_buffer[i] for i in indices]),

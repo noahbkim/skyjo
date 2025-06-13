@@ -266,10 +266,16 @@ def evaluate_obvious_clear_position(model: skynet.SkyNet):
     game_state = create_obvious_clear_position()
     with torch.no_grad():
         model_output = model.predict(game_state)
-        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-        logging.info(f"{model_output.value_output}")
-        logging.info(f"{model_output.policy_output}")
-        logging.info(f"{model_output.points_output}")
+        take_model_output = model.predict(sj.apply_action(game_state, sj.MASK_TAKE))
+    logging.debug(f"MODEL_EVALUATION:\n{model_output}")
+    logging.info(f"{model_output.value_output}")
+    logging.info(f"{model_output.policy_output}")
+    logging.info(f"{model_output.points_output}")
+    logging.info("Evaluating obvious clear position after take")
+    logging.debug(f"MODEL_EVALUATION:\n{take_model_output}")
+    logging.info(f"{take_model_output.value_output}")
+    logging.info(f"{take_model_output.policy_output}")
+    logging.info(f"{take_model_output.points_output}")
     return model_output
 
 
@@ -323,12 +329,10 @@ def validate_model_with_games_data(
             dtype=torch.float32,
             device=model.device,
         )
-        policy_loss = skynet.compute_policy_loss(
+        policy_loss = skynet.cross_entropy_policy_loss(
             torch_predicted_policy, policy_targets_tensor
         )
-        value_loss = skynet.compute_value_loss(
-            torch_predicted_value, value_targets_tensor
-        )
+        value_loss = skynet.mse_value_loss(torch_predicted_value, value_targets_tensor)
         value_loss_scale = 3
         # points_loss = nn.L1Loss()(
         #     torch_predicted_points,

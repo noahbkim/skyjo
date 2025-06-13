@@ -9,6 +9,7 @@ mp.Queue.
 from __future__ import annotations
 
 import abc
+import dataclasses
 import datetime
 import logging
 import pathlib
@@ -30,6 +31,16 @@ PredictionId: typing.TypeAlias = int
 QueueId: typing.TypeAlias = int
 ModelUpdate: typing.TypeAlias = bool
 
+# MARK: Config
+
+
+@dataclasses.dataclass(slots=True)
+class Config:
+    min_batch_size: int
+    max_batch_size: int
+    torch_device: torch.device
+    max_wait_seconds: float
+
 
 # MARK: Queues
 
@@ -47,6 +58,10 @@ class PredictorInputQueue:
         self.free_mask_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
         self.max_batch_size = max_batch_size
+
+    @classmethod
+    def from_config(cls, queue_id: QueueId, config: Config):
+        return cls(queue_id, config.max_batch_size)
 
     def empty(self) -> bool:
         return (
@@ -142,6 +157,10 @@ class PredictorOutputQueue:
         self.policy_output_queue = mp.Queue()
         self.free_policy_output_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
+
+    @classmethod
+    def from_config(cls, queue_id: QueueId, config: Config):
+        return cls(queue_id, config.max_batch_size)
 
     def empty(self) -> bool:
         return (
@@ -368,12 +387,11 @@ class PredictorProcess(mp.Process):
         model_update_queue: mp.Queue[ModelUpdate],
         input_queues: dict[QueueId, PredictorInputQueue],
         output_queues: dict[QueueId, PredictorOutputQueue],
-        min_batch_size: int = 512,
-        max_batch_size: int = 1024,
+        min_batch_size: int,
+        max_batch_size: int,
         device: torch.device = torch.device("cpu"),
         max_wait_seconds: float = 0.1,
         debug: bool = False,
-        free_output_queue_free: int = 10,
     ):
         super().__init__()
         self.model_factory = factory
@@ -385,10 +403,31 @@ class PredictorProcess(mp.Process):
         self.device = device
         self.max_wait_seconds = max_wait_seconds
         self.debug = debug
-        self.free_output_queue_free = free_output_queue_free
 
         assert set(self.input_queues.keys()) == set(self.output_queues.keys()), (
             "Input and output queues must have the same id keys"
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        factory: model_factory.SkyNetModelFactory,
+        model_update_queue: mp.Queue[ModelUpdate],
+        input_queues: dict[QueueId, PredictorInputQueue],
+        output_queues: dict[QueueId, PredictorOutputQueue],
+        config: Config,
+        debug: bool = False,
+    ):
+        return cls(
+            factory,
+            model_update_queue,
+            input_queues,
+            output_queues,
+            config.min_batch_size,
+            config.max_batch_size,
+            config.torch_device,
+            config.max_wait_seconds,
+            debug,
         )
 
     def _populate_free_input_queues(self, model: skynet.SkyNet):

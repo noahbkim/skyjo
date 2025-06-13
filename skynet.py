@@ -74,6 +74,11 @@ TrainingBatch: typing.TypeAlias = tuple[
     np.ndarray[tuple[int, int], np.float32],  # outcome target
     np.ndarray[tuple[int, int], np.float32],  # points target
 ]
+TrainingTargets: typing.TypeAlias = tuple[
+    np.ndarray[tuple[int, int], np.float32],  # policy target
+    np.ndarray[tuple[int, int], np.float32],  # outcome target
+    np.ndarray[tuple[int, int], np.float32],  # points target
+]
 
 
 def get_spatial_state_numpy(
@@ -91,7 +96,9 @@ def get_non_spatial_state_numpy(
 # MARK: Loss
 
 
-def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def cross_entropy_policy_loss(
+    predicted: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
     # loss = -(target * torch.log(predicted + 1e-9)).sum(
     #     dim=1
     # )  # add small epsilon to avoid log(0)
@@ -99,14 +106,13 @@ def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.
     return nn.CrossEntropyLoss(reduction="mean")(predicted, target)
 
 
-def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def mse_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return nn.MSELoss(reduction="mean")(predicted, target)
 
 
-def base_total_loss(
+def base_policy_value_loss(
     model_output: SkyNetOutput,
     value_targets: np.ndarray[tuple[int, int], np.float32],
-    points_targets: np.ndarray[tuple[int, int], np.float32],
     policy_targets: np.ndarray[tuple[int, int], np.float32],
     value_scale: float = 3.0,
 ) -> torch.Tensor:
@@ -117,14 +123,11 @@ def base_total_loss(
     assert value_output.shape == value_targets.shape, (
         f"expected value_output of shape {value_targets.shape}, got {value_output.shape}"
     )
-    assert points_output.shape == points_targets.shape, (
-        f"expected points_output of shape {points_targets.shape}, got {points_output.shape}"
-    )
-    policy_loss = compute_policy_loss(
+    policy_loss = cross_entropy_policy_loss(
         policy_output,
         torch.tensor(policy_targets, device=policy_output.device, dtype=torch.float32),
     )
-    value_loss = compute_value_loss(
+    value_loss = mse_value_loss(
         value_output,
         torch.tensor(value_targets, device=value_output.device, dtype=torch.float32),
     )

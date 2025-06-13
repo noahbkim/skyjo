@@ -267,22 +267,40 @@ class ModelPlayer(AbstractPlayer):
     def __init__(
         self,
         predictor_client: predictor.PredictorClient,
-        temperature: float,
+        action_softmax_temperature: float,
         mcts_iterations: int,
-        afterstate_realizations: bool = False,
-        virtual_loss: float = 0.5,
-        max_parallel_evaluations: int = 16,
-        terminal_rollouts: int = 1,
-        dirichlet_epsilon: float = 0.0,
+        batched_leaf_count: int,
+        virtual_loss: float,
+        dirichlet_epsilon: float,
+        after_state_evaluate_all_children: bool,
+        terminal_state_rollouts: int,
     ):
         self.predictor_client = predictor_client
-        self.temperature = temperature
+        self.action_softmax_temperature = action_softmax_temperature
         self.mcts_iterations = mcts_iterations
-        self.afterstate_realizations = afterstate_realizations
+        self.batched_leaf_count = batched_leaf_count
         self.virtual_loss = virtual_loss
-        self.max_parallel_evaluations = max_parallel_evaluations
-        self.terminal_rollouts = terminal_rollouts
         self.dirichlet_epsilon = dirichlet_epsilon
+        self.after_state_evaluate_all_children = after_state_evaluate_all_children
+        self.terminal_state_rollouts = terminal_state_rollouts
+
+    @classmethod
+    def from_mcts_config(
+        cls,
+        predictor_client: predictor.PredictorClient,
+        action_softmax_temperature: float,
+        mcts_config: parallel_mcts.Config,
+    ):
+        return cls(
+            predictor_client,
+            action_softmax_temperature,
+            mcts_config.iterations,
+            mcts_config.batched_leaf_count,
+            mcts_config.virtual_loss,
+            mcts_config.dirichlet_epsilon,
+            mcts_config.after_state_evaluate_all_children,
+            mcts_config.terminal_state_rollouts,
+        )
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -291,14 +309,14 @@ class ModelPlayer(AbstractPlayer):
             game_state,
             self.predictor_client,
             self.mcts_iterations,
-            self.afterstate_realizations,
+            self.batched_leaf_count,
             self.virtual_loss,
-            self.max_parallel_evaluations,
-            self.terminal_rollouts,
             self.dirichlet_epsilon,
+            self.after_state_evaluate_all_children,
+            self.terminal_state_rollouts,
         )
         # print(root)
-        return root.sample_child_visit_probabilities(self.temperature)
+        return root.sample_child_visit_probabilities(self.action_softmax_temperature)
 
 
 class PureModelPlayer(AbstractPlayer):

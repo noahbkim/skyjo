@@ -17,6 +17,19 @@ import predictor
 import skyjo as sj
 import skynet
 
+# MARK: Config
+
+
+@dataclasses.dataclass(slots=True)
+class Config:
+    iterations: int
+    batched_leaf_count: int
+    virtual_loss: float
+    dirichlet_epsilon: float
+    after_state_evaluate_all_children: bool
+    terminal_state_rollouts: int
+
+
 # MARK: NODE SCORING
 
 
@@ -365,6 +378,56 @@ class TerminalStateNode:
 # MARK: MCTS Algorithm
 
 
+def find_leaf(
+    root: MCTSNode,
+    virtual_loss: float = 0.5,
+    update_after_state_child_weights: bool = False,
+):
+    search_path = [root]
+    node = root
+    while node.are_children_discovered:
+        if isinstance(node, AfterStateNode):
+            node = node.select_child(
+                update_child_weights=update_after_state_child_weights
+            )
+        elif isinstance(node, DecisionStateNode):
+            node = node.select_child()
+        if not isinstance(node, TerminalStateNode):
+            node.virtual_loss_total += virtual_loss
+        search_path.append(node)
+    return search_path
+
+
+def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual_loss):
+    prev_node = None
+    prev_node_prev_state_value = None
+    for node in reversed(search_path):
+        original_state_value = node.state_value
+        if isinstance(node, DecisionStateNode):
+            node.state_value_total += value
+            node.virtual_loss_total -= virtual_loss
+        elif isinstance(node, AfterStateNode):
+            node.virtual_loss_total -= virtual_loss
+            # If all children are discovered, we can update by just the change
+            # in the state value of the previous (child) node since the weights
+            # are constant
+            if node.all_children_discovered or sj.get_game_about_to_end(node.state):
+                # First backprop on afterstate node so correct state value already set
+                if prev_node is None:
+                    continue
+                prev_node_state_hash = sj.hash_skyjo(prev_node.state)
+                node.state_value_total += (
+                    prev_node.state_value - prev_node_prev_state_value
+                ) * node.child_weights[prev_node_state_hash]
+            # Otherwise we are just weighting by the occurences so we can just
+            # explicitly update the state value total
+            else:
+                node.state_value_total += value
+        node.visit_count += 1
+        prev_node = node
+        prev_node_prev_state_value = original_state_value
+
+
 def _handle_prediction_results(
     prediction_id: predictor.PredictionId,
     prediction: skynet.SkyNetPrediction,
@@ -445,11 +508,11 @@ def run_mcts(
     game_state: sj.Skyjo,
     predictor_client: predictor.PredictorClient,
     iterations: int,
-    after_state_discover_all_children: bool = False,
+    batched_leaf_count: int = 1,
     virtual_loss: float = 0.5,
-    max_parallel_evaluations: int = 100,
-    terminal_rollouts: int = 100,
     dirichlet_epsilon: float = 0.0,
+    after_state_evaluate_all_children: bool = False,
+    terminal_state_rollouts: int = 1,
 ) -> MCTSNode:
     """Runs a batched MCTS using virtual loss evaluation.
 
@@ -518,7 +581,7 @@ def run_mcts(
         search_path = find_leaf(
             root_node,
             virtual_loss=virtual_loss,
-            update_after_state_child_weights=not after_state_discover_all_children,
+            update_after_state_child_weights=not after_state_evaluate_all_children,
         )
         search_depths.append(len(search_path))
         leaf = search_path[-1]
@@ -537,8 +600,8 @@ def run_mcts(
         # We also need to queue all the children decision state for model prediction
         elif isinstance(leaf, AfterStateNode):
             leaf.preexpand(
-                discover_all_children=after_state_discover_all_children,
-                terminal_rollouts=terminal_rollouts,
+                discover_all_children=after_state_evaluate_all_children,
+                terminal_rollouts=terminal_state_rollouts,
             )
             after_state_prediction_id = after_state_prediction_count
             after_state_prediction_count += 1
@@ -590,7 +653,7 @@ def run_mcts(
             raise ValueError(f"Unknown node type: {type(leaf)}")
 
         # Process predictions until we have at most max_parallel_threads pending leaf nodes
-        while pending_leaf_count >= max_parallel_evaluations:
+        while pending_leaf_count >= batched_leaf_count:
             predictor_client.send()
             for prediction_id, prediction in predictor_client.get_all():
                 if _handle_prediction_results(
@@ -620,54 +683,21 @@ def run_mcts(
     return root_node
 
 
-def find_leaf(
-    root: MCTSNode,
-    virtual_loss: float = 0.5,
-    update_after_state_child_weights: bool = False,
-):
-    search_path = [root]
-    node = root
-    while node.are_children_discovered:
-        if isinstance(node, AfterStateNode):
-            node = node.select_child(
-                update_child_weights=update_after_state_child_weights
-            )
-        elif isinstance(node, DecisionStateNode):
-            node = node.select_child()
-        if not isinstance(node, TerminalStateNode):
-            node.virtual_loss_total += virtual_loss
-        search_path.append(node)
-    return search_path
-
-
-def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual_loss):
-    prev_node = None
-    prev_node_prev_state_value = None
-    for node in reversed(search_path):
-        original_state_value = node.state_value
-        if isinstance(node, DecisionStateNode):
-            node.state_value_total += value
-            node.virtual_loss_total -= virtual_loss
-        elif isinstance(node, AfterStateNode):
-            node.virtual_loss_total -= virtual_loss
-            # If all children are discovered, we can update by just the change
-            # in the state value of the previous (child) node since the weights
-            # are constant
-            if node.all_children_discovered or sj.get_game_about_to_end(node.state):
-                # First backprop on afterstate node so correct state value already set
-                if prev_node is None:
-                    continue
-                prev_node_state_hash = sj.hash_skyjo(prev_node.state)
-                node.state_value_total += (
-                    prev_node.state_value - prev_node_prev_state_value
-                ) * node.child_weights[prev_node_state_hash]
-            # Otherwise we are just weighting by the occurences so we can just
-            # explicitly update the state value total
-            else:
-                node.state_value_total += value
-        node.visit_count += 1
-        prev_node = node
-        prev_node_prev_state_value = original_state_value
+def run_mcts_with_config(
+    game_state: sj.Skyjo,
+    predictor_client: predictor.PredictorClient,
+    config: Config,
+) -> MCTSNode:
+    return run_mcts(
+        game_state,
+        predictor_client,
+        config.iterations,
+        config.batched_leaf_count,
+        config.virtual_loss,
+        config.dirichlet_epsilon,
+        config.after_state_evaluate_all_children,
+        config.terminal_state_rollouts,
+    )
 
 
 # MARK: TYPES

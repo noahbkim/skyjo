@@ -2,21 +2,52 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import itertools
 import logging
 import multiprocessing as mp
 import pathlib
-import random
 import typing
 
 import numpy as np
 
-import mcts as mcts
+import parallel_mcts
 import player
 import predictor
 import skyjo as sj
 import skynet
+
+# MARK: Config
+
+
+@dataclasses.dataclass(slots=True)
+class Config:
+    players: int
+    action_softmax_temperature: float
+    outcome_rollouts: int
+    mcts_config: parallel_mcts.Config
+    start_position: sj.Skyjo | None
+
+
+# MARK: Types
+
+# Purely to represent what happened in a game.
+GameHistory: typing.TypeAlias = list[
+    tuple[sj.Skyjo, sj.SkyjoAction, np.ndarray[tuple[int], np.float32]]
+    # (game state, action, action probabilities)
+]
+
+# Contains the targets for training
+GameData: typing.TypeAlias = list[
+    tuple[
+        sj.Skyjo,  # game state
+        np.ndarray[tuple[int], np.float32],  # policy target
+        np.ndarray[tuple[int], np.float32],  # outcome target
+        np.ndarray[tuple[int], np.float32],  # points target
+    ]
+]
+
 
 # MARK: Symmetry
 
@@ -85,23 +116,26 @@ def get_skyjo_symmetries(
     return symmetries
 
 
-def normalize_table(skyjo: sj.Skyjo) -> np.ndarray[tuple[int], np.uint8]:
-    """Returns normalized table"""
-    raise NotImplementedError("Not implemented")
+def simulate_game_end(
+    penultimate_state: sj.Skyjo,
+    last_action: sj.SkyjoAction,
+    simulations: int = 1,
+) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
+    """Returns the outcome of the game"""
+    players = sj.get_player_count(penultimate_state)
+    outcomes, scores = np.zeros(players), np.zeros(players)
+    for _ in range(simulations):
+        game_state = penultimate_state
+        final_state = sj.apply_action(game_state, last_action)
+        outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
+        scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
+    return outcomes, scores
 
 
-def normalize_action(action: int, skyjo: sj.Skyjo) -> int:
-    """Returns normalized action"""
-    raise NotImplementedError("Not implemented")
-
-
-# MARK: Training data
-
-
-def training_data_from_game_data(
-    game_data: GameData,
+def game_history_to_game_data(
+    game_data: GameHistory,
     terminal_rollouts: int = 1,
-) -> list[skynet.TrainingDataPoint]:
+) -> GameData:
     """Converts game data to training data.
 
     Game data is a tuple of skyjo state and mcts action probabilities. Converts this
@@ -141,106 +175,71 @@ def training_data_from_game_data(
     return training_data
 
 
-def simulate_game_end(
-    penultimate_state: sj.Skyjo,
-    last_action: sj.SkyjoAction,
-    simulations: int = 1,
-) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
-    """Returns the outcome of the game"""
-    players = sj.get_player_count(penultimate_state)
-    outcomes, scores = np.zeros(players), np.zeros(players)
-    for _ in range(simulations):
-        game_state = penultimate_state
-        final_state = sj.apply_action(game_state, last_action)
-        outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
-        scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
-    return outcomes, scores
+def print_game_history(
+    game_history: GameHistory,
+):
+    for game_state, action, action_probabilities in game_history:
+        print(sj.visualize_state(game_state))
+        print(f"ACTION: {sj.get_action_name(action)}")
+        print(f"ACTION PROBABILITIES: {action_probabilities}")
 
 
 # MARK: Selfplay
 
 
-def multiprocessed_selfplay(
+def model_selfplay(
     predictor_client: predictor.PredictorClient,
-    players: int = 2,
-    mcts_iterations: int = 100,
-    mcts_temperature: float = 1.0,
-    afterstate_realizations: bool = False,
-    virtual_loss: float = 0.0,
-    max_parallel_evaluations: int = 32,
-    terminal_rollouts: int = 100,
-    dirichlet_epsilon: float = 0.0,
-    debug: bool = False,
+    players: int,
+    mcts_config: parallel_mcts.Config,
+    action_softmax_temperature: float = 1.0,
+    outcome_rollouts: int = 1,
     start_position: sj.Skyjo | None = None,
-):
+    debug: bool = False,
+) -> GameData:
     game_players = [
-        player.ModelPlayer(
+        player.ModelPlayer.from_mcts_config(
             predictor_client,
-            mcts_temperature,
-            mcts_iterations,
-            afterstate_realizations,
-            virtual_loss,
-            max_parallel_evaluations,
-            terminal_rollouts,
-            dirichlet_epsilon,
+            action_softmax_temperature,
+            mcts_config,
         )
         for _ in range(players)
     ]
     game_data = play(game_players, debug, start_position)
-    return training_data_from_game_data(game_data, terminal_rollouts)
+    return game_history_to_game_data(game_data, outcome_rollouts)
 
 
-def selfplay(
-    model: skynet.SkyNet,
-    players: int = 2,
-    mcts_iterations: int = 100,
-    mcts_temperature: float = 1.0,
-    afterstate_initial_realizations: int = 50,
+def greedy_selfplay(
+    players: int,
     debug: bool = False,
-) -> list[skynet.TrainingDataPoint]:
-    game_players = [player.GreedyExpectedValuePlayer() for _ in range(players - 1)] + [
-        player.SimpleGreedyPlayer(
-            model,
-            mcts_iterations,
-            mcts_temperature,
-            afterstate_initial_realizations,
-        )
-    ]
-    random.shuffle(game_players)
-    game_data = play(game_players, debug)
-    return training_data_from_game_data(game_data)
-
-
-def multiprocessed_play_greedy_players(
-    players: int = 2,
-    debug: bool = False,
-) -> list[skynet.TrainingDataPoint]:
+    outcome_rollouts: int = 1,
+) -> GameData:
     game_players = [player.GreedyExpectedValuePlayer() for _ in range(players)]
     game_data = play(game_players, debug)
-    return training_data_from_game_data(game_data)
+    return game_history_to_game_data(game_data, outcome_rollouts)
 
 
 def play(
     players: list[player.AbstractPlayer],
     debug: bool = False,
     start_state: sj.Skyjo | None = None,
-) -> GameData:
+) -> GameHistory:
     if start_state is None:
         game_state = sj.new(players=len(players))
         game_state = sj.start_round(game_state)
     else:
         game_state = start_state
-    game_data = []
+    game_history = []
 
     if debug:
         logging.info(f"{sj.visualize_state(game_state)}")
+
     while not sj.get_game_over(game_state):
         action_probabilities = players[
             sj.get_player(game_state)
         ].get_action_probabilities(game_state)
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_data.append((game_state, action, action_probabilities))
+        game_history.append((game_state, action, action_probabilities))
         game_state = sj.apply_action(game_state, action)
         if debug:
             print(sj.get_action_name(action))
@@ -248,7 +247,7 @@ def play(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_data.append((game_state, None, None))
+    game_history.append((game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -256,7 +255,7 @@ def play(
         logging.info(f"OUTCOME: {outcome}")
         logging.info(f"SCORES: {fixed_perspective_score}")
         logging.info(f"TOTAL TURNS: {sj.get_turn(game_state)}")
-    return game_data
+    return game_history
 
 
 # MARK: Data Generation Processes
@@ -284,6 +283,9 @@ class TrainingDataGenerator(mp.Process):
     def run_episode(self):
         raise NotImplementedError
 
+    def add_game_data(self, game_data: GameData):
+        raise NotImplementedError
+
     def run(self):
         level = logging.DEBUG if self.debug else logging.INFO
         log_dir = pathlib.Path(
@@ -307,7 +309,7 @@ class TrainingDataGenerator(mp.Process):
             self.count += 1
             if self.debug:
                 logging.debug(f"Finished episode ({len(episode_data)} data points)")
-            self.selfplay_data_queue.put(episode_data)
+            self.add_game_data(episode_data)
 
 
 class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
@@ -315,94 +317,60 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         self,
         predictor_client: predictor.PredictorClient,
         selfplay_data_queue: mp.Queue,
-        id: int = 0,
-        players: int = 2,
-        mcts_iterations: int = 100,
-        mcts_temperature: float = 1.0,
-        afterstate_realizations: bool = False,
-        virtual_loss: float = 0.0,
-        max_parallel_evaluations: int = 32,
-        terminal_rollouts: int = 100,
-        dirichlet_epsilon: float = 0.0,
+        id: int,
+        players: int,
+        mcts_config: parallel_mcts.Config,
+        action_softmax_temperature: float = 1.0,
+        outcome_rollouts: int = 1,
+        start_position: sj.Skyjo | None = None,
         debug: bool = False,
     ):
         super().__init__(id, debug)
         self.predictor_client = predictor_client
         self.selfplay_data_queue = selfplay_data_queue
         self.players = players
-        self.mcts_iterations = mcts_iterations
-        self.mcts_temperature = mcts_temperature
-        self.afterstate_realizations = afterstate_realizations
-        self.virtual_loss = virtual_loss
-        self.max_parallel_evaluations = max_parallel_evaluations
-        self.terminal_rollouts = terminal_rollouts
-        self.dirichlet_epsilon = dirichlet_epsilon
+        self.mcts_config = mcts_config
+        self.action_softmax_temperature = action_softmax_temperature
+        self.outcome_rollouts = outcome_rollouts
+        self.start_position = start_position
         self.debug = debug
         self.id = id
         self.count = 0
 
-    def run_episode(self):
-        return multiprocessed_selfplay(
-            self.predictor_client,
-            players=self.players,
-            mcts_iterations=self.mcts_iterations,
-            mcts_temperature=self.mcts_temperature,
-            afterstate_realizations=self.afterstate_realizations,
-            virtual_loss=self.virtual_loss,
-            max_parallel_evaluations=self.max_parallel_evaluations,
-            terminal_rollouts=self.terminal_rollouts,
-            dirichlet_epsilon=self.dirichlet_epsilon,
-            debug=self.debug,
-        )
-
-
-class MultiProcessedPlayGreedyPlayersGenerator(TrainingDataGenerator):
-    def __init__(
-        self,
+    @classmethod
+    def from_config(
+        cls,
         predictor_client: predictor.PredictorClient,
         selfplay_data_queue: mp.Queue,
-        id: str = "greedy_ev",
-        players: int = 2,
-        mcts_iterations: int = 100,
-        mcts_temperature: float = 1.0,
-        afterstate_initial_realizations: int = 50,
-        virtual_loss: float = 0.0,
-        max_parallel_evaluations: int = 32,
-        episodes: int | None = None,
+        id: int,
+        config: Config,
         debug: bool = False,
     ):
-        super().__init__(id, debug, episodes)
-        self.predictor_client = predictor_client
-        self.selfplay_data_queue = selfplay_data_queue
-        self.players = players
-        self.mcts_iterations = mcts_iterations
-        self.mcts_temperature = mcts_temperature
-        self.afterstate_initial_realizations = afterstate_initial_realizations
-        self.virtual_loss = virtual_loss
-        self.max_parallel_evaluations = max_parallel_evaluations
-        self.debug = debug
-        self.id = id
-        self.count = 0
-
-    def run_episode(self):
-        return multiprocessed_play_greedy_players(
-            self.predictor_client,
-            players=self.players,
-            mcts_iterations=self.mcts_iterations,
-            mcts_temperature=self.mcts_temperature,
-            afterstate_initial_realizations=self.afterstate_initial_realizations,
-            virtual_loss=self.virtual_loss,
-            max_parallel_evaluations=self.max_parallel_evaluations,
-            debug=self.debug,
+        return cls(
+            predictor_client,
+            selfplay_data_queue,
+            id,
+            config.players,
+            config.mcts_config,
+            config.action_softmax_temperature,
+            config.outcome_rollouts,
+            config.start_position,
+            debug,
         )
 
+    def add_game_data(self, game_data: GameData):
+        self.selfplay_data_queue.put(game_data)
 
-# MARK: Types
-
-GameData: typing.TypeAlias = list[
-    tuple[sj.Skyjo, sj.SkyjoAction, np.ndarray[tuple[int], np.float32]]
-    # (game state, action, action probabilities)
-]
+    def run_episode(self):
+        return model_selfplay(
+            self.predictor_client,
+            players=self.players,
+            mcts_config=self.mcts_config,
+            action_softmax_temperature=self.action_softmax_temperature,
+            outcome_rollouts=self.outcome_rollouts,
+            debug=self.debug,
+            start_position=self.start_position,
+        )
 
 
 if __name__ == "__main__":
