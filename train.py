@@ -69,10 +69,10 @@ def train(
     (
         spatial_inputs,
         non_spatial_inputs,
+        masks,
         outcome_targets,
         points_targets,
         policy_targets,
-        masks,
     ) = batch
     spatial_inputs = torch.tensor(
         spatial_inputs,

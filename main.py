@@ -37,11 +37,8 @@ if __name__ == "__main__":
         filemode="w",
     )
 
-    with open("./data/validation/greedy_ev_validation_games_data.pkl", "rb") as f:
-        validation_games_data = pkl.load(f)
-    with open("./data/validation/greedy_ev_fixed_training_games_data.pkl", "rb") as f:
-        small_fixed_training_sample = pkl.load(f)
-
+    with open("./data/validation/greedy_ev_validation_batch.pkl", "rb") as f:
+        validation_batch = pkl.load(f)
     models_dir = (
         pathlib.Path("./models")
         / "distributed"
@@ -93,7 +90,7 @@ if __name__ == "__main__":
     )
     training_config = train.TrainingEpochConfig(
         training_batch_size=64,
-        learning_rate=1e-4,
+        learning_rate=1e-3,
         loss_function=train_utils.base_policy_value_loss,
     )
     learn_config = train.MultiProcessedLearnConfig(
@@ -101,7 +98,7 @@ if __name__ == "__main__":
         training_epochs=1,
         training_epoch_config=training_config,
         validation_function=lambda model: explain.validate_model(
-            model, validation_games_data
+            model, validation_batch
         ),
         validation_interval=1,
         update_model_interval=1,
@@ -109,9 +106,7 @@ if __name__ == "__main__":
         minimum_games_per_iteration=1000,
         torch_device=device,
     )
-    training_data_buffer_config = buffer.Config(
-        max_size=1_000_000,
-    )
+
     predictor_config = predictor.Config(
         max_batch_size=512,
         min_batch_size=4,
@@ -128,10 +123,24 @@ if __name__ == "__main__":
     )
     selfplay_config = play.Config(
         players=2,
-        action_softmax_temperature=0.1,
+        action_softmax_temperature=1.0,
         outcome_rollouts=100,
         mcts_config=mcts_config,
         start_position=None,
+    )
+    training_data_buffer_config = buffer.Config(
+        max_size=1_000_000,
+        spatial_input_shape=(
+            selfplay_config.players,
+            sj.ROW_COUNT,
+            sj.COLUMN_COUNT,
+            sj.FINGER_SIZE,
+        ),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        action_mask_shape=(sj.MASK_SIZE,),
+        policy_target_shape=(sj.MASK_SIZE,),
+        outcome_target_shape=(selfplay_config.players,),
+        points_target_shape=(selfplay_config.players,),
     )
     train.multiprocessed_learn(
         factory,
