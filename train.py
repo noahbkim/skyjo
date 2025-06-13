@@ -353,7 +353,7 @@ def learn(
 def main_train_on_greedy_ev_player_games(
     model: skynet.SkyNet,
     models_dir: pathlib.Path,
-    validation_games_data: list[play.GameData] | None = None,
+    validation_batch: train_utils.TrainingBatch | None = None,
     learn_steps: int = 100,
     training_epochs: int = 1,
     batch_count: int = 10_000,
@@ -369,16 +369,6 @@ def main_train_on_greedy_ev_player_games(
     3. Trains the model on the collected data
     4. Saves and validates the model periodically
     """
-    logging.info(
-        f"Training model on greedy ev player games with "
-        f"models_dir={models_dir}, "
-        f"validation_games_data={validation_games_data}, "
-        f"learn_steps={learn_steps}, "
-        f"training_epochs={training_epochs}, "
-        f"batch_count={batch_count}, "
-        f"games_per_step={games_per_step}, "
-        f"training_batch_size={training_batch_size}"
-    )
     models_dir.mkdir(parents=True, exist_ok=True)
     model_path = model.save(models_dir)
     logging.info(f"Saved model to {model_path}")
@@ -393,7 +383,7 @@ def main_train_on_greedy_ev_player_games(
         logging.info(f"Added {games_per_step} games to the buffer")
         logging.info(f"Training data buffer size: {len(training_data_buffer)}")
         for learn_iter in range(training_epochs):
-            explain.validate_model(model, validation_games_data)
+            explain.validate_model(model, validation_batch)
             training_losses = []
             for batch_iter in range(batch_count):
                 batch = training_data_buffer.sample_batch(
@@ -416,7 +406,7 @@ def main_train_on_greedy_ev_player_games(
 def main_overfit_small_training_sample(
     model: skynet.SkyNet,
     models_dir: pathlib.Path,
-    training_sample: list[list[play.GameData]],
+    training_sample: train_utils.TrainingBatch,
     learn_steps: int = 100,
     training_epochs: int = 1,
     batch_count: int = 1000,

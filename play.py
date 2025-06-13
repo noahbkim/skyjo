@@ -42,9 +42,9 @@ GameHistory: typing.TypeAlias = list[
 GameData: typing.TypeAlias = list[
     tuple[
         sj.Skyjo,  # game state
-        np.ndarray[tuple[int], np.float32],  # policy target
         np.ndarray[tuple[int], np.float32],  # outcome target
         np.ndarray[tuple[int], np.float32],  # points target
+        np.ndarray[tuple[int], np.float32],  # policy target
     ]
 ]
 
@@ -162,7 +162,6 @@ def game_history_to_game_data(
         training_data.append(
             (
                 game_state,  # game
-                mcts_probs,  # policy target
                 np.roll(
                     outcome_state_value, -sj.get_player(game_state)
                 ),  # outcome target
@@ -170,6 +169,7 @@ def game_history_to_game_data(
                     fixed_perspective_score,
                     -sj.get_player(game_state),
                 ),  # points target
+                mcts_probs,  # policy target
             )
         )
     return training_data

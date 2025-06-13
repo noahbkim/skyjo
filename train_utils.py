@@ -12,6 +12,7 @@ import skynet
 TrainingDataPoint: typing.TypeAlias = tuple[
     np.ndarray[tuple[int], np.float32],  # spatial input
     np.ndarray[tuple[int], np.float32],  # non-spatial input
+    np.ndarray[tuple[int], np.float32],  # action mask
     np.ndarray[tuple[int], np.float32],  # outcome target
     np.ndarray[tuple[int], np.float32],  # points target
     np.ndarray[tuple[int], np.float32],  # policy target
@@ -19,10 +20,10 @@ TrainingDataPoint: typing.TypeAlias = tuple[
 TrainingBatch: typing.TypeAlias = tuple[
     np.ndarray[tuple[int, int, int, int, int], np.float32],  # spatial input
     np.ndarray[tuple[int, int], np.float32],  # non-spatial input
+    np.ndarray[tuple[int, int], np.float32],  # action mask
     np.ndarray[tuple[int, int], np.float32],  # outcome target
     np.ndarray[tuple[int, int], np.float32],  # points target
     np.ndarray[tuple[int, int], np.float32],  # policy target
-    np.ndarray[tuple[int, int], np.float32],  # action mask
 ]
 TrainingTargets: typing.TypeAlias = tuple[
     torch.Tensor,  # outcome target
@@ -44,16 +45,16 @@ def game_data_to_training_batch(
         skynet.get_non_spatial_state_numpy(state_tuple[0]) for state_tuple in game_data
     ]
     action_masks = [sj.actions(state_tuple[0]) for state_tuple in game_data]
-    policy_targets = [state_tuple[1] for state_tuple in game_data]
-    outcome_targets = [state_tuple[2] for state_tuple in game_data]
-    points_targets = [state_tuple[3] for state_tuple in game_data]
+    outcome_targets = [state_tuple[1] for state_tuple in game_data]
+    points_targets = [state_tuple[2] for state_tuple in game_data]
+    policy_targets = [state_tuple[3] for state_tuple in game_data]
     return (
         np.array(spatial_states, dtype=np.float32),
         np.array(non_spatial_states, dtype=np.float32),
+        np.array(action_masks, dtype=np.float32),
         np.array(outcome_targets, dtype=np.float32),
         np.array(points_targets, dtype=np.float32),
         np.array(policy_targets, dtype=np.float32),
-        np.array(action_masks, dtype=np.float32),
     )
 
 
@@ -99,7 +100,7 @@ def base_policy_value_loss(
     value_scale: float = 3.0,
 ) -> torch.Tensor:
     value_loss, policy_loss = policy_value_losses(model_output, targets)
-    return value_loss + value_scale * policy_loss
+    return value_scale * value_loss + policy_loss
 
 
 def compute_model_loss_on_game_data(
@@ -110,10 +111,10 @@ def compute_model_loss_on_game_data(
     (
         spatial_inputs,
         non_spatial_inputs,
+        masks,
         outcome_targets,
         points_targets,
         policy_targets,
-        masks,
     ) = game_data_to_training_batch(game_data)
     spatial_tensor = torch.tensor(
         spatial_inputs, dtype=torch.float32, device=model.device

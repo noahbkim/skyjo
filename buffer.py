@@ -51,9 +51,9 @@ class ReplayBuffer:
     def add(
         self,
         game_state: sj.Skyjo,
-        policy_target: np.ndarray,
         outcome_target: np.ndarray,
         points_target: np.ndarray,
+        policy_target: np.ndarray,
     ):
         if self.count < self.max_size:
             self.spatial_input_buffer.append(skynet.get_spatial_state_numpy(game_state))
@@ -79,12 +79,12 @@ class ReplayBuffer:
 
     def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for game_state, policy_target, outcome_target, points_target in game_data:
-            self.add(game_state, policy_target, outcome_target, points_target)
+        for game_state, outcome_target, points_target, policy_target in game_data:
+            self.add(game_state, outcome_target, points_target, policy_target)
 
     def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for game_state, policy_target, outcome_target, points_target in game_data:
+        for game_state, outcome_target, points_target, policy_target in game_data:
             for (
                 symmetric_game_state,
                 symmetric_policy_target,
@@ -100,10 +100,10 @@ class ReplayBuffer:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
-            == len(self.policy_target_buffer)
+            == len(self.action_masks)
             == len(self.outcome_target_buffer)
             == len(self.points_target_buffer)
-            == len(self.action_masks)
+            == len(self.policy_target_buffer)
         ), "All buffers must be the same length"
         assert len(self.spatial_input_buffer) > 0, "Buffer is empty"
         # Select a random index first

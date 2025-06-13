@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import torch
 
-import play
 import skyjo as sj
 import skynet
 import train_utils
@@ -167,9 +166,10 @@ def create_obvious_clear_position() -> sj.Skyjo:
 
 def create_random_clear_starting_position() -> sj.Skyjo:
     random_starting_card = np.random.randint(0, sj.CARD_SIZE)
+    next_random_card = np.random.randint(0, sj.CARD_SIZE)
     game_state = create_initial_same_column_flip_game_state(
         player1_initial_flips=(random_starting_card, random_starting_card),
-        player2_initial_flips=(sj.CARD_P3, sj.CARD_P2),
+        player2_initial_flips=(next_random_card, next_random_card),
         top_card=random_starting_card,
     )
     return game_state
@@ -290,71 +290,47 @@ def validate_model_on_known_positions(model: skynet.SkyNet):
 
 def validate_model_with_games_data(
     model: skynet.SkyNet,
-    games_data: list[play.GameData],
+    validation_batch: train_utils.TrainingBatch,
+    value_loss_scale: float = 3.0,
 ):
     model.eval()
     with torch.no_grad():
-        batch = games_data
-        spatial_inputs = torch.tensor(
-            np.array([skynet.get_spatial_state_numpy(data[0]) for data in batch]),
-            dtype=torch.float32,
-            device=model.device,
-        )
-        non_spatial_inputs = torch.tensor(
-            np.array([skynet.get_non_spatial_state_numpy(data[0]) for data in batch]),
-            dtype=torch.float32,
-            device=model.device,
-        )
-        masks = torch.tensor(
-            np.array([sj.actions(data[0]) for data in batch]),
-            dtype=torch.float32,
-            device=model.device,
-        )
         (
-            torch_predicted_value,
-            torch_predicted_points,
-            torch_predicted_policy,
-        ) = model(spatial_inputs, non_spatial_inputs, masks)
-        policy_targets_tensor = torch.tensor(
-            np.array([data[1] for data in batch]),
-            dtype=torch.float32,
-            device=model.device,
+            spatial_inputs,
+            non_spatial_inputs,
+            masks,
+            value_targets,
+            points_targets,
+            policy_targets,
+        ) = validation_batch
+        spatial_inputs_tensor = torch.tensor(
+            spatial_inputs, dtype=torch.float32, device=model.device
         )
+        non_spatial_inputs_tensor = torch.tensor(
+            non_spatial_inputs, dtype=torch.float32, device=model.device
+        )
+        masks_tensor = torch.tensor(masks, dtype=torch.float32, device=model.device)
         value_targets_tensor = torch.tensor(
-            np.array([data[2] for data in batch]),
-            dtype=torch.float32,
-            device=model.device,
+            value_targets, dtype=torch.float32, device=model.device
         )
-        points_targets_tensor = torch.tensor(
-            np.array([data[3] for data in batch]),
-            dtype=torch.float32,
-            device=model.device,
+        policy_targets_tensor = torch.tensor(
+            policy_targets, dtype=torch.float32, device=model.device
         )
-        policy_loss = train_utils.cross_entropy_policy_loss(
-            torch_predicted_policy, policy_targets_tensor
+        model_output = model(
+            spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor
         )
-        value_loss = train_utils.mse_value_loss(
-            torch_predicted_value, value_targets_tensor
+        value_loss, policy_loss = train_utils.policy_value_losses(
+            model_output, (value_targets_tensor, None, policy_targets_tensor)
         )
-        value_loss_scale = 3
-        # points_loss = nn.L1Loss()(
-        #     torch_predicted_points,
-        #     points_targets_tensor,
-        # )
-        # points_loss_scale = 1 / 1000
-        total_loss = (
-            value_loss_scale * value_loss
-            # + points_loss_scale * points_loss
-            + policy_loss
-        )
-        policy_entropies = -(
+        total_loss = value_loss_scale * value_loss + policy_loss
+        base_policy_entropies = -(
             policy_targets_tensor * torch.log(policy_targets_tensor + 1e-12)
         ).sum(dim=1)
         logging.info(
             f"value loss: {value_loss_scale * value_loss.item()} "
             # f"points loss: {points_loss_scale * points_loss.item()} "
             f"policy loss: {policy_loss.item()} "
-            f"policy entropy: {policy_entropies.mean()} "
+            f"policy entropy: {base_policy_entropies.mean()} "
             f"total loss: {total_loss.item()} "
         )
         return total_loss
@@ -362,11 +338,11 @@ def validate_model_with_games_data(
 
 def validate_model(
     model: skynet.SkyNet,
-    games_data: list[play.GameData] | None = None,
+    validation_batch: train_utils.TrainingBatch | None = None,
 ):
     validate_model_on_known_positions(model)
-    if games_data is not None:
-        validate_model_with_games_data(model, games_data)
+    if validation_batch is not None:
+        validate_model_with_games_data(model, validation_batch)
 
 
 if __name__ == "__main__":
