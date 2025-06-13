@@ -9,7 +9,6 @@ import pathlib
 import time
 import typing
 
-import numpy as np
 import torch
 import torch.multiprocessing as mp
 
@@ -20,6 +19,9 @@ import parallel_mcts
 import play
 import predictor
 import skynet
+import train_utils
+
+# MARK: Configs
 
 
 @dataclasses.dataclass(slots=True)
@@ -27,7 +29,7 @@ class TrainingEpochConfig:
     training_batch_size: int
     learning_rate: float
     loss_function: typing.Callable[
-        [skynet.SkyNetOutput, skynet.TrainingTargets], torch.Tensor
+        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
     ]
 
 
@@ -48,34 +50,14 @@ class MultiProcessedLearnConfig(BaseLearnConfig):
     torch_device: torch.device
 
 
-def constant_basic_learning_rate(train_iter: int) -> float:
-    return 1e-3
-
-
-def constant_basic_selfplay_params(learn_iter: int) -> dict[str, typing.Any]:
-    return {
-        "players": 2,
-        "mcts_iterations": 100,
-        "mcts_temperature": 0.5,
-        "afterstate_realizations": False,
-        "virtual_loss": 0.5,
-        "max_parallel_evaluations": 4,
-        "terminal_rollouts": 100,
-        "dirichlet_epsilon": 0.25,
-    }
+# MARK: Training
 
 
 def train(
     model: skynet.SkyNet,
-    batch: skynet.TrainingBatch,
+    batch: train_utils.TrainingBatch,
     loss_function: typing.Callable[
-        [
-            skynet.SkyNetOutput,
-            np.ndarray[tuple[int, int], np.float32],
-            np.ndarray[tuple[int, int], np.float32],
-            np.ndarray[tuple[int, int], np.float32],
-        ],
-        torch.Tensor,
+        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
     ],
     learning_rate: float = 1e-4,
 ) -> None:
@@ -87,9 +69,9 @@ def train(
     (
         spatial_inputs,
         non_spatial_inputs,
-        policy_targets,
         outcome_targets,
         points_targets,
+        policy_targets,
         masks,
     ) = batch
     spatial_inputs = torch.tensor(
@@ -103,9 +85,21 @@ def train(
         device=model.device,
     )
     masks = torch.tensor(masks, dtype=torch.float32, device=model.device)
-    model_output = model(spatial_inputs, non_spatial_inputs, masks)
 
-    loss = loss_function(model_output, outcome_targets, points_targets, policy_targets)
+    outcome_targets_tensor = torch.tensor(
+        outcome_targets, dtype=torch.float32, device=model.device
+    )
+    points_targets_tensor = torch.tensor(
+        points_targets, dtype=torch.float32, device=model.device
+    )
+    policy_targets_tensor = torch.tensor(
+        policy_targets, dtype=torch.float32, device=model.device
+    )
+    model_output = model(spatial_inputs, non_spatial_inputs, masks)
+    loss = loss_function(
+        model_output,
+        (outcome_targets_tensor, points_targets_tensor, policy_targets_tensor),
+    )
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
@@ -119,7 +113,7 @@ def train_epoch(
     training_batch_size: int,
     learning_rate: float,
     loss_function: typing.Callable[
-        [skynet.SkyNetOutput, skynet.TrainingBatch], torch.Tensor
+        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
     ],
 ):
     """Performs a single training epoch.
@@ -153,6 +147,9 @@ def train_epoch_with_config(
         config.learning_rate,
         config.loss_function,
     )
+
+
+# MARK: Learning Loops
 
 
 def multiprocessed_learn(
@@ -243,7 +240,7 @@ def multiprocessed_learn(
             ):
                 learn_config.validation_function(model)
 
-            if iteration > 0 and iteration % training_config.update_model_interval == 0:
+            if iteration > 0 and iteration % learn_config.update_model_interval == 0:
                 logging.info(
                     f"Training data buffer length: {len(training_data_buffer)}, "
                     f"total buffer size: {len(training_data_buffer)}"
@@ -405,7 +402,7 @@ def main_train_on_greedy_ev_player_games(
                 loss = train(
                     model,
                     batch,
-                    loss_function=skynet.base_total_loss,
+                    loss_function=train_utils.base_policy_value_loss,
                     learning_rate=1e-3,
                 )
                 training_losses.append(loss)
@@ -452,7 +449,7 @@ def main_overfit_small_training_sample(
                 loss = train(
                     model,
                     batch,
-                    loss_function=skynet.base_total_loss,
+                    loss_function=train_utils.base_policy_value_loss,
                     learning_rate=1e-3,
                 )
                 training_losses.append(loss)

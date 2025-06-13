@@ -13,6 +13,7 @@ import play
 import predictor
 import skynet
 import train
+import train_utils
 
 if __name__ == "__main__":
     import datetime
@@ -91,9 +92,9 @@ if __name__ == "__main__":
         initial_model=model,
     )
     training_config = train.TrainingEpochConfig(
-        training_batch_size=128,
+        training_batch_size=64,
         learning_rate=1e-4,
-        loss_function=skynet.base_policy_value_loss,
+        loss_function=train_utils.base_policy_value_loss,
     )
     learn_config = train.MultiProcessedLearnConfig(
         iterations=1000,
@@ -104,15 +105,15 @@ if __name__ == "__main__":
         ),
         validation_interval=1,
         update_model_interval=1,
-        selfplay_processes=1,
-        minimum_games_per_iteration=100,
+        selfplay_processes=9,
+        minimum_games_per_iteration=1000,
         torch_device=device,
     )
     training_data_buffer_config = buffer.Config(
         max_size=1_000_000,
     )
     predictor_config = predictor.Config(
-        max_batch_size=256,
+        max_batch_size=512,
         min_batch_size=4,
         torch_device=device,
         max_wait_seconds=0.1,
@@ -127,7 +128,7 @@ if __name__ == "__main__":
     )
     selfplay_config = play.Config(
         players=2,
-        action_softmax_temperature=0.5,
+        action_softmax_temperature=0.1,
         outcome_rollouts=100,
         mcts_config=mcts_config,
         start_position=None,

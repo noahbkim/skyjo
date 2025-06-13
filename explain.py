@@ -8,6 +8,7 @@ import torch
 import play
 import skyjo as sj
 import skynet
+import train_utils
 
 # MARK: Game state creation
 
@@ -329,10 +330,12 @@ def validate_model_with_games_data(
             dtype=torch.float32,
             device=model.device,
         )
-        policy_loss = skynet.cross_entropy_policy_loss(
+        policy_loss = train_utils.cross_entropy_policy_loss(
             torch_predicted_policy, policy_targets_tensor
         )
-        value_loss = skynet.mse_value_loss(torch_predicted_value, value_targets_tensor)
+        value_loss = train_utils.mse_value_loss(
+            torch_predicted_value, value_targets_tensor
+        )
         value_loss_scale = 3
         # points_loss = nn.L1Loss()(
         #     torch_predicted_points,

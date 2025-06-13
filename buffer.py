@@ -8,6 +8,7 @@ import numpy as np
 import play
 import skyjo as sj
 import skynet
+import train_utils
 
 
 @dataclasses.dataclass(slots=True)
@@ -95,7 +96,7 @@ class ReplayBuffer:
                     points_target,
                 )
 
-    def sample_element(self) -> skynet.TrainingDataPoint:
+    def sample_element(self) -> train_utils.TrainingDataPoint:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
@@ -110,13 +111,13 @@ class ReplayBuffer:
         return (
             self.spatial_input_buffer[index],
             self.non_spatial_input_buffer[index],
-            self.policy_target_buffer[index],
             self.outcome_target_buffer[index],
             self.points_target_buffer[index],
+            self.policy_target_buffer[index],
             self.action_masks[index],
         )
 
-    def sample_batch(self, batch_size: int) -> skynet.TrainingBatch:
+    def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
@@ -136,16 +137,16 @@ class ReplayBuffer:
         batch = (
             np.array([self.spatial_input_buffer[i] for i in indices]),
             np.array([self.non_spatial_input_buffer[i] for i in indices]),
-            np.array([self.policy_target_buffer[i] for i in indices]),
             np.array([self.outcome_target_buffer[i] for i in indices]),
             np.array([self.points_target_buffer[i] for i in indices]),
+            np.array([self.policy_target_buffer[i] for i in indices]),
             np.array([self.action_masks[i] for i in indices]),
         )
         return batch
 
     def generate_training_batches(
         self, batch_size: int, batch_count: int
-    ) -> typing.Generator[skynet.TrainingBatch, None, None]:
+    ) -> typing.Generator[train_utils.TrainingBatch, None, None]:
         for _ in range(batch_count):
             yield self.sample_batch(batch_size)
 
