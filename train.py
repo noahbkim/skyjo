@@ -286,8 +286,6 @@ def multiprocessed_learn(
                 f"{len(training_data_buffer) // training_config.training_batch_size + 1} batches in {training_time} seconds"
             )
 
-            if learn_config.validation_function is not None:
-                learn_config.validation_function(model)
     finally:
         predictor_process.terminate()
         for actor in selfplay_actors:
