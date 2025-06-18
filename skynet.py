@@ -656,9 +656,9 @@ class EquivariantSkyNet(nn.Module):
 
         self.global_state_embedder = nn.Sequential(
             nn.Linear(
-                in_features=self.embedding_dimensions
+                in_features=self.embedding_dimensions * self.players,
                 # + self.board_embedding_dimensions * self.players,
-                + self.embedding_dimensions * self.players,
+                # + self.embedding_dimensions,
                 out_features=self.global_state_embedding_dimensions,
             ),
             # nn.ReLU(inplace=True),
@@ -762,25 +762,13 @@ class EquivariantSkyNet(nn.Module):
 
         board_summaries = einops.reduce(
             column_summaries,
-            "(b p) w f -> (b p) f",
+            "(b p) w f -> b (p f)",
             reduction="sum",
             w=self.columns,
             p=self.players,
         )
 
-        global_state_embedding = self.global_state_embedder(
-            torch.cat(
-                (
-                    einops.rearrange(
-                        board_summaries,
-                        "(b p) f -> b (p f)",
-                        p=self.players,
-                    ),
-                    non_spatial_embeddings,
-                ),
-                dim=1,
-            )
-        )
+        global_state_embedding = self.global_state_embedder(board_summaries)
         value_out = self.value_tail(global_state_embedding)
         policy_out = self.policy_tail(
             einops.rearrange(

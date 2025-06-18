@@ -62,7 +62,7 @@ class ReplayBuffer:
         self.count = 0
 
     @classmethod
-    def from_config(cls, config: Config) -> "ReplayBuffer":
+    def from_config(cls, config: Config) -> typing.Self:
         return cls(
             config.max_size,
             config.spatial_input_shape,
@@ -74,7 +74,7 @@ class ReplayBuffer:
         )
 
     @classmethod
-    def load(cls, path: pathlib.Path) -> "ReplayBuffer":
+    def load(cls, path: pathlib.Path) -> typing.Self:
         with open(path, "rb") as f:
             return pickle.load(f)
 
@@ -118,9 +118,9 @@ class ReplayBuffer:
             ) in play.get_skyjo_symmetries(game_state, policy_target):
                 self.add(
                     symmetric_game_state,
-                    symmetric_policy_target,
                     outcome_target,
                     points_target,
+                    symmetric_policy_target,
                 )
 
     def sample_element(self) -> train_utils.TrainingDataPoint:

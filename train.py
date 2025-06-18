@@ -259,7 +259,7 @@ def multiprocessed_learn(
             while (
                 not selfplay_data_queue.empty()
                 or games_count - last_games_count
-                <= learn_config.minimum_games_per_iteration
+                < learn_config.minimum_games_per_iteration
             ):
                 game_data = selfplay_data_queue.get()
                 training_data_buffer.add_game_data(game_data)
