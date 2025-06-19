@@ -160,6 +160,7 @@ class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]
     points_output: np.ndarray[tuple[int], np.float32]
     policy_output: np.ndarray[tuple[int], np.float32]
+    policy_logits: np.ndarray[tuple[int], np.float32] | None = None
 
     @classmethod
     def from_skynet_output(
@@ -194,14 +195,22 @@ class SkyNetPrediction:
             value_output=value_numpy,
             points_output=points_numpy,
             policy_output=policy_probabilities_numpy,
+            policy_logits=policy_logits_numpy,
         )
 
     def __str__(self) -> str:
-        return f"{self.policy_output}\n{self.value_output}\n{self.points_output}"
+        return f"{self.value_output}\n{self.points_output}\n{self.policy_output}"
 
     def mask_and_renormalize(self, valid_actions_mask: np.ndarray[tuple[int], np.int8]):
         self.policy_output = mask_and_renormalize_policy_probabilities(
             self.policy_output, valid_actions_mask
+        )
+
+    def to_output(self) -> SkyNetOutput:
+        return (
+            torch.tensor(np.expand_dims(self.value_output, 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(self.points_output, 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(self.policy_logits, 0), dtype=torch.float32),
         )
 
 
@@ -656,17 +665,21 @@ class EquivariantSkyNet(nn.Module):
 
         self.global_state_embedder = nn.Sequential(
             nn.Linear(
-                in_features=self.embedding_dimensions * self.players,
+                in_features=self.embedding_dimensions * (self.players + 1),
                 # + self.board_embedding_dimensions * self.players,
-                # + self.embedding_dimensions,
+                # + self.embedding_dimensions * self.players,
                 out_features=self.global_state_embedding_dimensions,
             ),
-            # nn.ReLU(inplace=True),
-            # nn.Linear(
-            #     in_features=self.global_state_embedding_dimensions,
-            #     out_features=self.global_state_embedding_dimensions,
-            # ),
-            # nn.ReLU(inplace=True),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_features=self.global_state_embedding_dimensions,
+                out_features=self.global_state_embedding_dimensions,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_features=self.global_state_embedding_dimensions,
+                out_features=self.global_state_embedding_dimensions,
+            ),
         )
 
         # Tails
@@ -768,7 +781,15 @@ class EquivariantSkyNet(nn.Module):
             p=self.players,
         )
 
-        global_state_embedding = self.global_state_embedder(board_summaries)
+        global_state_embedding = self.global_state_embedder(
+            torch.cat(
+                (
+                    board_summaries,
+                    non_spatial_embeddings,
+                ),
+                dim=1,
+            )
+        )
         value_out = self.value_tail(global_state_embedding)
         policy_out = self.policy_tail(
             einops.rearrange(

@@ -74,7 +74,7 @@ def mse_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tenso
 def policy_value_losses(
     model_output: skynet.SkyNetOutput,
     targets: TrainingTargets,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     value_output, points_output, policy_output = model_output
     value_targets, points_targets, policy_targets = targets
     assert policy_output.shape == policy_targets.shape, (

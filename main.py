@@ -51,11 +51,13 @@ if __name__ == "__main__":
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
-        card_embedding_dimensions=8,
-        column_embedding_dimensions=16,
-        board_embedding_dimensions=32,
-        global_state_embedding_dimensions=64,
-        non_spatial_embedding_dimensions=16,
+        # card_embedding_dimensions=8,
+        # column_embedding_dimensions=16,
+        # board_embedding_dimensions=32,
+        # non_spatial_embedding_dimensions=16,
+        embedding_dimensions=16,
+        global_state_embedding_dimensions=32,
+        num_heads=2,
     )
     # model.load_state_dict(
     #     torch.load(
@@ -78,24 +80,26 @@ if __name__ == "__main__":
         model_callable=skynet.EquivariantSkyNet,
         players=2,
         model_kwargs={
-            "card_embedding_dimensions": 8,
-            "column_embedding_dimensions": 16,
-            "board_embedding_dimensions": 32,
-            "global_state_embedding_dimensions": 64,
-            "non_spatial_embedding_dimensions": 16,
+            # "card_embedding_dimensions": 8,
+            # "column_embedding_dimensions": 16,
+            # "board_embedding_dimensions": 32,
+            # "non_spatial_embedding_dimensions": 16,
+            "embedding_dimensions": 16,
+            "num_heads": 2,
+            "global_state_embedding_dimensions": 32,
         },
         device=device,
         models_dir=models_dir,
         initial_model=model,
     )
     training_config = train.TrainingEpochConfig(
-        training_batch_size=64,
+        training_batch_size=256,
         learning_rate=1e-3,
         loss_function=train_utils.base_policy_value_loss,
     )
     learn_config = train.MultiProcessedLearnConfig(
         iterations=1000,
-        training_epochs=1,
+        training_epochs=2,
         training_epoch_config=training_config,
         validation_function=lambda model: explain.validate_model(
             model, validation_batch
@@ -103,7 +107,7 @@ if __name__ == "__main__":
         validation_interval=1,
         update_model_interval=1,
         selfplay_processes=9,
-        minimum_games_per_iteration=1000,
+        minimum_games_per_iteration=100,
         torch_device=device,
     )
 
@@ -123,13 +127,13 @@ if __name__ == "__main__":
     )
     selfplay_config = play.Config(
         players=2,
-        action_softmax_temperature=1.0,
+        action_softmax_temperature=0.5,
         outcome_rollouts=100,
         mcts_config=mcts_config,
         start_position=None,
     )
     training_data_buffer_config = buffer.Config(
-        max_size=1_000_000,
+        max_size=100_000,
         spatial_input_shape=(
             selfplay_config.players,
             sj.ROW_COUNT,

@@ -92,7 +92,7 @@ class DecisionStateNode:
             f"Visit Count: {self.visit_count}\n"
             f"State Value: {self.state_value}\n"
             f"Is Expanded: {self.is_expanded}\n"
-            f"Children visit counts: {self.sample_child_visit_probabilities() * self.visit_count}\n"
+            f"Children visit counts: {self.sample_child_visit_probabilities() * sum(child.visit_count for child in self.children.values())}\n"
         )
 
     @property
@@ -292,7 +292,6 @@ class AfterStateNode:
                 )
                 child = self._create_child(next_state)
                 self.children[sj.hash_skyjo(next_state)] = child
-                child.preexpand()
                 # Child weight is the probability of that card being next
                 self.child_weights[sj.hash_skyjo(next_state)] = (
                     card_count / cards_remaining
@@ -414,6 +413,7 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue, virtual
             if node.all_children_discovered or sj.get_game_about_to_end(node.state):
                 # First backprop on afterstate node so correct state value already set
                 if prev_node is None:
+                    node.visit_count += 1
                     continue
                 prev_node_state_hash = sj.hash_skyjo(prev_node.state)
                 node.state_value_total += (
@@ -728,3 +728,21 @@ if __name__ == "__main__":
         max_parallel_threads=100,
     )
     print(root_node)
+
+# MARK: Debugging
+
+
+def visualize_children(node: MCTSNode):
+    assert not isinstance(node, TerminalStateNode), (
+        "Terminal state nodes have no children"
+    )
+    if isinstance(node, DecisionStateNode):
+        for action, child in node.children.items():
+            print(sj.get_action_name(action))
+            print(ucb_score(child, node))
+            print(child)
+    elif isinstance(node, AfterStateNode):
+        for hash_state, child in node.children.items():
+            print(child)
+    else:
+        raise ValueError(f"Unknown node type: {type(node)}")

@@ -164,14 +164,41 @@ def create_obvious_clear_position() -> sj.Skyjo:
     return game_state
 
 
-def create_random_clear_starting_position() -> sj.Skyjo:
-    random_starting_card = np.random.randint(0, sj.CARD_SIZE)
-    next_random_card = np.random.randint(0, sj.CARD_SIZE)
-    game_state = create_initial_same_column_flip_game_state(
-        player1_initial_flips=(random_starting_card, random_starting_card),
-        player2_initial_flips=(next_random_card, next_random_card),
-        top_card=random_starting_card,
+def create_almost_clear_position() -> sj.Skyjo:
+    """Creates a position where the current player can replace a card with a higher value card."""
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P10, sj.CARD_P11),
+        player2_initial_flips=(sj.CARD_P11, sj.CARD_P12),
+        top_card=sj.CARD_P11,
     )
+    game_state = sj.preordain(game_state, sj.CARD_P10)
+    game_state = sj.flip(game_state, 1, 0)
+    game_state = sj.preordain(game_state, sj.CARD_P11)
+    game_state = sj.flip(game_state, 1, 0)
+
+    # game_state = sj.preordain(game_state, sj.CARD_P10)
+    # game_state = sj.apply_action(game_state, sj.MASK_DRAW)
+    return game_state
+
+
+def create_almost_clear_draw_low_position() -> sj.Skyjo:
+    game_state = create_almost_clear_position()
+    return sj.draw(sj.preordain(game_state, sj.CARD_P1))
+
+
+def create_random_clear_starting_position() -> sj.Skyjo:
+    random_starting_cards = np.random.randint(0, sj.CARD_SIZE, size=5)
+    game_state = create_initial_same_column_flip_game_state(
+        player1_initial_flips=(random_starting_cards[0], random_starting_cards[1]),
+        player2_initial_flips=(random_starting_cards[2], random_starting_cards[3]),
+        top_card=random_starting_cards[4],
+    )
+    for i in range(5, 5 + np.random.randint(5)):
+        row, col = divmod(i, 4)
+        game_state = sj.preordain(game_state, np.random.randint(0, sj.CARD_SIZE))
+        game_state = sj.flip(game_state, row, col)
+        game_state = sj.preordain(game_state, np.random.randint(0, sj.CARD_SIZE))
+        game_state = sj.flip(game_state, row, col)
     return game_state
 
 
@@ -190,102 +217,148 @@ def create_close_end_game_position() -> sj.Skyjo:
     return game_state
 
 
+# MARK: Targets
+
+
+def almost_surely_winning_position_targets():
+    value_target = np.array([1.0, 0.0], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_TAKE] = 1.0
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def almost_surely_winning_take_position_targets():
+    value_target = np.array([1.0, 0.0], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 11] = 1.0
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def almost_surely_losing_position_targets():
+    value_target = np.array([0.0, 1.0], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_DRAW] = 1.0
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def obvious_clear_position_targets():
+    value_target = np.array([0.8, 0.2], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_TAKE] = 1.0
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def obvious_clear_take_position_targets():
+    value_target = np.array([0.8, 0.2], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 8] = 1.0
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def almost_clear_position_targets():
+    value_target = np.array([0.55, 0.45], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_DRAW] = 1.0
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def almost_clear_draw_low_position_targets():
+    value_target = np.array([0.6, 0.4], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 3] = 0.33
+    policy_target[sj.MASK_REPLACE + 4] = 0.33
+    policy_target[sj.MASK_REPLACE + 5] = 0.34
+    points_target = None
+    return value_target, points_target, policy_target
+
+
 # MARK: Evaluation
 
-
-def evaluate_almost_surely_winning_position(model: skynet.SkyNet):
-    logging.info("Evaluating almost surely winning position")
-    model.eval()
-    with torch.no_grad():
-        model_output = model.predict(create_almost_surely_winning_position())
-        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-        logging.info(f"{model_output.value_output}")
-        logging.info(f"{model_output.policy_output}")
-        logging.info(f"{model_output.points_output}")
-    return model_output
-
-
-def evaluate_almost_surely_losing_position(model: skynet.SkyNet):
-    logging.info("Evaluating almost surely losing position")
-    model.eval()
-    with torch.no_grad():
-        model_output = model.predict(create_almost_surely_losing_position())
-        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-        logging.info(f"{model_output.value_output}")
-        logging.info(f"{model_output.policy_output}")
-        logging.info(f"{model_output.points_output}")
-    return model_output
-
-
-def evaluate_almost_surely_winning_position_after_draw(model: skynet.SkyNet):
-    logging.info("Evaluating almost surely winning position after draw")
-    model.eval()
-    game_state = create_almost_surely_winning_position()
-    game_state = sj.apply_action(game_state, sj.MASK_DRAW)
-    with torch.no_grad():
-        model_output = model.predict(game_state)
-        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-        logging.info(f"drawn card: {sj.get_top(game_state)}")
-        logging.info(f"{model_output.value_output}")
-        logging.info(f"{model_output.policy_output}")
-        logging.info(f"{model_output.points_output}")
-    return model_output
-
-
-def evaluate_almost_surely_winning_position_after_take(model: skynet.SkyNet):
-    logging.info("Evaluating almost surely winning position after take")
-    model.eval()
-    game_state = create_almost_surely_winning_position()
-    game_state = sj.apply_action(game_state, sj.MASK_TAKE)
-    with torch.no_grad():
-        model_output = model.predict(game_state)
-        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-        logging.info(f"{model_output.value_output}")
-        logging.info(f"{model_output.policy_output}")
-        logging.info(f"{model_output.points_output}")
-    return model_output
+VALIDATION_EXAMPLES = [
+    (
+        "almost surely winning position",
+        create_almost_surely_winning_position(),
+        almost_surely_winning_position_targets(),
+    ),
+    (
+        "almost surely winning after take",
+        sj.apply_action(create_almost_surely_winning_position(), sj.MASK_TAKE),
+        almost_surely_winning_take_position_targets(),
+    ),
+    (
+        "almost surely losing position",
+        create_almost_surely_losing_position(),
+        almost_surely_losing_position_targets(),
+    ),
+    (
+        "obvious clear position",
+        create_obvious_clear_position(),
+        obvious_clear_position_targets(),
+    ),
+    (
+        "obvious clear take position",
+        sj.apply_action(create_obvious_clear_position(), sj.MASK_TAKE),
+        obvious_clear_take_position_targets(),
+    ),
+    (
+        "almost clear position",
+        create_almost_clear_position(),
+        almost_clear_position_targets(),
+    ),
+    (
+        "leave clear option open",
+        create_almost_clear_draw_low_position(),
+        almost_clear_draw_low_position_targets(),
+    ),
+]
 
 
-def evaluate_almost_surely_losing_position_after_draw(model: skynet.SkyNet):
-    logging.info("Evaluating almost surely losing position after draw")
-    model.eval()
-    game_state = create_almost_surely_losing_position()
-    game_state = sj.apply_action(game_state, sj.MASK_DRAW)
-    with torch.no_grad():
-        model_output = model.predict(game_state)
-        logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-        logging.info(f"drawn card: {sj.get_top(game_state)}")
-        logging.info(f"{model_output.value_output}")
-        logging.info(f"{model_output.policy_output}")
-        logging.info(f"{model_output.points_output}")
-    return model_output
+def validate_model_on_validation_examples(
+    model: skynet.SkyNet,
+):
+    game_data = []
+    for description, game_state, targets in VALIDATION_EXAMPLES:
+        game_data.append(
+            (
+                game_state,
+                targets[0],
+                targets[1],
+                targets[2],
+            )
+        )
+    value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
+        model, game_data, train_utils.policy_value_losses
+    )
+    logging.info("VALIDATION SET LOSS")
+    logging.info(f"value loss: {value_loss.item()}")
+    logging.info(f"policy loss: {policy_loss.item()}")
 
-
-def evaluate_obvious_clear_position(model: skynet.SkyNet):
-    logging.info("Evaluating obvious clear position")
-    model.eval()
-    game_state = create_obvious_clear_position()
-    with torch.no_grad():
-        model_output = model.predict(game_state)
-        take_model_output = model.predict(sj.apply_action(game_state, sj.MASK_TAKE))
-    logging.debug(f"MODEL_EVALUATION:\n{model_output}")
-    logging.info(f"{model_output.value_output}")
-    logging.info(f"{model_output.policy_output}")
-    logging.info(f"{model_output.points_output}")
-    logging.info("Evaluating obvious clear position after take")
-    logging.debug(f"MODEL_EVALUATION:\n{take_model_output}")
-    logging.info(f"{take_model_output.value_output}")
-    logging.info(f"{take_model_output.policy_output}")
-    logging.info(f"{take_model_output.points_output}")
-    return model_output
-
-
-def validate_model_on_known_positions(model: skynet.SkyNet):
-    _ = evaluate_almost_surely_winning_position(model)
-    _ = evaluate_almost_surely_losing_position(model)
-    _ = evaluate_almost_surely_winning_position_after_take(model)
-    _ = evaluate_almost_surely_losing_position_after_draw(model)
-    _ = evaluate_obvious_clear_position(model)
+    logging.info("INDIVIDUAL EXAMPLES")
+    for description, game_state, targets in VALIDATION_EXAMPLES:
+        model_prediction = model.predict(game_state)
+        tensor_targets = (
+            torch.tensor(np.expand_dims(targets[0], 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(targets[1], 0), dtype=torch.float32)
+            if targets[1] is not None
+            else None,
+            torch.tensor(np.expand_dims(targets[2], 0), dtype=torch.float32),
+        )
+        value_loss, policy_loss = train_utils.policy_value_losses(
+            model_prediction.to_output(), tensor_targets
+        )
+        logging.info(f"validation example: {description}")
+        logging.info(f"value loss: {value_loss.item()}")
+        logging.info(f"policy loss: {policy_loss.item()}")
+        logging.info(f"model prediction:\n{model_prediction}")
+        logging.info(f"value target: {targets[0]}")
+        logging.info(f"points target: {targets[1]}")
+        logging.info(f"policy target:\n{targets[2]}")
 
 
 def validate_model_with_games_data(
@@ -340,7 +413,7 @@ def validate_model(
     model: skynet.SkyNet,
     validation_batch: train_utils.TrainingBatch | None = None,
 ):
-    validate_model_on_known_positions(model)
+    validate_model_on_validation_examples(model)
     if validation_batch is not None:
         validate_model_with_games_data(model, validation_batch)
 
@@ -359,7 +432,7 @@ if __name__ == "__main__":
     )
     saved_model_path = pathlib.Path("./models/model_20250423_141907.pth")
     model.load_state_dict(torch.load(saved_model_path, weights_only=True))
-    validate_model_on_known_positions(model)
+    validate_model_on_validation_examples(model)
     # node = mcts.run_mcts(
     #     create_almost_surely_losing_position(),
     #     model,
