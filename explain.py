@@ -187,18 +187,44 @@ def create_almost_clear_draw_low_position() -> sj.Skyjo:
 
 
 def create_random_clear_starting_position() -> sj.Skyjo:
-    random_starting_cards = np.random.randint(0, sj.CARD_SIZE, size=5)
+    random_starting_card = np.random.randint(0, sj.CARD_SIZE)
+    second_random_starting_card = np.random.randint(0, sj.CARD_SIZE)
     game_state = create_initial_same_column_flip_game_state(
-        player1_initial_flips=(random_starting_cards[0], random_starting_cards[1]),
-        player2_initial_flips=(random_starting_cards[2], random_starting_cards[3]),
-        top_card=random_starting_cards[4],
+        player1_initial_flips=(random_starting_card, random_starting_card),
+        player2_initial_flips=(
+            second_random_starting_card,
+            second_random_starting_card,
+        ),
+        top_card=random_starting_card,
     )
-    for i in range(5, 5 + np.random.randint(5)):
-        row, col = divmod(i, 4)
-        game_state = sj.preordain(game_state, np.random.randint(0, sj.CARD_SIZE))
-        game_state = sj.flip(game_state, row, col)
-        game_state = sj.preordain(game_state, np.random.randint(0, sj.CARD_SIZE))
-        game_state = sj.flip(game_state, row, col)
+    for i in np.random.choice(12, size=np.random.randint(5), replace=False):
+        if i not in [0, 4]:
+            row, col = divmod(i, 4)
+            game_state = sj.randomize(game_state)
+            game_state = sj.flip(game_state, row, col)
+            game_state = sj.randomize(game_state)
+            game_state = sj.flip(game_state, row, col)
+    return game_state
+
+
+def create_random_almost_clear_position() -> sj.Skyjo:
+    random_starting_card = np.random.randint(0, sj.CARD_SIZE)
+    second_random_starting_card = np.random.randint(0, sj.CARD_SIZE)
+    game_state = create_initial_same_column_flip_game_state(
+        player1_initial_flips=(random_starting_card, random_starting_card),
+        player2_initial_flips=(
+            second_random_starting_card,
+            second_random_starting_card,
+        ),
+        top_card=np.random.randint(0, sj.CARD_SIZE),
+    )
+    for i in np.random.choice(12, size=np.random.randint(5), replace=False):
+        if i not in [0, 4]:
+            row, col = divmod(i, 4)
+            game_state = sj.randomize(game_state)
+            game_state = sj.flip(game_state, row, col)
+            game_state = sj.randomize(game_state)
+            game_state = sj.flip(game_state, row, col)
     return game_state
 
 
@@ -271,9 +297,7 @@ def almost_clear_position_targets():
 def almost_clear_draw_low_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
-    policy_target[sj.MASK_REPLACE + 3] = 0.33
-    policy_target[sj.MASK_REPLACE + 4] = 0.33
-    policy_target[sj.MASK_REPLACE + 5] = 0.34
+    policy_target[sj.MASK_REPLACE + 2] = 1
     points_target = None
     return value_target, points_target, policy_target
 

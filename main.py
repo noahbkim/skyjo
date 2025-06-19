@@ -11,9 +11,18 @@ import model_factory
 import parallel_mcts
 import play
 import predictor
+import skyjo as sj
 import skynet
 import train
 import train_utils
+
+
+def create_obvious_clear_or_almost_clear_position() -> sj.Skyjo:
+    if np.random.random() < 0.5:
+        return explain.create_obvious_clear_position()
+    else:
+        return explain.create_almost_clear_position()
+
 
 if __name__ == "__main__":
     import datetime
@@ -118,10 +127,10 @@ if __name__ == "__main__":
         max_wait_seconds=0.1,
     )
     mcts_config = parallel_mcts.Config(
-        iterations=100,
+        iterations=1600,
         after_state_evaluate_all_children=False,
         virtual_loss=0.5,
-        batched_leaf_count=4,
+        batched_leaf_count=32,
         terminal_state_rollouts=100,
         dirichlet_epsilon=0.25,
     )
@@ -130,7 +139,6 @@ if __name__ == "__main__":
         action_softmax_temperature=0.5,
         outcome_rollouts=100,
         mcts_config=mcts_config,
-        start_position=None,
     )
     training_data_buffer_config = buffer.Config(
         max_size=100_000,
@@ -153,5 +161,6 @@ if __name__ == "__main__":
         predictor_config,
         training_data_buffer_config,
         selfplay_config,
+        create_obvious_clear_or_almost_clear_position,
         debug,
     )

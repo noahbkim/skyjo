@@ -18,6 +18,7 @@ import model_factory
 import parallel_mcts
 import play
 import predictor
+import skyjo as sj
 import skynet
 import train_utils
 
@@ -159,6 +160,7 @@ def multiprocessed_learn(
     predictor_config: predictor.Config,
     training_data_buffer_config: buffer.Config,
     selfplay_config: play.Config,
+    start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
     debug: bool = False,
 ):
     """Runs a distributed training loop.
@@ -173,7 +175,12 @@ def multiprocessed_learn(
     - Terminates the actors and predictor process
     - Joins the actors and predictor process
     """
-
+    logging.info(f"learning config: {learn_config}")
+    logging.info(f"training config: {training_config}")
+    logging.info(f"predictor config: {predictor_config}")
+    logging.info(f"training data buffer config: {training_data_buffer_config}")
+    logging.info(f"selfplay config: {selfplay_config}")
+    logging.info(f"Using start position generator: {start_position_generator}")
     try:
         # Predictor setup
         predictor_model_update_queue = mp.Queue()
@@ -216,6 +223,7 @@ def multiprocessed_learn(
                 selfplay_data_queue,
                 id=i,
                 config=selfplay_config,
+                start_position_generator=start_position_generator,
                 debug=debug,
             )
             for i in range(learn_config.selfplay_processes)

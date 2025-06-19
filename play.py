@@ -27,7 +27,6 @@ class Config:
     action_softmax_temperature: float
     outcome_rollouts: int
     mcts_config: parallel_mcts.Config
-    start_position: sj.Skyjo | None
 
 
 # MARK: Types
@@ -133,7 +132,7 @@ def simulate_game_end(
 
 
 def game_history_to_game_data(
-    game_data: GameHistory,
+    game_history: GameHistory,
     terminal_rollouts: int = 1,
 ) -> GameData:
     """Converts game data to training data.
@@ -151,14 +150,14 @@ def game_history_to_game_data(
         A list of training data points.
     """
     training_data = []
-    penultimate_state, penultimate_action = game_data[-2][0], game_data[-2][1]
+    penultimate_state, penultimate_action = game_history[-2][0], game_history[-2][1]
     outcome_state_value, fixed_perspective_score = simulate_game_end(
         penultimate_state, penultimate_action, terminal_rollouts
     )
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
     # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
-    for game_state, action, mcts_probs in game_data[:-1]:
+    for game_state, action, mcts_probs in game_history[:-1]:
         training_data.append(
             (
                 game_state,  # game
@@ -322,7 +321,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         mcts_config: parallel_mcts.Config,
         action_softmax_temperature: float = 1.0,
         outcome_rollouts: int = 1,
-        start_position: sj.Skyjo | None = None,
+        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
         debug: bool = False,
     ):
         super().__init__(id, debug)
@@ -332,7 +331,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         self.mcts_config = mcts_config
         self.action_softmax_temperature = action_softmax_temperature
         self.outcome_rollouts = outcome_rollouts
-        self.start_position = start_position
+        self.start_position_generator = start_position_generator
         self.debug = debug
         self.id = id
         self.count = 0
@@ -344,6 +343,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         selfplay_data_queue: mp.Queue,
         id: int,
         config: Config,
+        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
         debug: bool = False,
     ):
         return cls(
@@ -354,7 +354,7 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
             config.mcts_config,
             config.action_softmax_temperature,
             config.outcome_rollouts,
-            config.start_position,
+            start_position_generator,
             debug,
         )
 
@@ -369,7 +369,11 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
             action_softmax_temperature=self.action_softmax_temperature,
             outcome_rollouts=self.outcome_rollouts,
             debug=self.debug,
-            start_position=self.start_position,
+            start_position=(
+                self.start_position_generator()
+                if self.start_position_generator is not None
+                else None
+            ),
         )
 
 
