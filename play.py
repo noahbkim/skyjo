@@ -12,6 +12,7 @@ import typing
 
 import numpy as np
 
+import mcts
 import parallel_mcts
 import player
 import predictor
@@ -186,10 +187,31 @@ def print_game_history(
 # MARK: Selfplay
 
 
-def model_selfplay(
+def batched_model_selfplay(
     predictor_client: predictor.PredictorClient,
     players: int,
     mcts_config: parallel_mcts.Config,
+    action_softmax_temperature: float = 1.0,
+    outcome_rollouts: int = 1,
+    start_position: sj.Skyjo | None = None,
+    debug: bool = False,
+) -> GameData:
+    game_players = [
+        player.BatchedModelPlayer.from_mcts_config(
+            predictor_client,
+            action_softmax_temperature,
+            mcts_config,
+        )
+        for _ in range(players)
+    ]
+    game_data = play(game_players, debug, start_position)
+    return game_history_to_game_data(game_data, outcome_rollouts)
+
+
+def model_selfplay(
+    predictor_client: predictor.PredictorClient,
+    players: int,
+    mcts_config: mcts.Config,
     action_softmax_temperature: float = 1.0,
     outcome_rollouts: int = 1,
     start_position: sj.Skyjo | None = None,
@@ -200,6 +222,29 @@ def model_selfplay(
             predictor_client,
             action_softmax_temperature,
             mcts_config,
+        )
+        for _ in range(players)
+    ]
+    game_data = play(game_players, debug, start_position)
+    return game_history_to_game_data(game_data, outcome_rollouts)
+
+
+def capped_model_selfplay(
+    predictor_client: predictor.PredictorClient,
+    players: int,
+    fast_mcts_config: mcts.Config,
+    full_mcts_config: mcts.Config,
+    action_softmax_temperature: float = 1.0,
+    outcome_rollouts: int = 1,
+    start_position: sj.Skyjo | None = None,
+    debug: bool = False,
+) -> GameData:
+    game_players = [
+        player.CappedModelPlayer.from_mcts_configs(
+            predictor_client,
+            action_softmax_temperature,
+            fast_mcts_config,
+            full_mcts_config,
         )
         for _ in range(players)
     ]
@@ -311,7 +356,7 @@ class TrainingDataGenerator(mp.Process):
             self.add_game_data(episode_data)
 
 
-class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
+class BatchedSelfplayGenerator(TrainingDataGenerator):
     def __init__(
         self,
         predictor_client: predictor.PredictorClient,
@@ -319,6 +364,72 @@ class MultiProcessedSelfplayGenerator(TrainingDataGenerator):
         id: int,
         players: int,
         mcts_config: parallel_mcts.Config,
+        action_softmax_temperature: float = 1.0,
+        outcome_rollouts: int = 1,
+        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
+        debug: bool = False,
+    ):
+        super().__init__(id, debug)
+        self.predictor_client = predictor_client
+        self.selfplay_data_queue = selfplay_data_queue
+        self.players = players
+        self.mcts_config = mcts_config
+        self.action_softmax_temperature = action_softmax_temperature
+        self.outcome_rollouts = outcome_rollouts
+        self.start_position_generator = start_position_generator
+        self.debug = debug
+        self.id = id
+        self.count = 0
+
+    @classmethod
+    def from_config(
+        cls,
+        predictor_client: predictor.PredictorClient,
+        selfplay_data_queue: mp.Queue,
+        id: int,
+        config: Config,
+        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
+        debug: bool = False,
+    ):
+        return cls(
+            predictor_client,
+            selfplay_data_queue,
+            id,
+            config.players,
+            config.mcts_config,
+            config.action_softmax_temperature,
+            config.outcome_rollouts,
+            start_position_generator,
+            debug,
+        )
+
+    def add_game_data(self, game_data: GameData):
+        self.selfplay_data_queue.put(game_data)
+
+    def run_episode(self):
+        return batched_model_selfplay(
+            self.predictor_client,
+            players=self.players,
+            mcts_config=self.mcts_config,
+            action_softmax_temperature=self.action_softmax_temperature,
+            outcome_rollouts=self.outcome_rollouts,
+            debug=self.debug,
+            start_position=(
+                self.start_position_generator()
+                if self.start_position_generator is not None
+                else None
+            ),
+        )
+
+
+class SelfplayGenerator(TrainingDataGenerator):
+    def __init__(
+        self,
+        predictor_client: predictor.PredictorClient,
+        selfplay_data_queue: mp.Queue,
+        id: int,
+        players: int,
+        mcts_config: mcts.Config,
         action_softmax_temperature: float = 1.0,
         outcome_rollouts: int = 1,
         start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
@@ -382,26 +493,31 @@ if __name__ == "__main__":
 
     import player
 
-    device = torch.device("mps")
+    device = torch.device("cpu")
     model = skynet.EquivariantSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
-        card_embedding_dimensions=8,
-        column_embedding_dimensions=16,
-        board_embedding_dimensions=32,
-        global_state_embedding_dimensions=64,
-        non_spatial_embedding_dimensions=16,
+        embedding_dimensions=16,
+        global_state_embedding_dimensions=32,
+        num_heads=2,
     )
+    saved_model_path = pathlib.Path(
+        "models/distributed/20250620_101923/model_20250621_215207.pth"
+    )
+    model.load_state_dict(torch.load(saved_model_path, weights_only=True))
+    model.eval()
+    model.to(device)
     trained_predictor_client = predictor.NaivePredictorClient(
         model, max_batch_size=4096
     )
     while True:
         data = play(
             [
-                player.ModelPlayer(trained_predictor_client, 1.0, 400, 1, 0.5, 64),
-                player.ModelPlayer(trained_predictor_client, 1.0, 400, 1, 0.5, 64),
+                player.ModelPlayer(trained_predictor_client, 1.0, 400, 0.25, True, 25),
+                player.ModelPlayer(trained_predictor_client, 1.0, 400, 0.25, True, 25),
             ]
         )
+        print("game done")

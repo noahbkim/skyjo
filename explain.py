@@ -24,7 +24,7 @@ def create_initial_seperate_column_flip_game_state(
     assert len(player2_initial_flips) == 2, (
         f"Please specify exactly two cards to be initially flipped for player 2, got {player2_initial_flips}"
     )
-    game_state = sj.new(players=2)
+    game_state = sj.new(players=2, top=top_card)
     game_state = sj.preordain(game_state, player1_initial_flips[0])
     game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
     game_state = sj.preordain(game_state, player2_initial_flips[0])
@@ -33,7 +33,6 @@ def create_initial_seperate_column_flip_game_state(
     game_state = sj.flip(game_state, 0, 1, set_draw_or_take_action=False)
     game_state = sj.preordain(game_state, player2_initial_flips[1])
     game_state = sj.flip(game_state, 0, 1, set_draw_or_take_action=False)
-    game_state = sj.preordain(game_state, top_card)
     game_state = sj.begin(game_state)
     return game_state
 
@@ -50,7 +49,7 @@ def create_initial_same_column_flip_game_state(
     assert len(player2_initial_flips) == 2, (
         f"Please specify exactly two cards to be initially flipped for player 2, got {player2_initial_flips}"
     )
-    game_state = sj.new(players=2)
+    game_state = sj.new(players=2, top=top_card)
     game_state = sj.preordain(game_state, player1_initial_flips[0])
     game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
     game_state = sj.preordain(game_state, player2_initial_flips[0])
@@ -59,7 +58,6 @@ def create_initial_same_column_flip_game_state(
     game_state = sj.flip(game_state, 1, 0, set_draw_or_take_action=False)
     game_state = sj.preordain(game_state, player2_initial_flips[1])
     game_state = sj.flip(game_state, 1, 0, set_draw_or_take_action=False)
-    game_state = sj.preordain(game_state, top_card)
     game_state = sj.begin(game_state)
     return game_state
 
@@ -243,6 +241,37 @@ def create_close_end_game_position() -> sj.Skyjo:
     return game_state
 
 
+def create_early_flip_position() -> sj.Skyjo:
+    game_state = create_initial_seperate_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P12, sj.CARD_P11),
+        player2_initial_flips=(sj.CARD_P5, sj.CARD_P5),
+        top_card=sj.CARD_P8,
+    )
+    game_state = sj.preordain(game_state, sj.CARD_P10)
+    game_state = sj.draw(game_state)
+    return game_state
+
+
+def create_negative_clear_position() -> sj.Skyjo:
+    game_state = create_initial_same_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_N2, sj.CARD_N2),
+        player2_initial_flips=(sj.CARD_N1, sj.CARD_N1),
+        top_card=sj.CARD_N2,
+    )
+    game_state = sj.preordain(game_state, sj.CARD_P8)
+    game_state = sj.flip(game_state, 0, 1)
+
+    game_state = sj.preordain(game_state, sj.CARD_P9)
+    game_state = sj.flip(game_state, 0, 1)
+    return game_state
+
+
+def create_negative_clear_take_position() -> sj.Skyjo:
+    game_state = create_negative_clear_position()
+    game_state = sj.apply_action(game_state, sj.MASK_TAKE)
+    return game_state
+
+
 # MARK: Targets
 
 
@@ -271,7 +300,7 @@ def almost_surely_losing_position_targets():
 
 
 def obvious_clear_position_targets():
-    value_target = np.array([0.8, 0.2], dtype=np.float32)
+    value_target = np.array([0.7, 0.3], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
     points_target = None
@@ -279,7 +308,7 @@ def obvious_clear_position_targets():
 
 
 def obvious_clear_take_position_targets():
-    value_target = np.array([0.8, 0.2], dtype=np.float32)
+    value_target = np.array([0.7, 0.3], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 8] = 1.0
     points_target = None
@@ -297,7 +326,31 @@ def almost_clear_position_targets():
 def almost_clear_draw_low_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
-    policy_target[sj.MASK_REPLACE + 2] = 1
+    policy_target[sj.MASK_REPLACE + 1] = 1
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def early_flip_position_targets():
+    value_target = np.array([0.3, 0.7], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_FLIP + 2 : sj.MASK_FLIP + 12] = 1 / 10
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def negative_clear_position_targets():
+    value_target = np.array([0.6, 0.4], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_TAKE] = 1
+    points_target = None
+    return value_target, points_target, policy_target
+
+
+def negative_clear_take_position_targets():
+    value_target = np.array([0.6, 0.4], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 1] = 1
     points_target = None
     return value_target, points_target, policy_target
 
@@ -321,6 +374,11 @@ VALIDATION_EXAMPLES = [
         almost_surely_losing_position_targets(),
     ),
     (
+        "early flip position",
+        create_early_flip_position(),
+        early_flip_position_targets(),
+    ),
+    (
         "obvious clear position",
         create_obvious_clear_position(),
         obvious_clear_position_targets(),
@@ -339,6 +397,16 @@ VALIDATION_EXAMPLES = [
         "leave clear option open",
         create_almost_clear_draw_low_position(),
         almost_clear_draw_low_position_targets(),
+    ),
+    (
+        "negative clear position",
+        create_negative_clear_position(),
+        negative_clear_position_targets(),
+    ),
+    (
+        "negative clear take position",
+        create_negative_clear_take_position(),
+        negative_clear_take_position_targets(),
     ),
 ]
 
