@@ -155,6 +155,16 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     return value_output.numpy(), points_output.numpy(), policy_output.numpy()
 
 
+def numpy_to_tensors(
+    *numpy_arrays: np.ndarray[tuple[int, ...], np.float32],
+    device: torch.device = torch.device("cpu"),
+    dtype: torch.dtype = torch.float32,
+) -> tuple[torch.Tensor, ...]:
+    return tuple(
+        torch.tensor(array, dtype=dtype, device=device) for array in numpy_arrays
+    )
+
+
 @dataclasses.dataclass(slots=True)
 class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]

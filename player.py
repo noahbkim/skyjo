@@ -3,10 +3,12 @@ Module for Skyjo players.
 """
 
 import abc
+import dataclasses
 
 import numpy as np
 import torch
 
+import config
 import mcts
 import parallel_mcts
 import predictor
@@ -266,7 +268,7 @@ class CappedModelPlayer(AbstractPlayer):
 
     def __init__(
         self,
-        predictor_client: predictor.PredictorClient,
+        predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         full_search_rate: float,
         fast_mcts_iterations: int,
@@ -297,7 +299,7 @@ class CappedModelPlayer(AbstractPlayer):
     @classmethod
     def from_mcts_configs(
         cls,
-        predictor_client: predictor.PredictorClient,
+        predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         full_search_rate: float,
         fast_mcts_config: mcts.Config,
@@ -341,12 +343,21 @@ class CappedModelPlayer(AbstractPlayer):
         return root.sample_child_visit_probabilities(self.action_softmax_temperature)
 
 
+@dataclasses.dataclass(slots=True)
+class ModelPlayerConfig(config.Config):
+    action_softmax_temperature: float
+    mcts_iterations: int
+    dirichlet_epsilon: float
+    after_state_evaluate_all_children: bool
+    terminal_state_rollouts: int
+
+
 class ModelPlayer(AbstractPlayer):
     """Player that uses MCTS with specified model and parameters."""
 
     def __init__(
         self,
-        predictor_client: predictor.PredictorClient,
+        predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         mcts_iterations: int,
         dirichlet_epsilon: float,
@@ -363,7 +374,7 @@ class ModelPlayer(AbstractPlayer):
     @classmethod
     def from_mcts_config(
         cls,
-        predictor_client: predictor.PredictorClient,
+        predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         mcts_config: mcts.Config,
     ):
@@ -395,7 +406,7 @@ class BatchedModelPlayer(AbstractPlayer):
 
     def __init__(
         self,
-        predictor_client: predictor.PredictorClient,
+        predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         mcts_iterations: int,
         batched_leaf_count: int,
@@ -416,7 +427,7 @@ class BatchedModelPlayer(AbstractPlayer):
     @classmethod
     def from_mcts_config(
         cls,
-        predictor_client: predictor.PredictorClient,
+        predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         mcts_config: parallel_mcts.Config,
     ):

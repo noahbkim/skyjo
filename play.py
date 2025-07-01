@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import abc
 import dataclasses
 import datetime
 import itertools
@@ -23,11 +24,11 @@ import skynet
 
 
 @dataclasses.dataclass(slots=True)
-class Config:
+class ModelMCTSSelfplayConfig:
     players: int
     action_softmax_temperature: float
     outcome_rollouts: int
-    mcts_config: parallel_mcts.Config
+    mcts_config: parallel_mcts.Config | mcts.Config
 
 
 # MARK: Types
@@ -45,18 +46,19 @@ GameData: typing.TypeAlias = list[
         np.ndarray[tuple[int], np.float32],  # outcome target
         np.ndarray[tuple[int], np.float32],  # points target
         np.ndarray[tuple[int], np.float32],  # policy target
+        sj.SkyjoAction,  # realized action
     ]
 ]
 
 
 # MARK: Symmetry
+# NOTE: NOT CURRENTLY NOT USED
 
 
 COLUMN_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.COLUMN_COUNT)))
 ROW_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.ROW_COUNT)))
 
 
-# NOTE: These are not currently used.
 def get_symmetry_policy(
     original_policy: np.ndarray[tuple[int], np.float32],
     new_column_order: tuple[int, ...],
@@ -116,6 +118,9 @@ def get_skyjo_symmetries(
     return symmetries
 
 
+# MARK: Helpers
+
+
 def simulate_game_end(
     penultimate_state: sj.Skyjo,
     last_action: sj.SkyjoAction,
@@ -170,6 +175,7 @@ def game_history_to_game_data(
                     -sj.get_player(game_state),
                 ),  # points target
                 mcts_probs,  # policy target
+                action,  # realized action
             )
         )
     return training_data
@@ -187,85 +193,11 @@ def print_game_history(
 # MARK: Selfplay
 
 
-def batched_model_selfplay(
-    predictor_client: predictor.PredictorClient,
-    players: int,
-    mcts_config: parallel_mcts.Config,
-    action_softmax_temperature: float = 1.0,
-    outcome_rollouts: int = 1,
-    start_position: sj.Skyjo | None = None,
-    debug: bool = False,
-) -> GameData:
-    game_players = [
-        player.BatchedModelPlayer.from_mcts_config(
-            predictor_client,
-            action_softmax_temperature,
-            mcts_config,
-        )
-        for _ in range(players)
-    ]
-    game_data = play(game_players, debug, start_position)
-    return game_history_to_game_data(game_data, outcome_rollouts)
-
-
-def model_selfplay(
-    predictor_client: predictor.PredictorClient,
-    players: int,
-    mcts_config: mcts.Config,
-    action_softmax_temperature: float = 1.0,
-    outcome_rollouts: int = 1,
-    start_position: sj.Skyjo | None = None,
-    debug: bool = False,
-) -> GameData:
-    game_players = [
-        player.ModelPlayer.from_mcts_config(
-            predictor_client,
-            action_softmax_temperature,
-            mcts_config,
-        )
-        for _ in range(players)
-    ]
-    game_data = play(game_players, debug, start_position)
-    return game_history_to_game_data(game_data, outcome_rollouts)
-
-
-def capped_model_selfplay(
-    predictor_client: predictor.PredictorClient,
-    players: int,
-    fast_mcts_config: mcts.Config,
-    full_mcts_config: mcts.Config,
-    action_softmax_temperature: float = 1.0,
-    outcome_rollouts: int = 1,
-    start_position: sj.Skyjo | None = None,
-    debug: bool = False,
-) -> GameData:
-    game_players = [
-        player.CappedModelPlayer.from_mcts_configs(
-            predictor_client,
-            action_softmax_temperature,
-            fast_mcts_config,
-            full_mcts_config,
-        )
-        for _ in range(players)
-    ]
-    game_data = play(game_players, debug, start_position)
-    return game_history_to_game_data(game_data, outcome_rollouts)
-
-
-def greedy_selfplay(
-    players: int,
-    debug: bool = False,
-    outcome_rollouts: int = 1,
-) -> GameData:
-    game_players = [player.GreedyExpectedValuePlayer() for _ in range(players)]
-    game_data = play(game_players, debug)
-    return game_history_to_game_data(game_data, outcome_rollouts)
-
-
 def play(
     players: list[player.AbstractPlayer],
     debug: bool = False,
     start_state: sj.Skyjo | None = None,
+    stop_event: mp.Event | None = None,
 ) -> GameHistory:
     if start_state is None:
         game_state = sj.new(players=len(players))
@@ -277,7 +209,9 @@ def play(
     if debug:
         logging.info(f"{sj.visualize_state(game_state)}")
 
-    while not sj.get_game_over(game_state):
+    while (stop_event is None or not stop_event.is_set()) and not sj.get_game_over(
+        game_state
+    ):
         action_probabilities = players[
             sj.get_player(game_state)
         ].get_action_probabilities(game_state)
@@ -305,8 +239,8 @@ def play(
 # MARK: Data Generation Processes
 
 
-class TrainingDataGenerator(mp.Process):
-    """Base class for training data generators.
+class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
+    """Abstract Base class for training data generators.
 
     Implementations should override the `run_episode` method to run an episode
     and return the training data.
@@ -316,176 +250,109 @@ class TrainingDataGenerator(mp.Process):
         self,
         id: str,
         debug: bool = False,
-        episodes: int | None = None,
+        log_level: int = logging.INFO,
+        log_dir: pathlib.Path | None = None,
     ):
         super().__init__()
-        self.debug = debug
         self.id = id
-        self.count = 0
-        self.episodes = episodes
+        self.episode_count = 0
 
-    def run_episode(self):
-        raise NotImplementedError
+        self.debug = debug
+        self.log_level = log_level
+        if log_dir is None:
+            log_dir = pathlib.Path(
+                f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
+            )
+        self.log_dir = log_dir
+        self._stop_event = mp.Event()
 
+    @abc.abstractmethod
+    def generate_episode(self) -> GameData:
+        pass
+
+    @abc.abstractmethod
     def add_game_data(self, game_data: GameData):
-        raise NotImplementedError
+        pass
+
+    def stop(self):
+        self._stop_event.set()
+
+    def cleanup(self, timeout: float = 1):
+        logging.info(f"Cleaning up training data generator process {self.id}")
+        self.stop()
+        self.join(timeout=timeout)
+        if self.is_alive():
+            logging.warning(
+                f"Training data generator process {self.id} is still alive, forcefully terminating"
+            )
+            self.terminate()
+            self.join()
+
+    def game_stats(self, game_data: GameData):
+        """Computes statistics from episode game data. Can be overridden by subclasses."""
+        actions = np.zeros(sj.MASK_SIZE)
+        for _, _, _, _, realized_action in game_data:
+            actions[realized_action] += 1
+        return {
+            "game_length": sj.get_turn(game_data[-1][0]),
+            "outcome": game_data[-1][1],
+            "scores": game_data[-1][2],
+            "action_counts": actions,
+            "action_frequencies": actions / len(game_data),
+        }
 
     def run(self):
-        level = logging.DEBUG if self.debug else logging.INFO
-        log_dir = pathlib.Path(
-            f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
-        )
-        log_dir.mkdir(parents=True, exist_ok=True)
+        # Setup logging
+        level = logging.DEBUG if self.debug else self.log_level
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         logging.basicConfig(
             level=level,
             format="%(asctime)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
-            filename=log_dir / f"play_{self.id}.log",
+            filename=self.log_dir / f"{self.id}.log",
             filemode="a",
         )
-        logging.info(f"Starting training data generator process id: {self.id}")
-        while (
-            self.episodes is not None and self.count < self.episodes
-        ) or self.episodes is None:
-            if self.count % 1 == 0:
-                logging.info(f"Selfplay count: {self.count}")
-            episode_data = self.run_episode()
-            self.count += 1
-            if self.debug:
-                logging.debug(f"Finished episode ({len(episode_data)} data points)")
+        logging.info("Starting training data generator process")
+        while not self._stop_event.is_set():
+            if self.episode_count % 1 == 0:
+                logging.info(f"Selfplay count: {self.episode_count}")
+            episode_data = self.generate_episode()
             self.add_game_data(episode_data)
+            self.episode_count += 1
 
 
-class BatchedSelfplayGenerator(TrainingDataGenerator):
+class SelfplayGenerator(AbstractTrainingDataGenerator):
     def __init__(
         self,
-        predictor_client: predictor.PredictorClient,
-        selfplay_data_queue: mp.Queue,
-        id: int,
-        players: int,
-        mcts_config: parallel_mcts.Config,
-        action_softmax_temperature: float = 1.0,
-        outcome_rollouts: int = 1,
-        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
+        id: str,
+        player: player.AbstractPlayer,
+        player_count: int,
+        game_data_queue: mp.Queue,
+        start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
         debug: bool = False,
+        log_level: int = logging.INFO,
+        log_dir: pathlib.Path | None = None,
     ):
-        super().__init__(id, debug)
-        self.predictor_client = predictor_client
-        self.selfplay_data_queue = selfplay_data_queue
-        self.players = players
-        self.mcts_config = mcts_config
-        self.action_softmax_temperature = action_softmax_temperature
-        self.outcome_rollouts = outcome_rollouts
-        self.start_position_generator = start_position_generator
-        self.debug = debug
-        self.id = id
-        self.count = 0
+        super().__init__(id=id, debug=debug, log_level=log_level, log_dir=log_dir)
+        self.player = player
+        self.players = [self.player for _ in range(player_count)]
+        self.game_data_queue = game_data_queue
+        self.start_state_generator = start_state_generator
 
-    @classmethod
-    def from_config(
-        cls,
-        predictor_client: predictor.PredictorClient,
-        selfplay_data_queue: mp.Queue,
-        id: int,
-        config: Config,
-        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
-        debug: bool = False,
-    ):
-        return cls(
-            predictor_client,
-            selfplay_data_queue,
-            id,
-            config.players,
-            config.mcts_config,
-            config.action_softmax_temperature,
-            config.outcome_rollouts,
-            start_position_generator,
-            debug,
+    def generate_episode(self) -> GameData:
+        start_state = None
+        if self.start_state_generator is not None:
+            start_state = self.start_state_generator()
+        game_history = play(
+            self.players,
+            debug=self.debug,
+            start_state=start_state,
+            stop_event=self._stop_event,
         )
+        return game_history_to_game_data(game_history)
 
     def add_game_data(self, game_data: GameData):
-        self.selfplay_data_queue.put(game_data)
-
-    def run_episode(self):
-        return batched_model_selfplay(
-            self.predictor_client,
-            players=self.players,
-            mcts_config=self.mcts_config,
-            action_softmax_temperature=self.action_softmax_temperature,
-            outcome_rollouts=self.outcome_rollouts,
-            debug=self.debug,
-            start_position=(
-                self.start_position_generator()
-                if self.start_position_generator is not None
-                else None
-            ),
-        )
-
-
-class SelfplayGenerator(TrainingDataGenerator):
-    def __init__(
-        self,
-        predictor_client: predictor.PredictorClient,
-        selfplay_data_queue: mp.Queue,
-        id: int,
-        players: int,
-        mcts_config: mcts.Config,
-        action_softmax_temperature: float = 1.0,
-        outcome_rollouts: int = 1,
-        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
-        debug: bool = False,
-    ):
-        super().__init__(id, debug)
-        self.predictor_client = predictor_client
-        self.selfplay_data_queue = selfplay_data_queue
-        self.players = players
-        self.mcts_config = mcts_config
-        self.action_softmax_temperature = action_softmax_temperature
-        self.outcome_rollouts = outcome_rollouts
-        self.start_position_generator = start_position_generator
-        self.debug = debug
-        self.id = id
-        self.count = 0
-
-    @classmethod
-    def from_config(
-        cls,
-        predictor_client: predictor.PredictorClient,
-        selfplay_data_queue: mp.Queue,
-        id: int,
-        config: Config,
-        start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
-        debug: bool = False,
-    ):
-        return cls(
-            predictor_client,
-            selfplay_data_queue,
-            id,
-            config.players,
-            config.mcts_config,
-            config.action_softmax_temperature,
-            config.outcome_rollouts,
-            start_position_generator,
-            debug,
-        )
-
-    def add_game_data(self, game_data: GameData):
-        self.selfplay_data_queue.put(game_data)
-
-    def run_episode(self):
-        return model_selfplay(
-            self.predictor_client,
-            players=self.players,
-            mcts_config=self.mcts_config,
-            action_softmax_temperature=self.action_softmax_temperature,
-            outcome_rollouts=self.outcome_rollouts,
-            debug=self.debug,
-            start_position=(
-                self.start_position_generator()
-                if self.start_position_generator is not None
-                else None
-            ),
-        )
+        self.game_data_queue.put(game_data)
 
 
 if __name__ == "__main__":
@@ -504,20 +371,14 @@ if __name__ == "__main__":
         global_state_embedding_dimensions=32,
         num_heads=2,
     )
-    saved_model_path = pathlib.Path(
-        "models/distributed/20250620_101923/model_20250621_215207.pth"
-    )
-    model.load_state_dict(torch.load(saved_model_path, weights_only=True))
     model.eval()
     model.to(device)
-    trained_predictor_client = predictor.NaivePredictorClient(
-        model, max_batch_size=4096
-    )
+    predictor_client = predictor.NaivePredictorClient(model, max_batch_size=4096)
     while True:
         data = play(
             [
-                player.ModelPlayer(trained_predictor_client, 1.0, 400, 0.25, True, 25),
-                player.ModelPlayer(trained_predictor_client, 1.0, 400, 0.25, True, 25),
+                player.ModelPlayer(predictor_client, 1.0, 400, 0.25, True, 25),
+                player.ModelPlayer(predictor_client, 1.0, 400, 0.25, True, 25),
             ]
         )
         print("game done")

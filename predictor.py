@@ -21,7 +21,8 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-import model_factory
+import config
+import factory
 import skyjo as sj
 import skynet
 
@@ -30,16 +31,6 @@ import skynet
 PredictionId: typing.TypeAlias = int
 QueueId: typing.TypeAlias = int
 ModelUpdate: typing.TypeAlias = bool
-
-# MARK: Config
-
-
-@dataclasses.dataclass(slots=True)
-class Config:
-    min_batch_size: int
-    max_batch_size: int
-    torch_device: torch.device
-    max_wait_seconds: float
 
 
 # MARK: Queues
@@ -58,10 +49,6 @@ class PredictorInputQueue:
         self.free_mask_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
         self.max_batch_size = max_batch_size
-
-    @classmethod
-    def from_config(cls, queue_id: QueueId, config: Config):
-        return cls(queue_id, config.max_batch_size)
 
     def empty(self) -> bool:
         return (
@@ -157,10 +144,6 @@ class PredictorOutputQueue:
         self.policy_output_queue = mp.Queue()
         self.free_policy_output_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
-
-    @classmethod
-    def from_config(cls, queue_id: QueueId, config: Config):
-        return cls(queue_id, config.max_batch_size)
 
     def empty(self) -> bool:
         return (
@@ -378,56 +361,50 @@ class UnifiedPredictorInputQueue:
 # MARK: Predictor Process
 
 
+@dataclasses.dataclass(slots=True)
+class PredictorProcessConfig(config.Config):
+    min_batch_size: int
+    max_batch_size: int
+    torch_device: torch.device
+    max_wait_seconds: float
+
+
 class PredictorProcess(mp.Process):
     """Predictor process that runs model inference in a dedicated process."""
 
     def __init__(
         self,
-        factory: model_factory.SkyNetModelFactory,
+        model_factory: factory.SkyNetModelFactory,
         model_update_queue: mp.Queue[ModelUpdate],
         input_queues: dict[QueueId, PredictorInputQueue],
         output_queues: dict[QueueId, PredictorOutputQueue],
         min_batch_size: int,
         max_batch_size: int,
-        device: torch.device = torch.device("cpu"),
+        torch_device: torch.device = torch.device("cpu"),
         max_wait_seconds: float = 0.1,
         debug: bool = False,
+        log_level: int = logging.INFO,
+        log_dir: pathlib.Path | None = None,
     ):
         super().__init__()
-        self.model_factory = factory
+        self.model_factory = model_factory
         self.model_update_queue = model_update_queue
         self.input_queues = input_queues
         self.output_queues = output_queues
         self.max_batch_size = max_batch_size
         self.min_batch_size = min_batch_size
-        self.device = device
+        self.torch_device = torch_device
         self.max_wait_seconds = max_wait_seconds
         self.debug = debug
-
+        self.log_level = logging.DEBUG if debug else log_level
+        if log_dir is None:
+            log_dir = pathlib.Path(
+                f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
+            )
+        self.log_dir = log_dir
+        self._stop_event = mp.Event()
         assert set(self.input_queues.keys()) == set(self.output_queues.keys()), (
             "Input and output queues must have the same id keys"
-        )
-
-    @classmethod
-    def from_config(
-        cls,
-        factory: model_factory.SkyNetModelFactory,
-        model_update_queue: mp.Queue[ModelUpdate],
-        input_queues: dict[QueueId, PredictorInputQueue],
-        output_queues: dict[QueueId, PredictorOutputQueue],
-        config: Config,
-        debug: bool = False,
-    ):
-        return cls(
-            factory,
-            model_update_queue,
-            input_queues,
-            output_queues,
-            config.min_batch_size,
-            config.max_batch_size,
-            config.torch_device,
-            config.max_wait_seconds,
-            debug,
         )
 
     def _populate_free_input_queues(self, model: skynet.SkyNet):
@@ -496,23 +473,20 @@ class PredictorProcess(mp.Process):
 
     def _setup_logging(self):
         """Setup logging for the predictor process."""
-        log_dir = pathlib.Path(
-            f"logs/multiprocessed_train/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/"
-        )
-        log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         level = logging.DEBUG if self.debug else logging.INFO
         logging.basicConfig(
             level=level,
             format="%(asctime)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
-            filename=log_dir / "predictor.log",
+            filename=self.log_dir / "predictor.log",
             filemode="w",
         )
 
     def _load_latest_model(self) -> skynet.SkyNet:
         """Load the latest model from the model factory."""
         model = self.model_factory.get_latest_model()
-        model.set_device(self.device)
+        model.set_device(self.torch_device)
         model.eval()
         logging.info(f"Loaded model from {self.model_factory._get_latest_model_path()}")
         return model
@@ -537,15 +511,24 @@ class PredictorProcess(mp.Process):
                     mask_tensor[:batch_size].clone(),
                     batch_size,
                 )
-                # logging.info(
-                #     f"Received input from queue {queue_id}, batch_size: {batch_size}, first prediction_id: {prediction_ids_tensor[0]}, last prediction_id: {prediction_ids_tensor[batch_size - 1]}"
-                # )
                 input_queue.put_free(
                     prediction_ids_tensor,
                     spatial_input_tensor,
                     non_spatial_input_tensor,
                     mask_tensor,
                 )
+
+    def stop(self):
+        self._stop_event.set()
+
+    def cleanup(self, timeout: float = 1):
+        logging.info("Cleaning up predictor process")
+        self.stop()
+        self.join(timeout=timeout)
+        if self.is_alive():
+            logging.warning("Predictor process is still alive, forcefully terminating")
+            self.terminate()
+            self.join()
 
     def run(self):
         try:
@@ -557,11 +540,11 @@ class PredictorProcess(mp.Process):
             self._populate_free_input_queues(model)
             self._populate_free_output_queues(model)
             start_time = time.time()
-            unified_input_queue = UnifiedPredictorInputQueue(device=self.device)
+            unified_input_queue = UnifiedPredictorInputQueue(device=self.torch_device)
 
             model_run_count = 0
             processed_count_average = 0
-            while True:
+            while not self._stop_event.is_set():
                 # Update model if available
                 while not self.model_update_queue.empty():
                     self.model_update_queue.get()
@@ -646,10 +629,10 @@ class PredictorProcess(mp.Process):
             raise e
 
 
-# MARK: PredictorClient
+# MARK: Predictor Clients
 
 
-class PredictorClient(abc.ABC):
+class AbstractPredictorClient(abc.ABC):
     @abc.abstractmethod
     def put(self, state: sj.Skyjo) -> PredictionId:
         """Puts a state into the client's input queue."""
@@ -686,25 +669,28 @@ class PredictorClient(abc.ABC):
         """Gets all predictions from the client's output queue without waiting."""
         pass
 
+    @abc.abstractmethod
+    def update_model(self) -> None:
+        """Updates underlying model."""
+        pass
 
-class MultiProcessPredictorClient(PredictorClient):
+
+class DistributedPredictorClient(AbstractPredictorClient):
     """Predictor client that communicates with dedicated predictor process."""
 
     def __init__(
         self,
         input_queue: PredictorInputQueue,
         output_queue: PredictorOutputQueue,
+        model_update_queue: mp.Queue[ModelUpdate] | None = None,
     ):
         self.current_inputs = []
         self.current_output = None
         self.sample_count = 0
+        self.count = 0
         self.input_queue = input_queue
         self.output_queue = output_queue
-        self.count = 0
-
-    @property
-    def output_ready(self) -> bool:
-        return self.current_output is not None or not self.output_queue.empty()
+        self.model_update_queue = model_update_queue
 
     def _get_unique_prediction_id(self) -> PredictionId:
         id = self.count
@@ -862,14 +848,23 @@ class MultiProcessPredictorClient(PredictorClient):
             return []
         return self.get_all()
 
+    def update_model(self) -> None:
+        if self.model_update_queue is None:
+            raise ValueError(
+                "MultiProcessPredictorClient did not have a model update queue specified "
+                "during initalization to communicate model update messages"
+            )
+        self.model_update_queue.put(True)
 
-class NaivePredictorClient(PredictorClient):
+
+class LocalPredictorClient(AbstractPredictorClient):
     """Predictor client that actually just lazily runs the model inference."""
 
     def __init__(
         self,
         model: skynet.SkyNet,
         max_batch_size: int,
+        factory: factory.SkyNetModelFactory | None = None,
     ):
         self.model = model
         self.device = model.device
@@ -880,10 +875,7 @@ class NaivePredictorClient(PredictorClient):
         self.current_output = None
         self.sample_count = 0
         self.max_batch_size = max_batch_size
-
-    @property
-    def output_ready(self) -> bool:
-        return self.current_output is not None or not self.output_queue.empty()
+        self.factory = factory
 
     def _get_unique_prediction_id(self) -> PredictionId:
         id = self.count
@@ -1027,11 +1019,16 @@ class NaivePredictorClient(PredictorClient):
             return []
         return self.get_all()
 
+    def update_model(self) -> None:
+        if self.factory is None:
+            raise ValueError("NaivePredictorClient does not support model updates")
+        self.model = self.factory.get_model()
+
 
 if __name__ == "__main__":
     import time
 
-    factory = model_factory.SkyNetModelFactory(
+    model_factory = factory.SkyNetModelFactory(
         skynet.SimpleSkyNet, model_kwargs={"hidden_layers": [64, 64]}
     )
     input_queues = {0: PredictorInputQueue(0, 512)}
@@ -1042,16 +1039,32 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         device = torch.device("cuda")
     debug = True
-    predictor_process = PredictorProcess(
-        factory=factory,
+    log_dir = pathlib.Path("logs/predictor_test/")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filename=log_dir / "main.log",
+        filemode="w",
+    )
+    config = PredictorProcessConfig(
+        min_batch_size=1,
+        max_batch_size=512,
+        torch_device=device,
+        max_wait_seconds=0.1,
+    )
+    predictor_process = PredictorProcess.from_config(
+        model_factory=model_factory,
         model_update_queue=mp.Queue(),
-        device=device,
         input_queues=input_queues,
         output_queues=output_queues,
+        config=config,
         debug=debug,
+        log_dir=log_dir,
     )
     predictor_process.start()
-    predictor_client = MultiProcessPredictorClient(
+    predictor_client = DistributedPredictorClient(
         input_queue=input_queues[0],
         output_queue=output_queues[0],
     )
@@ -1061,13 +1074,9 @@ if __name__ == "__main__":
     predictor_client.put(state)
     predictor_client.put(sj.apply_action(state, sj.MASK_FLIP_SECOND_BELOW))
     time.sleep(1)
-    assert not predictor_client.output_ready, (
-        "Nothing has been sent yet, so output should not be ready"
-    )
     print("Sending")
     predictor_client.send()
-    time.sleep(2)
-    assert predictor_client.output_ready, "Output should be ready after sending"
+    time.sleep(1)
     print("Getting")
     prediction = predictor_client.get()
     print(prediction)
@@ -1079,4 +1088,5 @@ if __name__ == "__main__":
 
     assert predictor_client.current_output is None, "Output should be empty"
 
+    predictor_process.terminate()
     predictor_process.join()

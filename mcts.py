@@ -1,9 +1,4 @@
-"""Tree-Parallel MCTS implementation for Skyjo.
-
-This implementation 'batches' model evaluation and implements a virtual loss
-to encourage exploration. Discussion of parallel algorithm can be found in
-https://dke.maastrichtuniversity.nl/m.winands/documents/multithreadedMCTS2.pdf
-"""
+"""Monte Carlo Tree Search Implementation for Skyjo."""
 
 from __future__ import annotations
 
@@ -108,6 +103,9 @@ class DecisionStateNode:
         if len(candidates) == 1:
             return candidates[0]
         return np.random.choice(candidates)
+
+    def highest_visit_child(self) -> MCTSNode:
+        return max(self.children.values(), key=lambda x: x.visit_count)
 
     def expand(
         self,
@@ -307,6 +305,9 @@ class AfterStateNode:
                 / self.child_weight_total
             )
         return state_value
+
+    def highest_visit_child(self) -> MCTSNode:
+        return max(self.children.values(), key=lambda x: x.visit_count)
 
     def discover(
         self,
@@ -552,7 +553,12 @@ def run_mcts(
             for prediction_id, prediction in predictor_client.get_all():
                 child_hash = afterstate_prediction_ids[prediction_id]
                 child = leaf.children[child_hash]
+                # Treate these as being expanded and visited
                 child.expand(model_prediction=prediction)
+                child.visit_count += 1
+                child.state_value_total += skynet.to_state_value(
+                    prediction.value_output, sj.get_player(child.state)
+                )
                 del afterstate_prediction_ids[prediction_id]
 
             leaf.expand()

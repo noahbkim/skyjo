@@ -5,6 +5,7 @@ import typing
 
 import numpy as np
 
+import config
 import play
 import skyjo as sj
 import skynet
@@ -12,7 +13,7 @@ import train_utils
 
 
 @dataclasses.dataclass(slots=True)
-class Config:
+class Config(config.Config):
     max_size: int
     spatial_input_shape: tuple[int, ...]
     non_spatial_input_shape: tuple[int, ...]
@@ -106,12 +107,12 @@ class ReplayBuffer:
     def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
 
-        for game_state, outcome_target, points_target, policy_target in game_data:
+        for game_state, outcome_target, points_target, policy_target, _ in game_data:
             self.add(game_state, outcome_target, points_target, policy_target)
 
     def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for game_state, outcome_target, points_target, policy_target in game_data:
+        for game_state, outcome_target, points_target, policy_target, _ in game_data:
             for (
                 symmetric_game_state,
                 symmetric_policy_target,

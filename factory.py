@@ -11,7 +11,6 @@ import skyjo as sj
 import skynet
 
 
-# Model factory
 class SkyNetModelFactory:
     def __init__(
         self,

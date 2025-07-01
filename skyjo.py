@@ -651,7 +651,6 @@ def validate(skyjo: Skyjo) -> bool:
     Always returns `True` for use with `assert`. Validation errors are
     raised internally.
     """
-
     game = skyjo[0]
     table = skyjo[1]
     deck = skyjo[2]
