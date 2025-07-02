@@ -296,29 +296,6 @@ class CappedModelPlayer(AbstractPlayer):
         self.fast_terminal_state_rollouts = fast_terminal_state_rollouts
         self.full_terminal_state_rollouts = full_terminal_state_rollouts
 
-    @classmethod
-    def from_mcts_configs(
-        cls,
-        predictor_client: predictor.AbstractPredictorClient,
-        action_softmax_temperature: float,
-        full_search_rate: float,
-        fast_mcts_config: mcts.Config,
-        full_mcts_config: mcts.Config,
-    ):
-        return cls(
-            predictor_client,
-            action_softmax_temperature,
-            full_search_rate,
-            fast_mcts_config.iterations,
-            full_mcts_config.iterations,
-            fast_mcts_config.dirichlet_epsilon,
-            full_mcts_config.dirichlet_epsilon,
-            fast_mcts_config.after_state_evaluate_all_children,
-            full_mcts_config.after_state_evaluate_all_children,
-            fast_mcts_config.terminal_state_rollouts,
-            full_mcts_config.terminal_state_rollouts,
-        )
-
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
@@ -347,9 +324,9 @@ class CappedModelPlayer(AbstractPlayer):
 class ModelPlayerConfig(config.Config):
     action_softmax_temperature: float
     mcts_iterations: int
-    dirichlet_epsilon: float
-    after_state_evaluate_all_children: bool
-    terminal_state_rollouts: int
+    mcts_dirichlet_epsilon: float
+    mcts_after_state_evaluate_all_children: bool
+    mcts_terminal_state_rollouts: int
 
 
 class ModelPlayer(AbstractPlayer):
@@ -360,32 +337,18 @@ class ModelPlayer(AbstractPlayer):
         predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         mcts_iterations: int,
-        dirichlet_epsilon: float,
-        after_state_evaluate_all_children: bool,
-        terminal_state_rollouts: int,
+        mcts_dirichlet_epsilon: float,
+        mcts_after_state_evaluate_all_children: bool,
+        mcts_terminal_state_rollouts: int,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
         self.mcts_iterations = mcts_iterations
-        self.dirichlet_epsilon = dirichlet_epsilon
-        self.after_state_evaluate_all_children = after_state_evaluate_all_children
-        self.terminal_state_rollouts = terminal_state_rollouts
-
-    @classmethod
-    def from_mcts_config(
-        cls,
-        predictor_client: predictor.AbstractPredictorClient,
-        action_softmax_temperature: float,
-        mcts_config: mcts.Config,
-    ):
-        return cls(
-            predictor_client,
-            action_softmax_temperature,
-            mcts_config.iterations,
-            mcts_config.dirichlet_epsilon,
-            mcts_config.after_state_evaluate_all_children,
-            mcts_config.terminal_state_rollouts,
+        self.mcts_dirichlet_epsilon = mcts_dirichlet_epsilon
+        self.mcts_after_state_evaluate_all_children = (
+            mcts_after_state_evaluate_all_children
         )
+        self.mcts_terminal_state_rollouts = mcts_terminal_state_rollouts
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -394,9 +357,9 @@ class ModelPlayer(AbstractPlayer):
             game_state,
             self.predictor_client,
             self.mcts_iterations,
-            self.dirichlet_epsilon,
-            self.after_state_evaluate_all_children,
-            self.terminal_state_rollouts,
+            self.mcts_dirichlet_epsilon,
+            self.mcts_after_state_evaluate_all_children,
+            self.mcts_terminal_state_rollouts,
         )
         return root.sample_child_visit_probabilities(self.action_softmax_temperature)
 
@@ -423,24 +386,6 @@ class BatchedModelPlayer(AbstractPlayer):
         self.dirichlet_epsilon = dirichlet_epsilon
         self.after_state_evaluate_all_children = after_state_evaluate_all_children
         self.terminal_state_rollouts = terminal_state_rollouts
-
-    @classmethod
-    def from_mcts_config(
-        cls,
-        predictor_client: predictor.AbstractPredictorClient,
-        action_softmax_temperature: float,
-        mcts_config: parallel_mcts.Config,
-    ):
-        return cls(
-            predictor_client,
-            action_softmax_temperature,
-            mcts_config.iterations,
-            mcts_config.batched_leaf_count,
-            mcts_config.virtual_loss,
-            mcts_config.dirichlet_epsilon,
-            mcts_config.after_state_evaluate_all_children,
-            mcts_config.terminal_state_rollouts,
-        )
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo

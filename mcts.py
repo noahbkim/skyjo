@@ -8,6 +8,7 @@ import typing
 import numpy as np
 import torch
 
+import config
 import predictor
 import skyjo as sj
 import skynet
@@ -16,7 +17,7 @@ import skynet
 
 
 @dataclasses.dataclass(slots=True)
-class Config:
+class MCTSConfig(config.Config):
     iterations: int
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
@@ -582,21 +583,6 @@ def run_mcts(
         backpropagate(search_path, leaf.state_value)
     # print(sum(search_depths) / len(search_depths))
     return root_node
-
-
-def run_mcts_with_config(
-    game_state: sj.Skyjo,
-    predictor_client: predictor.PredictorClient,
-    config: Config,
-) -> MCTSNode:
-    return run_mcts(
-        game_state,
-        predictor_client,
-        config.iterations,
-        config.dirichlet_epsilon,
-        config.after_state_evaluate_all_children,
-        config.terminal_state_rollouts,
-    )
 
 
 # MARK: TYPES

@@ -116,7 +116,7 @@ class LearnConfig(config.Config):
 
 def learn(
     model_factory: factory.SkyNetModelFactory,
-    predictor_clients: list[predictor.AbstractPredictorClient],
+    predictor_clients: dict[int, predictor.AbstractPredictorClient],
     training_data_buffer: buffer.ReplayBuffer,
     training_data_queue: mp.Queue,
     torch_device: torch.device,
@@ -150,8 +150,9 @@ def learn(
             logging.info("[LEARN] Saving model")
             saved_path = model_factory.save_model(model)
             logging.info(f"[LEARN] Saved model to {saved_path}")
-            for client in predictor_clients:
-                client.update_model()
+            logging.info("[LEARN] Updating predictor clients")
+            for id, client in predictor_clients.items():
+                client.trigger_model_update()
 
         # Add training data from the queue into the buffer
         logging.info(f"[LEARN] Generating {games_generated_per_iteration} games")
@@ -208,7 +209,7 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
 
     Runs a loop that:
     - Creates a predictor process and clients
-    - Creates selfplay and greedy play actors
+    - Creates selfplay actors
     - Collects training data from the actors
     - Trains the model on the collected data
     - Saves the model periodically
@@ -445,6 +446,88 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
         predictor_process.cleanup(timeout=1)
         for actor in selfplay_actors:
             actor.cleanup()
+
+
+def run_multiprocessed_selfplay_with_local_predictor_learning(
+    process_count: int,
+    players: int,
+    model_factory: factory.SkyNetModelFactory,
+    learn_config: LearnConfig,
+    training_config: TrainConfig,
+    training_data_buffer_config: buffer.Config,
+    model_player_config: player.ModelPlayerConfig,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    debug: bool = False,
+    log_level: int = logging.INFO,
+    log_dir: pathlib.Path | None = None,
+):
+    """Runs a distributed training loop.
+
+    Runs a loop that:
+    - Creates selfplay actors each with local predictor
+    - Collects training data from the actors
+    - Trains the model on the collected data
+    - Saves the model periodically
+    - Validates the model periodically
+    - Terminates the actors and predictor process
+    - Joins the actors and predictor process
+    """
+    logging.info(f"learning config: {learn_config}")
+    logging.info(f"training config: {training_config}")
+    logging.info(f"model player config: {model_player_config}")
+    logging.info(f"Using start position generator: {start_state_generator}")
+    selfplay_actors = []
+    try:
+        training_data_buffer = buffer.ReplayBuffer(
+            **training_data_buffer_config.kwargs()
+        )
+
+        # Predictor clients setup
+        model_update_queues = {i: mp.Queue() for i in range(process_count)}
+        predictor_clients = {
+            i: predictor.LocalPredictorClient(
+                model=model_factory.get_latest_model(),
+                # TODO: make this a parameter (but properly not just add parameter)
+                max_batch_size=512,
+                factory=model_factory,
+                model_update_queue=model_update_queues[i],
+            )
+            for i in range(process_count)
+        }
+
+        # Selfplay setup
+        selfplay_data_queue = mp.Queue()
+        logging.info(f"Starting {process_count} selfplay processes")
+        selfplay_actors = [
+            play.SelfplayGenerator(
+                id=f"selfplay_{i}",
+                player=player.ModelPlayer(
+                    predictor_clients[i], **model_player_config.kwargs()
+                ),
+                player_count=players,
+                game_data_queue=selfplay_data_queue,
+                start_state_generator=start_state_generator,
+                debug=debug,
+                log_level=log_level,
+                log_dir=log_dir,
+            )
+            for i in range(process_count)
+        ]
+        for actor in selfplay_actors:
+            actor.start()
+
+        # Main training loop
+        learn(
+            model_factory=model_factory,
+            predictor_clients=predictor_clients,
+            training_data_buffer=training_data_buffer,
+            training_data_queue=selfplay_data_queue,
+            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
+        )
+
+    finally:
+        for actor in selfplay_actors:
+            actor.cleanup(timeout=5)
 
 
 def run_single_process_learning(

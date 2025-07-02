@@ -670,7 +670,7 @@ class AbstractPredictorClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def update_model(self) -> None:
+    def trigger_model_update(self) -> None:
         """Updates underlying model."""
         pass
 
@@ -848,12 +848,10 @@ class DistributedPredictorClient(AbstractPredictorClient):
             return []
         return self.get_all()
 
-    def update_model(self) -> None:
+    def trigger_model_update(self) -> None:
         if self.model_update_queue is None:
-            raise ValueError(
-                "MultiProcessPredictorClient did not have a model update queue specified "
-                "during initalization to communicate model update messages"
-            )
+            return
+        logging.info("Updating model, sending message to predictor process")
         self.model_update_queue.put(True)
 
 
@@ -865,6 +863,7 @@ class LocalPredictorClient(AbstractPredictorClient):
         model: skynet.SkyNet,
         max_batch_size: int,
         factory: factory.SkyNetModelFactory | None = None,
+        model_update_queue: mp.Queue[ModelUpdate] | None = None,
     ):
         self.model = model
         self.device = model.device
@@ -876,6 +875,7 @@ class LocalPredictorClient(AbstractPredictorClient):
         self.sample_count = 0
         self.max_batch_size = max_batch_size
         self.factory = factory
+        self.model_update_queue = model_update_queue
 
     def _get_unique_prediction_id(self) -> PredictionId:
         id = self.count
@@ -928,6 +928,8 @@ class LocalPredictorClient(AbstractPredictorClient):
         return prediction_id
 
     def send(self) -> None:
+        if self.model_update_queue is not None and not self.model_update_queue.empty():
+            self.update_model()
         prediction_ids, spatial_inputs, nonspatial_inputs, masks, batch_size = (
             self._get_current_batch()
         )
@@ -1019,10 +1021,25 @@ class LocalPredictorClient(AbstractPredictorClient):
             return []
         return self.get_all()
 
+    def trigger_model_update(self) -> None:
+        if self.model_update_queue is None:
+            logging.warning(
+                "No model update queue, skipping sending model update message"
+            )
+            return
+        self.model_update_queue.put(True)
+
     def update_model(self) -> None:
+        logging.info("checking for model updates")
         if self.factory is None:
-            raise ValueError("NaivePredictorClient does not support model updates")
-        self.model = self.factory.get_model()
+            raise ValueError("Model factory is required to update model")
+
+        while not self.model_update_queue.empty():
+            logging.info(
+                f"Updating model from latest path: {self.factory._get_latest_model_path()}"
+            )
+            self.model_update_queue.get()
+            self.model = self.factory.get_latest_model()
 
 
 if __name__ == "__main__":

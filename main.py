@@ -7,9 +7,9 @@ import torch
 
 import buffer
 import explain
-import model_factory
-import parallel_mcts
-import play
+import factory
+import mcts
+import player
 import predictor
 import skyjo as sj
 import skynet
@@ -22,6 +22,16 @@ def create_obvious_clear_or_almost_clear_position() -> sj.Skyjo:
         return explain.create_obvious_clear_position()
     else:
         return explain.create_almost_clear_position()
+
+
+def create_random_clear_or_almost_clear_position() -> sj.Skyjo:
+    r = np.random.random()
+    if r < 0.1:
+        return explain.create_random_clear_starting_position()
+    elif r < 0.2:
+        return explain.create_random_almost_clear_position()
+    else:
+        return None
 
 
 if __name__ == "__main__":
@@ -54,10 +64,11 @@ if __name__ == "__main__":
         / f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
     device = torch.device("cpu")
+    players = 2
     model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(2,),
+        value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
         # card_embedding_dimensions=8,
@@ -85,9 +96,9 @@ if __name__ == "__main__":
     # main_train_on_greedy_ev_player_games(model, models_dir, validation_games_data)
     # main_overfit_small_training_sample(model, models_dir, small_fixed_training_sample)
 
-    factory = model_factory.SkyNetModelFactory(
+    model_factory = factory.SkyNetModelFactory(
         model_callable=skynet.EquivariantSkyNet,
-        players=2,
+        players=players,
         model_kwargs={
             # "card_embedding_dimensions": 8,
             # "column_embedding_dimensions": 16,
@@ -101,49 +112,52 @@ if __name__ == "__main__":
         models_dir=models_dir,
         initial_model=model,
     )
-    training_config = train.TrainingEpochConfig(
-        training_batch_size=256,
-        learning_rate=1e-3,
+    training_config = train.TrainConfig(
+        epochs=5,
+        batch_size=256,
+        learn_rate=1e-3,
         loss_function=train_utils.base_policy_value_loss,
     )
-    learn_config = train.MultiProcessedLearnConfig(
-        iterations=1000,
-        training_epochs=2,
-        training_epoch_config=training_config,
+    learn_config = train.LearnConfig(
+        torch_device=device,
+        learn_steps=1000,
+        games_generated_per_iteration=10,
+        validation_interval=1,
         validation_function=lambda model: explain.validate_model(
             model, validation_batch
         ),
-        validation_interval=1,
         update_model_interval=1,
-        selfplay_processes=9,
-        minimum_games_per_iteration=100,
-        torch_device=device,
+        **training_config.kwargs("training"),
     )
 
-    predictor_config = predictor.Config(
+    predictor_config = predictor.PredictorProcessConfig(
+        min_batch_size=1,
         max_batch_size=512,
-        min_batch_size=4,
-        torch_device=device,
         max_wait_seconds=0.1,
+        torch_device=device,
     )
-    mcts_config = parallel_mcts.Config(
-        iterations=1600,
+    # mcts_config = parallel_mcts.Config(
+    #     iterations=100,
+    #     after_state_evaluate_all_children=False,
+    #     virtual_loss=0.5,
+    #     batched_leaf_count=4,
+    #     terminal_state_rollouts=25,
+    #     dirichlet_epsilon=0.25,
+    # )
+    mcts_config = mcts.MCTSConfig(
+        iterations=100,
         after_state_evaluate_all_children=False,
-        virtual_loss=0.5,
-        batched_leaf_count=32,
-        terminal_state_rollouts=100,
+        terminal_state_rollouts=10,
         dirichlet_epsilon=0.25,
     )
-    selfplay_config = play.Config(
-        players=2,
+    model_player_config = player.ModelPlayerConfig(
         action_softmax_temperature=0.5,
-        outcome_rollouts=100,
-        mcts_config=mcts_config,
+        **mcts_config.kwargs("mcts"),
     )
     training_data_buffer_config = buffer.Config(
         max_size=100_000,
         spatial_input_shape=(
-            selfplay_config.players,
+            players,
             sj.ROW_COUNT,
             sj.COLUMN_COUNT,
             sj.FINGER_SIZE,
@@ -151,16 +165,30 @@ if __name__ == "__main__":
         non_spatial_input_shape=(sj.GAME_SIZE,),
         action_mask_shape=(sj.MASK_SIZE,),
         policy_target_shape=(sj.MASK_SIZE,),
-        outcome_target_shape=(selfplay_config.players,),
-        points_target_shape=(selfplay_config.players,),
+        outcome_target_shape=(players,),
+        points_target_shape=(players,),
     )
-    train.multiprocessed_learn(
-        factory,
-        learn_config,
-        training_config,
-        predictor_config,
-        training_data_buffer_config,
-        selfplay_config,
-        create_obvious_clear_or_almost_clear_position,
-        debug,
+    train.run_multiprocessed_selfplay_with_local_predictor_learning(
+        process_count=9,
+        players=players,
+        model_factory=model_factory,
+        learn_config=learn_config,
+        training_config=training_config,
+        # predictor_config=predictor_config,
+        training_data_buffer_config=training_data_buffer_config,
+        model_player_config=model_player_config,
+        # start_state_generator=create_random_clear_or_almost_clear_position,
+        debug=debug,
+        log_level=logging.DEBUG if debug else logging.INFO,
+        log_dir=log_dir,
     )
+    # train.learn(
+    #     model,
+    #     models_dir,
+    #     learn_config,
+    #     training_config,
+    #     selfplay_config,
+    #     training_data_buffer_config,
+    #     None,
+    #     debug,
+    # )

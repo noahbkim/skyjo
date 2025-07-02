@@ -427,11 +427,11 @@ def validate_model_on_validation_examples(
     value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
         model, game_data, train_utils.policy_value_losses
     )
-    logging.info("VALIDATION SET LOSS")
-    logging.info(f"value loss: {value_loss.item()}")
-    logging.info(f"policy loss: {policy_loss.item()}")
+    logging.info("[VALIDATION] VALIDATION SET LOSS")
+    logging.info(f"[VALIDATION] value loss: {value_loss.item()}")
+    logging.info(f"[VALIDATION] policy loss: {policy_loss.item()}")
 
-    logging.info("INDIVIDUAL EXAMPLES")
+    logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
     for description, game_state, targets in VALIDATION_EXAMPLES:
         model_prediction = model.predict(game_state)
         tensor_targets = (
@@ -444,13 +444,13 @@ def validate_model_on_validation_examples(
         value_loss, policy_loss = train_utils.policy_value_losses(
             model_prediction.to_output(), tensor_targets
         )
-        logging.info(f"validation example: {description}")
-        logging.info(f"value loss: {value_loss.item()}")
-        logging.info(f"policy loss: {policy_loss.item()}")
-        logging.info(f"model prediction:\n{model_prediction}")
-        logging.info(f"value target: {targets[0]}")
-        logging.info(f"points target: {targets[1]}")
-        logging.info(f"policy target:\n{targets[2]}")
+        logging.info(f"[VALIDATION] validation example: {description}")
+        logging.info(f"[VALIDATION] value loss: {value_loss.item()}")
+        logging.info(f"[VALIDATION] policy loss: {policy_loss.item()}")
+        logging.info(f"[VALIDATION] model prediction:\n{model_prediction}")
+        logging.info(f"[VALIDATION] value target: {targets[0]}")
+        logging.info(f"[VALIDATION] points target: {targets[1]}")
+        logging.info(f"[VALIDATION] policy target:\n{targets[2]}")
 
 
 def validate_model_with_games_data(
@@ -492,11 +492,11 @@ def validate_model_with_games_data(
             policy_targets_tensor * torch.log(policy_targets_tensor + 1e-12)
         ).sum(dim=1)
         logging.info(
-            f"value loss: {value_loss_scale * value_loss.item()} "
+            f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()} "
             # f"points loss: {points_loss_scale * points_loss.item()} "
-            f"policy loss: {policy_loss.item()} "
-            f"policy entropy: {base_policy_entropies.mean()} "
-            f"total loss: {total_loss.item()} "
+            f"[VALIDATION] policy loss: {policy_loss.item()} "
+            f"[VALIDATION] policy entropy: {base_policy_entropies.mean()} "
+            f"[VALIDATION] total loss: {total_loss.item()} "
         )
         return total_loss
 
