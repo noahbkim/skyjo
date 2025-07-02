@@ -71,6 +71,10 @@ def mse_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tenso
     return torch.nn.MSELoss(reduction="mean")(predicted, target)
 
 
+def l1_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    return torch.nn.L1Loss(reduction="mean")(predicted, target)
+
+
 def policy_value_losses(
     model_output: skynet.SkyNetOutput,
     targets: TrainingTargets,
@@ -87,7 +91,11 @@ def policy_value_losses(
         policy_output,
         policy_targets,
     )
-    value_loss = mse_value_loss(
+    # value_loss = mse_value_loss(
+    #     value_output,
+    #     value_targets,
+    # )
+    value_loss = l1_value_loss(
         value_output,
         value_targets,
     )
