@@ -22,16 +22,28 @@ class MCTSConfig(config.Config):
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
     terminal_state_initial_rollouts: int
+    forced_playout_k: float | None = None
 
 
 # MARK: NODE SCORING
 
 
-def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
+def ucb_score(
+    child: MCTSNode,
+    parent: DecisionStateNode,
+    forced_playout_k: float | None = None,
+) -> float:
     assert isinstance(parent, DecisionStateNode), (
         f"Parent must be DecisionStateNode, got {type(parent)}"
     )
     action_probability = parent.action_probability(child.action)
+    if (
+        forced_playout_k is not None
+        and child.visit_count > 0
+        and child.visit_count
+        < np.sqrt(forced_playout_k * parent.visit_count * action_probability)
+    ):
+        return 1000
     return skynet.state_value_for_player(
         child.state_value, sj.get_player(parent.state)
     ) + action_probability * np.sqrt(parent.total_count) / (1 + child.child_count)
@@ -53,6 +65,7 @@ class DecisionStateNode:
     are_children_discovered: bool = False
     dirichlet_noise: np.ndarray[tuple[int], np.float32] | None = None
     dirichlet_epsilon: float = 0.0
+    forced_playout_k: float | None = None
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -97,7 +110,8 @@ class DecisionStateNode:
 
     def _select_highest_ucb_child(self) -> MCTSNode:
         child_ucbs = [
-            (ucb_score(child, self), child) for child in self.children.values()
+            (ucb_score(child, self, self.forced_playout_k), child)
+            for child in self.children.values()
         ]
         max_ucb = max(child_ucbs, key=lambda x: x[0])[0]
         candidates = [item[1] for item in child_ucbs if abs(max_ucb - item[0]) < 1e-5]
@@ -156,6 +170,40 @@ class DecisionStateNode:
             action=action,
         )
 
+    def policy_targets(
+        self, temperature: float = 1.0, forced_playout_k: float | None = None
+    ) -> np.ndarray[tuple[int], np.float32]:
+        visit_counts = np.zeros((sj.MASK_SIZE,), dtype=np.float32)
+        for action, child in self.children.items():
+            visit_counts[action] = child.visit_count
+
+        if forced_playout_k is not None:
+            most_visited_child = self.highest_visit_child()
+            most_visited_child_ucb = ucb_score(most_visited_child, self)
+            for action, child in self.children.items():
+                child_value = skynet.state_value_for_player(
+                    child.state_value, sj.get_player(self.state)
+                )
+                if action == most_visited_child.action or child.visit_count == 0:
+                    continue
+                forced_visits = np.floor(
+                    (
+                        self.action_probability(action) * np.sqrt(self.visit_count)
+                        + child_value * (1 + child.visit_count)
+                        - most_visited_child_ucb * (1 + child.visit_count)
+                    )
+                    / (child_value - most_visited_child_ucb)
+                )
+                visit_counts[action] -= max(0, forced_visits)
+
+        if temperature == 0:
+            visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
+            visit_probabilities[visit_counts.argmax().item()] = 1
+            return visit_probabilities
+        visit_probabilities = visit_counts ** (1 / temperature)
+        visit_probabilities = visit_probabilities / visit_probabilities.sum()
+        return visit_probabilities
+
     def sample_child_visit_probabilities(
         self, temperature: float = 1.0
     ) -> np.ndarray[tuple[int], np.float32]:
@@ -163,6 +211,7 @@ class DecisionStateNode:
         visit_counts = np.zeros((sj.MASK_SIZE,), dtype=np.float32)
         for action, child in self.children.items():
             visit_counts[action] = child.visit_count
+
         if temperature == 0:
             visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
             visit_probabilities[visit_counts.argmax().item()] = 1
@@ -466,6 +515,7 @@ def run_mcts(
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
     terminal_state_initial_rollouts: int = 1,
+    forced_playout_k: float | None = None,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Runs a batched MCTS using virtual loss evaluation.
@@ -523,6 +573,9 @@ def run_mcts(
         )
         root_node.dirichlet_noise[sj.get_actions(root_node.state)] = dirichlet_noise
         root_node.dirichlet_epsilon = dirichlet_epsilon
+
+    if forced_playout_k is not None:
+        root_node.forced_playout_k = forced_playout_k
 
     search_depths = []
     for _ in range(iterations):

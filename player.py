@@ -327,6 +327,7 @@ class ModelPlayerConfig(config.Config):
     mcts_dirichlet_epsilon: float
     mcts_after_state_evaluate_all_children: bool
     mcts_terminal_state_initial_rollouts: int
+    mcts_forced_playout_k: float | None = None
 
 
 class ModelPlayer(AbstractPlayer):
@@ -340,6 +341,7 @@ class ModelPlayer(AbstractPlayer):
         mcts_dirichlet_epsilon: float,
         mcts_after_state_evaluate_all_children: bool,
         mcts_terminal_state_initial_rollouts: int,
+        mcts_forced_playout_k: float | None = None,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
@@ -349,12 +351,15 @@ class ModelPlayer(AbstractPlayer):
             mcts_after_state_evaluate_all_children
         )
         self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
+        self.mcts_forced_playout_k = mcts_forced_playout_k
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
         node = self.run_mcts(game_state)
-        return node.sample_child_visit_probabilities(self.action_softmax_temperature)
+        return node.policy_targets(
+            self.action_softmax_temperature, self.mcts_forced_playout_k
+        )
 
     def run_mcts(
         self,
@@ -368,6 +373,7 @@ class ModelPlayer(AbstractPlayer):
             self.mcts_dirichlet_epsilon,
             self.mcts_after_state_evaluate_all_children,
             self.mcts_terminal_state_initial_rollouts,
+            self.mcts_forced_playout_k,
             root_node,
         )
 

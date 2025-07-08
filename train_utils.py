@@ -108,7 +108,6 @@ def base_policy_value_loss(
     value_scale: float = 1.0,
 ) -> torch.Tensor:
     value_loss, policy_loss = policy_value_losses(model_output, targets)
-    print(f"value_loss: {value_loss}, policy_loss: {policy_loss}")
     return value_scale * value_loss + policy_loss
 
 
