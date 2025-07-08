@@ -21,7 +21,7 @@ class MCTSConfig(config.Config):
     iterations: int
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
-    terminal_state_rollouts: int
+    terminal_state_initial_rollouts: int
 
 
 # MARK: NODE SCORING
@@ -466,6 +466,7 @@ def run_mcts(
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
     terminal_state_initial_rollouts: int = 1,
+    root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Runs a batched MCTS using virtual loss evaluation.
 
@@ -500,18 +501,19 @@ def run_mcts(
     ready we process them.
     """
     # Get model prediction for root state
-    _ = predictor_client.put(game_state)
-    predictor_client.send()
-    _, prediction = predictor_client.get()
-    root_node = DecisionStateNode(
-        state=game_state,
-        parent=None,
-        action=None,
-    )
-    root_node.expand(
-        model_prediction=prediction,
-        terminal_state_rollouts=terminal_state_initial_rollouts,
-    )
+    if root_node is None:
+        _ = predictor_client.put(game_state)
+        predictor_client.send()
+        _, prediction = predictor_client.get()
+        root_node = DecisionStateNode(
+            state=game_state,
+            parent=None,
+            action=None,
+        )
+        root_node.expand(
+            model_prediction=prediction,
+            terminal_state_rollouts=terminal_state_initial_rollouts,
+        )
 
     # Inject dirichlet noise into the root node
     if dirichlet_epsilon > 0:

@@ -645,7 +645,6 @@ class EquivariantSkyNet(nn.Module):
             mlp_ratio=None,
             dropout=0.0,
         )
-
         # self.board_summary_token = nn.Parameter(
         #     torch.randn(1, 1, self.embedding_dimensions)
         # )
@@ -678,11 +677,6 @@ class EquivariantSkyNet(nn.Module):
                 in_features=self.embedding_dimensions * (self.players + 1),
                 # + self.board_embedding_dimensions * self.players,
                 # + self.embedding_dimensions * self.players,
-                out_features=self.global_state_embedding_dimensions,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Linear(
-                in_features=self.global_state_embedding_dimensions,
                 out_features=self.global_state_embedding_dimensions,
             ),
             nn.ReLU(inplace=True),
@@ -758,7 +752,6 @@ class EquivariantSkyNet(nn.Module):
             w=self.columns,
         )
         attended_cards = attended_cards[:, 2:, :]
-
         # repeated_board_summary_tokens = einops.repeat(
         #     self.board_summary_token,
         #     "1 1 f -> bp 1 f",

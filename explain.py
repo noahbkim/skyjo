@@ -272,6 +272,47 @@ def create_negative_clear_take_position() -> sj.Skyjo:
     return game_state
 
 
+def create_potential_clear_equal_position(top_card: int = sj.CARD_P10) -> sj.Skyjo:
+    game_state = create_initial_same_column_flip_game_state(
+        player1_initial_flips=(sj.CARD_P10, sj.CARD_P10),
+        player2_initial_flips=(sj.CARD_P9, sj.CARD_P9),
+        top_card=top_card,
+    )
+    game_state = sj.preordain(game_state, sj.CARD_P5)
+    game_state = sj.flip(game_state, 0, 1)
+    game_state = sj.preordain(game_state, sj.CARD_P6)
+    game_state = sj.flip(game_state, 0, 1)
+    game_state = sj.preordain(game_state, sj.CARD_N2)
+    game_state = sj.flip(game_state, 0, 2)
+    game_state = sj.preordain(game_state, sj.CARD_N1)
+    game_state = sj.flip(game_state, 0, 2)
+    game_state = sj.preordain(game_state, sj.CARD_P8)
+    game_state = sj.flip(game_state, 0, 3)
+    game_state = sj.preordain(game_state, sj.CARD_P7)
+    game_state = sj.flip(game_state, 0, 3)
+    game_state = sj.preordain(game_state, sj.CARD_N1)
+    game_state = sj.flip(game_state, 1, 1)
+    game_state = sj.preordain(game_state, sj.CARD_0)
+    game_state = sj.flip(game_state, 1, 1)
+    game_state = sj.preordain(game_state, sj.CARD_P4)
+    game_state = sj.flip(game_state, 1, 2)
+    game_state = sj.preordain(game_state, sj.CARD_N1)
+    game_state = sj.flip(game_state, 1, 2)
+    game_state = sj.preordain(game_state, sj.CARD_N1)
+    game_state = sj.flip(game_state, 2, 1)
+    game_state = sj.preordain(game_state, sj.CARD_P3)
+    game_state = sj.flip(game_state, 2, 1)
+    game_state = sj.preordain(game_state, sj.CARD_P2)
+    game_state = sj.flip(game_state, 2, 2)
+    game_state = sj.preordain(game_state, sj.CARD_P1)
+    game_state = sj.flip(game_state, 2, 2)
+    game_state = sj.preordain(game_state, sj.CARD_P5)
+    game_state = sj.flip(game_state, 2, 0)
+    game_state = sj.preordain(game_state, sj.CARD_P5)
+    game_state = sj.flip(game_state, 2, 0)
+    return game_state
+
+
 # MARK: Targets
 
 
@@ -494,9 +535,9 @@ def validate_model_with_games_data(
         logging.info(
             f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()} "
             # f"points loss: {points_loss_scale * points_loss.item()} "
-            f"[VALIDATION] policy loss: {policy_loss.item()} "
-            f"[VALIDATION] policy entropy: {base_policy_entropies.mean()} "
-            f"[VALIDATION] total loss: {total_loss.item()} "
+            f"policy loss: {policy_loss.item()} "
+            f"policy entropy: {base_policy_entropies.mean()} "
+            f"total loss: {total_loss.item()} "
         )
         return total_loss
 

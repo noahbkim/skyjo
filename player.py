@@ -326,7 +326,7 @@ class ModelPlayerConfig(config.Config):
     mcts_iterations: int
     mcts_dirichlet_epsilon: float
     mcts_after_state_evaluate_all_children: bool
-    mcts_terminal_state_rollouts: int
+    mcts_terminal_state_initial_rollouts: int
 
 
 class ModelPlayer(AbstractPlayer):
@@ -339,7 +339,7 @@ class ModelPlayer(AbstractPlayer):
         mcts_iterations: int,
         mcts_dirichlet_epsilon: float,
         mcts_after_state_evaluate_all_children: bool,
-        mcts_terminal_state_rollouts: int,
+        mcts_terminal_state_initial_rollouts: int,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
@@ -348,20 +348,39 @@ class ModelPlayer(AbstractPlayer):
         self.mcts_after_state_evaluate_all_children = (
             mcts_after_state_evaluate_all_children
         )
-        self.mcts_terminal_state_rollouts = mcts_terminal_state_rollouts
+        self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
-        root = mcts.run_mcts(
+        node = self.run_mcts(game_state)
+        return node.sample_child_visit_probabilities(self.action_softmax_temperature)
+
+    def run_mcts(
+        self,
+        game_state: sj.Skyjo,
+        root_node: mcts.MCTSNode | None = None,
+    ) -> mcts.MCTSNode:
+        return mcts.run_mcts(
             game_state,
             self.predictor_client,
             self.mcts_iterations,
             self.mcts_dirichlet_epsilon,
             self.mcts_after_state_evaluate_all_children,
-            self.mcts_terminal_state_rollouts,
+            self.mcts_terminal_state_initial_rollouts,
+            root_node,
         )
-        return root.sample_child_visit_probabilities(self.action_softmax_temperature)
+
+
+@dataclasses.dataclass(slots=True)
+class BatchedModelPlayerConfig(config.Config):
+    action_softmax_temperature: float
+    mcts_iterations: int
+    mcts_dirichlet_epsilon: float
+    mcts_after_state_evaluate_all_children: bool
+    mcts_terminal_state_initial_rollouts: int
+    mcts_batched_leaf_count: int
+    mcts_virtual_loss: float
 
 
 class BatchedModelPlayer(AbstractPlayer):
@@ -372,35 +391,46 @@ class BatchedModelPlayer(AbstractPlayer):
         predictor_client: predictor.AbstractPredictorClient,
         action_softmax_temperature: float,
         mcts_iterations: int,
-        batched_leaf_count: int,
-        virtual_loss: float,
-        dirichlet_epsilon: float,
-        after_state_evaluate_all_children: bool,
-        terminal_state_rollouts: int,
+        mcts_dirichlet_epsilon: float,
+        mcts_after_state_evaluate_all_children: bool,
+        mcts_terminal_state_initial_rollouts: int,
+        mcts_batched_leaf_count: int,
+        mcts_virtual_loss: float,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
         self.mcts_iterations = mcts_iterations
-        self.batched_leaf_count = batched_leaf_count
-        self.virtual_loss = virtual_loss
-        self.dirichlet_epsilon = dirichlet_epsilon
-        self.after_state_evaluate_all_children = after_state_evaluate_all_children
-        self.terminal_state_rollouts = terminal_state_rollouts
+        self.mcts_dirichlet_epsilon = mcts_dirichlet_epsilon
+        self.mcts_after_state_evaluate_all_children = (
+            mcts_after_state_evaluate_all_children
+        )
+        self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
+        self.mcts_batched_leaf_count = mcts_batched_leaf_count
+        self.mcts_virtual_loss = mcts_virtual_loss
 
     def get_action_probabilities(
-        self, game_state: sj.Skyjo
+        self,
+        game_state: sj.Skyjo,
     ) -> np.ndarray[tuple[int], np.float32]:
-        root = parallel_mcts.run_mcts(
+        node = self.run_mcts(game_state)
+        return node.sample_child_visit_probabilities(self.action_softmax_temperature)
+
+    def run_mcts(
+        self,
+        game_state: sj.Skyjo,
+        root_node: mcts.MCTSNode | None = None,
+    ) -> mcts.MCTSNode:
+        return parallel_mcts.run_mcts(
             game_state,
             self.predictor_client,
             self.mcts_iterations,
-            self.batched_leaf_count,
-            self.virtual_loss,
-            self.dirichlet_epsilon,
-            self.after_state_evaluate_all_children,
-            self.terminal_state_rollouts,
+            self.mcts_dirichlet_epsilon,
+            self.mcts_after_state_evaluate_all_children,
+            self.mcts_terminal_state_initial_rollouts,
+            self.mcts_batched_leaf_count,
+            self.mcts_virtual_loss,
+            root_node,
         )
-        return root.sample_child_visit_probabilities(self.action_softmax_temperature)
 
 
 class PureModelPlayer(AbstractPlayer):

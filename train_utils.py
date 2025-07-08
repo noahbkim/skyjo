@@ -91,23 +91,24 @@ def policy_value_losses(
         policy_output,
         policy_targets,
     )
-    # value_loss = mse_value_loss(
-    #     value_output,
-    #     value_targets,
-    # )
-    value_loss = l1_value_loss(
+    value_loss = mse_value_loss(
         value_output,
         value_targets,
     )
+    # value_loss = l1_value_loss(
+    #     value_output,
+    #     value_targets,
+    # )
     return value_loss, policy_loss
 
 
 def base_policy_value_loss(
     model_output: skynet.SkyNetOutput,
     targets: TrainingTargets,
-    value_scale: float = 3.0,
+    value_scale: float = 1.0,
 ) -> torch.Tensor:
     value_loss, policy_loss = policy_value_losses(model_output, targets)
+    print(f"value_loss: {value_loss}, policy_loss: {policy_loss}")
     return value_scale * value_loss + policy_loss
 
 

@@ -23,11 +23,11 @@ import skynet
 @dataclasses.dataclass(slots=True)
 class Config:
     iterations: int
-    batched_leaf_count: int
-    virtual_loss: float
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
-    terminal_state_rollouts: int
+    terminal_state_initial_rollouts: int
+    batched_leaf_count: int
+    virtual_loss: float
 
 
 # MARK: NODE SCORING
@@ -554,11 +554,12 @@ def run_mcts(
     game_state: sj.Skyjo,
     predictor_client: predictor.PredictorClient,
     iterations: int,
-    batched_leaf_count: int = 1,
-    virtual_loss: float = 0.5,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
-    terminal_state_rollouts: int = 1,
+    terminal_state_initial_rollouts: int = 1,
+    batched_leaf_count: int = 1,
+    virtual_loss: float = 0.5,
+    root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Runs a batched MCTS using virtual loss evaluation.
 
@@ -593,16 +594,17 @@ def run_mcts(
     ready we process them.
     """
     # Get model prediction for root state
-    _ = predictor_client.put(game_state)
-    predictor_client.send()
-    _, prediction = predictor_client.get()
-    root_node = DecisionStateNode(
-        state=game_state,
-        parent=None,
-        previous_action=None,
-    )
-    root_node.preexpand(terminal_rollouts=terminal_state_rollouts)
-    root_node.expand(model_prediction=prediction)
+    if root_node is None:
+        _ = predictor_client.put(game_state)
+        predictor_client.send()
+        _, prediction = predictor_client.get()
+        root_node = DecisionStateNode(
+            state=game_state,
+            parent=None,
+            previous_action=None,
+        )
+        root_node.preexpand(terminal_rollouts=terminal_state_initial_rollouts)
+        root_node.expand(model_prediction=prediction)
 
     # Inject dirichlet noise into the root node
     if dirichlet_epsilon > 0:
@@ -655,7 +657,7 @@ def run_mcts(
             # Add realized outcome children to prediction
             for child in leaf.children.values():
                 if isinstance(child, DecisionStateNode):
-                    child.preexpand(terminal_rollouts=terminal_state_rollouts)
+                    child.preexpand(terminal_rollouts=terminal_state_initial_rollouts)
                     prediction_id = predictor_client.put(child.state)
                     pending_after_state_search_paths[prediction_id] = search_path + [
                         child
@@ -689,7 +691,7 @@ def run_mcts(
         # we want to pre-expand the decision state, so that parallel threads
         # can go deeper and queue a child state for model prediction.
         elif isinstance(leaf, DecisionStateNode):
-            leaf.preexpand(terminal_rollouts=terminal_state_rollouts)
+            leaf.preexpand(terminal_rollouts=terminal_state_initial_rollouts)
             prediction_id = predictor_client.put(leaf.state)
             pending_decision_state_search_paths[prediction_id] = search_path
             pending_leaf_count += 1
@@ -698,8 +700,7 @@ def run_mcts(
             raise ValueError(f"Unknown node type: {type(leaf)}")
 
         # Process predictions until we have at most max_parallel_threads pending leaf nodes
-        while pending_leaf_count >= batched_leaf_count or run_inference_now:
-            run_inference_now = False
+        while pending_leaf_count >= batched_leaf_count:
             predictor_client.send()
             for prediction_id, prediction in predictor_client.get_all():
                 if _handle_prediction_results(

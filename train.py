@@ -112,6 +112,7 @@ class LearnConfig(config.Config):
     validation_interval: int | None
     validation_function: typing.Callable[[skynet.SkyNet], None] | None
     update_model_interval: int | None
+    model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
 
 
 def learn(
@@ -131,6 +132,8 @@ def learn(
     validation_interval: int,
     validation_function: typing.Callable[[skynet.SkyNet], None] | None,
     update_model_interval: int,
+    model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
+    | None,
 ):
     """Core learning loop"""
 
@@ -147,6 +150,19 @@ def learn(
             validation_function(model)
 
         if iteration > 0 and iteration % update_model_interval == 0:
+            if model_faceoff_function is not None:
+                logging.info("[LEARN] Model Faceoff")
+                faceoff_result = model_faceoff_function(
+                    model, model_factory.get_latest_model()
+                )
+                if faceoff_result:
+                    logging.info("[LEARN] New Model Faceoff Passed")
+                else:
+                    logging.info(
+                        "[LEARN] Model Faceoff Failed, reverting to previous model"
+                    )
+                    model = model_factory.get_latest_model()
+
             logging.info("[LEARN] Saving model")
             saved_path = model_factory.save_model(model)
             logging.info(f"[LEARN] Saved model to {saved_path}")
@@ -201,6 +217,7 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
     training_data_buffer_config: buffer.Config,
     model_player_config: player.ModelPlayerConfig,
     start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    outcome_rollouts: int = 1,
     debug: bool = False,
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
@@ -275,9 +292,11 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
                 player_count=players,
                 game_data_queue=selfplay_data_queue,
                 start_state_generator=start_state_generator,
+                outcome_rollouts=outcome_rollouts,
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
+                play_callable=play.model_player_selfplay,
             )
             for i in range(process_count)
         ]
@@ -300,14 +319,19 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
 
 
 def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
-    factory: factory.SkyNetModelFactory,
+    process_count: int,
+    players: int,
+    model_factory: factory.SkyNetModelFactory,
     learn_config: LearnConfig,
     training_config: TrainConfig,
     predictor_config: predictor.PredictorProcessConfig,
     training_data_buffer_config: buffer.Config,
-    model_player_config: player.ModelPlayerConfig,
-    start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    batched_model_player_config: player.BatchedModelPlayerConfig,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    outcome_rollouts: int = 1,
     debug: bool = False,
+    log_level: int = logging.INFO,
+    log_dir: pathlib.Path | None = None,
 ):
     """Runs a distributed training loop.
 
@@ -325,8 +349,8 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
     logging.info(f"training config: {training_config}")
     logging.info(f"predictor config: {predictor_config}")
     logging.info(f"training data buffer config: {training_data_buffer_config}")
-    logging.info(f"model player config: {model_player_config}")
-    logging.info(f"Using start position generator: {start_position_generator}")
+    logging.info(f"batched model player config: {batched_model_player_config}")
+    logging.info(f"Using start position generator: {start_state_generator}")
     try:
         # Predictor setup
         predictor_model_update_queue = mp.Queue()
@@ -345,7 +369,7 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
             for i in range(learn_config.selfplay_processes)
         }
         predictor_process = predictor.PredictorProcess.from_config(
-            factory,
+            model_factory,
             predictor_model_update_queue,
             predictor_input_queues,
             predictor_output_queues,
@@ -364,15 +388,21 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
         selfplay_data_queue = mp.Queue()
         logging.info(f"Starting {learn_config.selfplay_processes} selfplay processes")
         selfplay_actors = [
-            play.BatchedSelfplayGenerator.from_config(
-                predictor_clients[i],
-                selfplay_data_queue,
-                id=i,
-                config=model_player_config,
-                start_position_generator=start_position_generator,
+            play.SelfplayGenerator(
+                id=f"selfplay_{i}",
+                player=player.BatchedModelPlayer(
+                    predictor_clients[i], **batched_model_player_config.kwargs()
+                ),
+                player_count=players,
+                game_data_queue=selfplay_data_queue,
+                start_state_generator=start_state_generator,
+                outcome_rollouts=outcome_rollouts,
                 debug=debug,
+                log_level=log_level,
+                log_dir=log_dir,
+                play_callable=play.model_player_selfplay,
             )
-            for i in range(learn_config.selfplay_processes)
+            for i in range(process_count)
         ]
         for actor in selfplay_actors:
             actor.start()
@@ -457,6 +487,7 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
     training_data_buffer_config: buffer.Config,
     model_player_config: player.ModelPlayerConfig,
     start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    outcome_rollouts: int = 1,
     debug: bool = False,
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
@@ -507,9 +538,11 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
                 player_count=players,
                 game_data_queue=selfplay_data_queue,
                 start_state_generator=start_state_generator,
+                outcome_rollouts=outcome_rollouts,
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
+                play_callable=play.model_player_selfplay,
             )
             for i in range(process_count)
         ]
