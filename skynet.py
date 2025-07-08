@@ -282,7 +282,7 @@ class SimpleValueTail(nn.Module):
                 in_features=self.input_dimensions,
                 out_features=self.players,
             ),
-            nn.Sigmoid(),
+            nn.Softmax(dim=-1),
         )
 
     def forward(self, x):

@@ -266,6 +266,7 @@ def model_player_selfplay(
             model_player.mcts_dirichlet_epsilon,
             model_player.mcts_after_state_evaluate_all_children,
             model_player.mcts_terminal_state_initial_rollouts,
+            model_player.mcts_forced_playout_k,
             root_node,
         )
         action_probabilities = root_node.sample_child_visit_probabilities(
