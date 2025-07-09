@@ -81,7 +81,9 @@ class DecisionStateNode:
             f"Visit Count: {self.visit_count}\n"
             f"State Value: {self.state_value}\n"
             f"Is Expanded: {self.is_expanded}\n"
-            f"Children visit counts: {self.sample_child_visit_probabilities() * sum(child.visit_count for child in self.children.values())}\n"
+            f"Model Prediction: {self.model_prediction}\n"
+            f"Forced Playout K: {self.forced_playout_k}\n"
+            f"Children visit counts: {self.policy_targets() * sum(child.visit_count for child in self.children.values())}\n"
         )
 
     @property
@@ -195,22 +197,6 @@ class DecisionStateNode:
                     / (child_value - most_visited_child_ucb)
                 )
                 visit_counts[action] -= max(0, forced_visits)
-
-        if temperature == 0:
-            visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
-            visit_probabilities[visit_counts.argmax().item()] = 1
-            return visit_probabilities
-        visit_probabilities = visit_counts ** (1 / temperature)
-        visit_probabilities = visit_probabilities / visit_probabilities.sum()
-        return visit_probabilities
-
-    def sample_child_visit_probabilities(
-        self, temperature: float = 1.0
-    ) -> np.ndarray[tuple[int], np.float32]:
-        """Sample visit probabilities for children nodes."""
-        visit_counts = np.zeros((sj.MASK_SIZE,), dtype=np.float32)
-        for action, child in self.children.items():
-            visit_counts[action] = child.visit_count
 
         if temperature == 0:
             visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)

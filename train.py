@@ -179,13 +179,14 @@ def learn(
             game_data = training_data_queue.get()
             training_data_buffer.add_game_data(game_data)
             games_count += 1
-
         logging.info(
             f"[LEARN] Finished generating {games_count - previous_games_count} games "
         )
         logging.info(
             f"[LEARN] Training data buffer length: {len(training_data_buffer)}, "
         )
+        buffer_saved_path = training_data_buffer.save()
+        logging.info(f"Saving training data buffer to {buffer_saved_path}")
 
         previous_games_count = games_count
         logging.info(f"[LEARN] Training for {training_epochs} epochs")

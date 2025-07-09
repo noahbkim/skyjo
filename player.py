@@ -234,35 +234,6 @@ class GreedyExpectedValuePlayer(AbstractPlayer):
         return sj.get_top(game_state) - (curr_card)
 
 
-class SimpleModelPlayer(AbstractPlayer):
-    """Runs a simple (non-parallel) MCTS with specified model and parameters."""
-
-    def __init__(
-        self,
-        model: skynet.SkyNet,
-        temperature: float = 0.0,
-        mcts_iterations: int = 10,
-        afterstate_initial_realizations: int = 10,
-    ):
-        self.model = model
-        self.temperature = temperature
-        self.mcts_iterations = mcts_iterations
-        self.afterstate_initial_realizations = afterstate_initial_realizations
-
-    def get_action_probabilities(
-        self, game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        self.model.eval()
-        with torch.no_grad():
-            node = mcts.run_mcts(
-                game_state,
-                self.model,
-                self.mcts_iterations,
-                self.afterstate_initial_realizations,
-            )
-        return node.sample_child_visit_probabilities(self.temperature)
-
-
 class CappedModelPlayer(AbstractPlayer):
     """Player that uses a capped MCTS with specified model and parameters."""
 
@@ -273,28 +244,32 @@ class CappedModelPlayer(AbstractPlayer):
         full_search_rate: float,
         fast_mcts_iterations: int,
         full_mcts_iterations: int,
-        fast_dirichlet_epsilon: float,
-        full_dirichlet_epsilon: float,
-        fast_after_state_evaluate_all_children: bool,
-        fast_terminal_state_rollouts: int,
-        full_after_state_evaluate_all_children: bool,
-        full_terminal_state_rollouts: int,
+        fast_mcts_dirichlet_epsilon: float,
+        full_mcts_dirichlet_epsilon: float,
+        fast_mcts_after_state_evaluate_all_children: bool,
+        fast_mcts_terminal_state_rollouts: int,
+        full_mcts_after_state_evaluate_all_children: bool,
+        full_mcts_terminal_state_rollouts: int,
+        fast_mcts_forced_playout_k: float | None,
+        full_mcts_forced_playout_k: float | None,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
         self.full_search_rate = full_search_rate
         self.fast_mcts_iterations = fast_mcts_iterations
         self.full_mcts_iterations = full_mcts_iterations
-        self.fast_dirichlet_epsilon = fast_dirichlet_epsilon
-        self.full_dirichlet_epsilon = full_dirichlet_epsilon
-        self.fast_after_state_evaluate_all_children = (
-            fast_after_state_evaluate_all_children
+        self.fast_mcts_dirichlet_epsilon = fast_mcts_dirichlet_epsilon
+        self.full_mcts_dirichlet_epsilon = full_mcts_dirichlet_epsilon
+        self.fast_mcts_after_state_evaluate_all_children = (
+            fast_mcts_after_state_evaluate_all_children
         )
-        self.full_after_state_evaluate_all_children = (
-            full_after_state_evaluate_all_children
+        self.full_mcts_after_state_evaluate_all_children = (
+            full_mcts_after_state_evaluate_all_children
         )
-        self.fast_terminal_state_rollouts = fast_terminal_state_rollouts
-        self.full_terminal_state_rollouts = full_terminal_state_rollouts
+        self.fast_mcts_terminal_state_rollouts = fast_mcts_terminal_state_rollouts
+        self.full_mcts_terminal_state_rollouts = full_mcts_terminal_state_rollouts
+        self.fast_mcts_forced_playout_k = fast_mcts_forced_playout_k
+        self.full_mcts_forced_playout_k = full_mcts_forced_playout_k
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -304,20 +279,27 @@ class CappedModelPlayer(AbstractPlayer):
                 game_state,
                 self.predictor_client,
                 self.full_mcts_iterations,
-                self.full_dirichlet_epsilon,
-                self.full_after_state_evaluate_all_children,
-                self.full_terminal_state_rollouts,
+                self.full_mcts_dirichlet_epsilon,
+                self.full_mcts_after_state_evaluate_all_children,
+                self.full_mcts_terminal_state_rollouts,
+                self.full_mcts_forced_playout_k,
+            )
+            return root.policy_targets(
+                self.action_softmax_temperature, self.full_mcts_forced_playout_k
             )
         else:
             root = mcts.run_mcts(
                 game_state,
                 self.predictor_client,
                 self.fast_mcts_iterations,
-                self.fast_dirichlet_epsilon,
-                self.fast_after_state_evaluate_all_children,
-                self.fast_terminal_state_rollouts,
+                self.fast_mcts_dirichlet_epsilon,
+                self.fast_mcts_after_state_evaluate_all_children,
+                self.fast_mcts_terminal_state_rollouts,
+                self.fast_mcts_forced_playout_k,
             )
-        return root.sample_child_visit_probabilities(self.action_softmax_temperature)
+            return root.policy_targets(
+                self.action_softmax_temperature, self.fast_mcts_forced_playout_k
+            )
 
 
 @dataclasses.dataclass(slots=True)
@@ -402,6 +384,7 @@ class BatchedModelPlayer(AbstractPlayer):
         mcts_terminal_state_initial_rollouts: int,
         mcts_batched_leaf_count: int,
         mcts_virtual_loss: float,
+        mcts_forced_playout_k: float | None,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
@@ -413,13 +396,16 @@ class BatchedModelPlayer(AbstractPlayer):
         self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
         self.mcts_batched_leaf_count = mcts_batched_leaf_count
         self.mcts_virtual_loss = mcts_virtual_loss
+        self.mcts_forced_playout_k = mcts_forced_playout_k
 
     def get_action_probabilities(
         self,
         game_state: sj.Skyjo,
     ) -> np.ndarray[tuple[int], np.float32]:
         node = self.run_mcts(game_state)
-        return node.sample_child_visit_probabilities(self.action_softmax_temperature)
+        return node.policy_targets(
+            self.action_softmax_temperature, self.mcts_forced_playout_k
+        )
 
     def run_mcts(
         self,
@@ -435,6 +421,7 @@ class BatchedModelPlayer(AbstractPlayer):
             self.mcts_terminal_state_initial_rollouts,
             self.mcts_batched_leaf_count,
             self.mcts_virtual_loss,
+            self.mcts_forced_playout_k,
             root_node,
         )
 

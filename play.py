@@ -269,8 +269,9 @@ def model_player_selfplay(
             model_player.mcts_forced_playout_k,
             root_node,
         )
-        action_probabilities = root_node.sample_child_visit_probabilities(
-            model_player.action_softmax_temperature
+        action_probabilities = root_node.policy_targets(
+            model_player.action_softmax_temperature,
+            model_player.mcts_forced_playout_k,
         )
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
