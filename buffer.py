@@ -21,6 +21,7 @@ class Config(config.Config):
     outcome_target_shape: tuple[int, ...]
     points_target_shape: tuple[int, ...]
     policy_target_shape: tuple[int, ...]
+    path: pathlib.Path | None = None
 
 
 class ReplayBuffer:
@@ -42,6 +43,7 @@ class ReplayBuffer:
         outcome_target_shape: tuple[int, ...],
         points_target_shape: tuple[int, ...],
         policy_target_shape: tuple[int, ...],
+        path: pathlib.Path | None = None,
     ):
         self.max_size = max_size
         self.spatial_input_buffer = np.empty(
@@ -61,6 +63,7 @@ class ReplayBuffer:
             (max_size, *points_target_shape), dtype=np.float32
         )
         self.count = 0
+        self.path = path
 
     @classmethod
     def from_config(cls, config: Config) -> typing.Self:
@@ -178,6 +181,14 @@ class ReplayBuffer:
         for _ in range(batch_count):
             yield self.sample_batch(batch_size)
 
-    def save(self, path: pathlib.Path):
+    def save(self, path: pathlib.Path | None = None) -> pathlib.Path:
+        if path is None:
+            path = self.path
+
+        assert path is not None, (
+            "If path is not provided, it must be provided during initialization"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump(self, f)
+        return path
