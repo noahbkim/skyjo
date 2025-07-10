@@ -369,6 +369,7 @@ class BatchedModelPlayerConfig(config.Config):
     mcts_terminal_state_initial_rollouts: int
     mcts_batched_leaf_count: int
     mcts_virtual_loss: float
+    mcts_forced_playout_k: float | None
 
 
 class BatchedModelPlayer(AbstractPlayer):

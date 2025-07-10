@@ -244,7 +244,7 @@ class DecisionStateNode:
                     )
                     / (child_value - most_visited_child_ucb)
                 )
-                visit_counts[action] -= max(0, forced_visits)
+                visit_counts[action] -= min(max(0, forced_visits), visit_counts[action])
 
         if temperature == 0:
             visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
@@ -857,7 +857,7 @@ def run_mcts(
                 virtual_loss,
             ):
                 pending_leaf_count -= 1
-    print(f"Mean search depth: {sum(search_depths) / len(search_depths)}")
+    # print(f"Mean search depth: {sum(search_depths) / len(search_depths)}")
     return root_node
 
 

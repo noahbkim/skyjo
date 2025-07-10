@@ -11,6 +11,7 @@ import explain
 import faceoff
 import factory
 import mcts
+import parallel_mcts
 import player
 import predictor
 import skyjo as sj
@@ -142,7 +143,7 @@ if __name__ == "__main__":
         initial_model=model,
     )
     training_config = train.TrainConfig(
-        epochs=10,
+        epochs=3,
         batch_size=256,
         learn_rate=1e-3,
         loss_function=train_utils.base_policy_value_loss,
@@ -150,7 +151,7 @@ if __name__ == "__main__":
     learn_config = train.LearnConfig(
         torch_device=device,
         learn_steps=1000,
-        games_generated_per_iteration=250,
+        games_generated_per_iteration=1000,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
             model, validation_batch
@@ -159,9 +160,9 @@ if __name__ == "__main__":
         model_faceoff_function=lambda model, previous_model: model_faceoff_threshold(
             model,
             previous_model,
-            250,
-            0.5,
-            0.55,
+            100,
+            1.0,
+            0.50,
             create_random_potential_clear_position,
         ),
         **training_config.kwargs("training"),
@@ -182,14 +183,28 @@ if __name__ == "__main__":
     #     dirichlet_epsilon=0.25,
     # )
     mcts_config = mcts.MCTSConfig(
-        iterations=1600,
+        iterations=100,
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
+        forced_playout_k=2,
     )
     model_player_config = player.ModelPlayerConfig(
         action_softmax_temperature=0.5,
         **mcts_config.kwargs("mcts"),
+    )
+    batched_mcts_config = parallel_mcts.BatchedMCTSConfig(
+        iterations=1600,
+        after_state_evaluate_all_children=False,
+        terminal_state_initial_rollouts=10,
+        dirichlet_epsilon=0.25,
+        batched_leaf_count=16,
+        virtual_loss=0.5,
+        forced_playout_k=2,
+    )
+    batched_model_player_config = player.BatchedModelPlayerConfig(
+        action_softmax_temperature=1.0,
+        **batched_mcts_config.kwargs("mcts"),
     )
     training_data_buffer_config = buffer.Config(
         max_size=100_000,
@@ -204,22 +219,54 @@ if __name__ == "__main__":
         policy_target_shape=(sj.MASK_SIZE,),
         outcome_target_shape=(players,),
         points_target_shape=(players,),
+        path=pathlib.Path(
+            f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/buffer.pkl"
+        ),
     )
-    train.run_multiprocessed_selfplay_with_local_predictor_learning(
+    # train.run_multiprocessed_selfplay_with_local_predictor_learning(
+    #     process_count=9,
+    #     players=players,
+    #     model_factory=model_factory,
+    #     learn_config=learn_config,
+    #     training_config=training_config,
+    #     # predictor_config=predictor_config,
+    #     training_data_buffer_config=training_data_buffer_config,
+    #     model_player_config=model_player_config,
+    #     start_state_generator=create_random_potential_clear_position,
+    #     outcome_rollouts=100,
+    #     debug=debug,
+    #     log_level=logging.DEBUG if debug else logging.INFO,
+    #     log_dir=log_dir,
+    # )
+    train.run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
         process_count=9,
         players=players,
         model_factory=model_factory,
         learn_config=learn_config,
         training_config=training_config,
-        # predictor_config=predictor_config,
         training_data_buffer_config=training_data_buffer_config,
-        model_player_config=model_player_config,
+        batched_model_player_config=batched_model_player_config,
         start_state_generator=create_random_potential_clear_position,
         outcome_rollouts=100,
         debug=debug,
         log_level=logging.DEBUG if debug else logging.INFO,
         log_dir=log_dir,
     )
+    # train.run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
+    #     process_count=9,
+    #     players=players,
+    #     model_factory=model_factory,
+    #     learn_config=learn_config,
+    #     training_config=training_config,
+    #     predictor_config=predictor_config,
+    #     training_data_buffer_config=training_data_buffer_config,
+    #     batched_model_player_config=batched_model_player_config,
+    #     start_state_generator=create_random_potential_clear_position,
+    #     outcome_rollouts=100,
+    #     debug=debug,
+    #     log_level=logging.DEBUG if debug else logging.INFO,
+    #     log_dir=log_dir,
+    # )
     # train.learn(
     #     model,
     #     models_dir,

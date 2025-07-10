@@ -352,42 +352,46 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
     logging.info(f"training data buffer config: {training_data_buffer_config}")
     logging.info(f"batched model player config: {batched_model_player_config}")
     logging.info(f"Using start position generator: {start_state_generator}")
+    predictor_process = None
+    selfplay_actors = []
     try:
         # Predictor setup
         predictor_model_update_queue = mp.Queue()
         predictor_input_queues = {
-            i: predictor.PredictorInputQueue.from_config(
+            i: predictor.PredictorInputQueue(
                 queue_id=i,
-                config=predictor_config,
+                max_batch_size=predictor_config.max_batch_size,
             )
-            for i in range(learn_config.selfplay_processes)
+            for i in range(process_count)
         }
         predictor_output_queues = {
-            i: predictor.PredictorOutputQueue.from_config(
+            i: predictor.PredictorOutputQueue(
                 queue_id=i,
-                config=predictor_config,
+                max_batch_size=predictor_config.max_batch_size,
             )
-            for i in range(learn_config.selfplay_processes)
+            for i in range(process_count)
         }
-        predictor_process = predictor.PredictorProcess.from_config(
+        predictor_process = predictor.PredictorProcess(
             model_factory,
             predictor_model_update_queue,
             predictor_input_queues,
             predictor_output_queues,
-            config=predictor_config,
+            **predictor_config.kwargs(),
             debug=debug,
+            log_level=log_level,
+            log_dir=log_dir,
         )
         predictor_process.start()
         predictor_clients = {
-            i: predictor.MultiProcessPredictorClient(
+            i: predictor.DistributedPredictorClient(
                 predictor_input_queues[i], predictor_output_queues[i]
             )
-            for i in range(learn_config.selfplay_processes)
+            for i in range(process_count)
         }
 
         # Selfplay setup
         selfplay_data_queue = mp.Queue()
-        logging.info(f"Starting {learn_config.selfplay_processes} selfplay processes")
+        logging.info(f"Starting {process_count} selfplay processes")
         selfplay_actors = [
             play.SelfplayGenerator(
                 id=f"selfplay_{i}",
@@ -401,82 +405,28 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
-                play_callable=play.model_player_selfplay,
+                play_callable=play.batched_model_player_selfplay,
             )
             for i in range(process_count)
         ]
         for actor in selfplay_actors:
             actor.start()
-
-        # Main training loop
-        training_data_buffer = buffer.ReplayBuffer.from_config(
-            training_data_buffer_config
+        training_data_buffer = buffer.ReplayBuffer(
+            **training_data_buffer_config.kwargs()
         )
-        logging.info(f"Training for {learn_config.iterations} iterations")
-        model = factory.get_latest_model()
-        model.set_device(learn_config.torch_device)
-        start_time = time.time()
-        games_count = 0
-        last_games_count = 0
-        for iteration in range(learn_config.iterations):
-            if (
-                iteration % learn_config.validation_interval == 0
-                and learn_config.validation_function is not None
-            ):
-                learn_config.validation_function(model)
-
-            if iteration > 0 and iteration % learn_config.update_model_interval == 0:
-                logging.info(
-                    f"Training data buffer length: {len(training_data_buffer)}, "
-                    f"total buffer size: {len(training_data_buffer)}"
-                )
-                logging.info(
-                    f"Ran {learn_config.update_model_interval} train steps "
-                    f"in {time.time() - start_time} seconds"
-                )
-                saved_path = factory.save_model(model)
-                logging.info(f"Saved model to {saved_path}")
-                predictor_model_update_queue.put(f"new_model {saved_path}")
-                start_time = time.time()
-
-            # Add training data from the queue into the buffer
-            game_generation_start_time = time.time()
-            while (
-                not selfplay_data_queue.empty()
-                or games_count - last_games_count
-                < learn_config.minimum_games_generated_per_iteration
-            ):
-                game_data = selfplay_data_queue.get()
-                training_data_buffer.add_game_data(game_data)
-                games_count += 1
-
-            game_generation_time = time.time() - game_generation_start_time
-            logging.info(
-                f"Generated {games_count - last_games_count} games "
-                f"in {game_generation_time} seconds"
-            )
-            last_games_count = games_count
-
-            training_start_time = time.time()
-            for i in range(learn_config.training_epochs):
-                mean_training_loss = train_epoch(
-                    model,
-                    training_data_buffer,
-                    training_batch_size=training_config.batch_size,
-                    learn_rate=training_config.learn_rate,
-                    loss_function=training_config.loss_function,
-                )
-                logging.info(f"Epoch {i} mean training loss: {mean_training_loss}")
-            training_time = time.time() - training_start_time
-            logging.info(
-                f"Trained for {learn_config.training_epochs} epochs with "
-                f"{len(training_data_buffer) // training_config.training_batch_size + 1} batches in {training_time} seconds"
-            )
+        learn(
+            model_factory=model_factory,
+            predictor_clients=predictor_clients,
+            training_data_buffer=training_data_buffer,
+            training_data_queue=selfplay_data_queue,
+            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
+        )
 
     finally:
-        predictor_process.cleanup(timeout=1)
+        if predictor_process is not None:
+            predictor_process.cleanup(timeout=1)
         for actor in selfplay_actors:
-            actor.cleanup()
+            actor.cleanup(timeout=1)
 
 
 def run_multiprocessed_selfplay_with_local_predictor_learning(
@@ -544,6 +494,91 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
                 log_level=log_level,
                 log_dir=log_dir,
                 play_callable=play.model_player_selfplay,
+            )
+            for i in range(process_count)
+        ]
+        for actor in selfplay_actors:
+            actor.start()
+
+        # Main training loop
+        learn(
+            model_factory=model_factory,
+            predictor_clients=predictor_clients,
+            training_data_buffer=training_data_buffer,
+            training_data_queue=selfplay_data_queue,
+            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
+        )
+
+    finally:
+        for actor in selfplay_actors:
+            actor.cleanup(timeout=5)
+
+
+def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
+    process_count: int,
+    players: int,
+    model_factory: factory.SkyNetModelFactory,
+    learn_config: LearnConfig,
+    training_config: TrainConfig,
+    training_data_buffer_config: buffer.Config,
+    batched_model_player_config: player.BatchedModelPlayerConfig,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    outcome_rollouts: int = 1,
+    debug: bool = False,
+    log_level: int = logging.INFO,
+    log_dir: pathlib.Path | None = None,
+):
+    """Runs a distributed training loop.
+
+    Runs a loop that:
+    - Creates selfplay actors each with local predictor
+    - Collects training data from the actors
+    - Trains the model on the collected data
+    - Saves the model periodically
+    - Validates the model periodically
+    - Terminates the actors and predictor process
+    - Joins the actors and predictor process
+    """
+    logging.info(f"learning config: {learn_config}")
+    logging.info(f"training config: {training_config}")
+    logging.info(f"batched model player config: {batched_model_player_config}")
+    logging.info(f"Using start position generator: {start_state_generator}")
+    selfplay_actors = []
+    try:
+        training_data_buffer = buffer.ReplayBuffer(
+            **training_data_buffer_config.kwargs()
+        )
+
+        # Predictor clients setup
+        model_update_queues = {i: mp.Queue() for i in range(process_count)}
+        predictor_clients = {
+            i: predictor.LocalPredictorClient(
+                model=model_factory.get_latest_model(),
+                # TODO: make this a parameter (but properly not just add parameter)
+                max_batch_size=512,
+                factory=model_factory,
+                model_update_queue=model_update_queues[i],
+            )
+            for i in range(process_count)
+        }
+
+        # Selfplay setup
+        selfplay_data_queue = mp.Queue()
+        logging.info(f"Starting {process_count} selfplay processes")
+        selfplay_actors = [
+            play.SelfplayGenerator(
+                id=f"selfplay_{i}",
+                player=player.BatchedModelPlayer(
+                    predictor_clients[i], **batched_model_player_config.kwargs()
+                ),
+                player_count=players,
+                game_data_queue=selfplay_data_queue,
+                start_state_generator=start_state_generator,
+                outcome_rollouts=outcome_rollouts,
+                debug=debug,
+                log_level=log_level,
+                log_dir=log_dir,
+                play_callable=play.batched_model_player_selfplay,
             )
             for i in range(process_count)
         ]

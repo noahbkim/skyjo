@@ -304,6 +304,78 @@ def model_player_selfplay(
     return game_history
 
 
+def batched_model_player_selfplay(
+    model_players: list[player.BatchedModelPlayer],
+    debug: bool = False,
+    start_state: sj.Skyjo | None = None,
+    stop_event: mp.Event | None = None,
+) -> GameHistory:
+    if start_state is None:
+        game_state = sj.new(players=len(model_players))
+        game_state = sj.start_round(game_state)
+    else:
+        game_state = start_state
+
+    if debug:
+        logging.info(f"{sj.visualize_state(game_state)}")
+
+    root_node = None
+    game_history = []
+    while (stop_event is None or not stop_event.is_set()) and not sj.get_game_over(
+        game_state
+    ):
+        model_player = model_players[sj.get_player(game_state)]
+        mcts_iterations = model_player.mcts_iterations
+        if root_node is not None:
+            mcts_iterations -= root_node.visit_count
+        root_node = parallel_mcts.run_mcts(
+            game_state,
+            model_player.predictor_client,
+            mcts_iterations,
+            model_player.mcts_dirichlet_epsilon,
+            model_player.mcts_after_state_evaluate_all_children,
+            model_player.mcts_terminal_state_initial_rollouts,
+            model_player.mcts_batched_leaf_count,
+            model_player.mcts_virtual_loss,
+            model_player.mcts_forced_playout_k,
+            root_node,
+        )
+        action_probabilities = root_node.policy_targets(
+            model_player.action_softmax_temperature,
+            model_player.mcts_forced_playout_k,
+        )
+
+        action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
+        assert sj.actions(game_state)[action]
+        game_history.append((game_state, action, action_probabilities))
+        if sj.is_action_random(action, game_state):
+            game_state = sj.apply_action(game_state, action)
+            if not sj.get_game_over(game_state):
+                root_node = root_node.children[action].children.get(
+                    sj.hash_skyjo(game_state)
+                )
+        else:
+            game_state = sj.apply_action(game_state, action)
+            if not sj.get_game_over(game_state):
+                root_node = root_node.children[action]
+
+        if debug:
+            print(sj.get_action_name(action))
+            logging.info(f"ACTION PROBABILITIES\n{action_probabilities}")
+            logging.info(f"ACTION: {sj.get_action_name(action)}")
+            logging.info(f"{sj.visualize_state(game_state)}")
+
+    game_history.append((game_state, None, None))
+    if debug:
+        outcome = skynet.skyjo_to_state_value(game_state)
+        fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
+        logging.info("GAME OVER")
+        logging.info(f"OUTCOME: {outcome}")
+        logging.info(f"SCORES: {fixed_perspective_score}")
+        logging.info(f"TOTAL TURNS: {sj.get_turn(game_state)}")
+    return game_history
+
+
 # MARK: Data Generation Processes
 
 
