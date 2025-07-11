@@ -1,4 +1,5 @@
 import logging
+import typing
 
 import player
 import skyjo as sj
@@ -7,10 +8,13 @@ import skynet
 
 def single_game_faceoff(
     players: list[player.AbstractPlayer],
+    start_state: sj.Skyjo | None = None,
     debug: bool = False,
 ):
-    game_state = sj.new(players=len(players))
-    game_state = sj.start_round(game_state)
+    if start_state is None:
+        start_state = sj.new(players=len(players))
+        start_state = sj.start_round(start_state)
+    game_state = start_state
 
     if debug:
         print(sj.visualize_state(game_state))
@@ -39,36 +43,38 @@ def single_game_faceoff(
 def model_single_game_faceoff(
     model1: skynet.SkyNet,
     model2: skynet.SkyNet,
-    mcts_iterations: int = 10,
-    temperature: float = 0.5,
-    afterstate_initial_realizations: int = 10,
+    temperature: float = 0.1,
+    start_state: sj.Skyjo | None = None,
 ):
-    model1_player = player.ModelPlayer(
-        model1, temperature, mcts_iterations, afterstate_initial_realizations
+    model1_player = player.PureModelPlayer(
+        model1,
+        temperature,
     )
-    model2_player = player.ModelPlayer(
-        model2, temperature, mcts_iterations, afterstate_initial_realizations
+    model2_player = player.PureModelPlayer(
+        model2,
+        temperature,
     )
-    return single_game_faceoff([model1_player, model2_player])
+    return single_game_faceoff([model1_player, model2_player], start_state)
 
 
 def model_faceoff(
     model1: skynet.SkyNet,
     model2: skynet.SkyNet,
     rounds: int = 1,
-    mcts_iterations: int = 10,
     temperature: float = 0.0,
-    afterstate_initial_realizations: int = 10,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
 ):
     model1_wins, model2_wins = 0, 0
     model1_point_differential, model2_point_differential = 0, 0
     for _ in range(rounds):
+        start_state = (
+            start_state_generator() if start_state_generator is not None else None
+        )
         outcome, round_scores = model_single_game_faceoff(
             model1,
             model2,
-            mcts_iterations,
             temperature,
-            afterstate_initial_realizations,
+            start_state,
         )
         if skynet.state_value_for_player(outcome, 0) == 1:
             model1_wins += 1
@@ -81,9 +87,8 @@ def model_faceoff(
         outcome2, round_scores2 = model_single_game_faceoff(
             model2,
             model1,
-            mcts_iterations,
             temperature,
-            afterstate_initial_realizations,
+            start_state,
         )
         if skynet.state_value_for_player(outcome2, 0) == 1:
             model2_wins += 1
@@ -93,6 +98,7 @@ def model_faceoff(
             model1_wins += 1
             assert round_scores2[1] <= round_scores2[0]
             model2_point_differential += round_scores2[0] - round_scores2[1]
+    logging.info(f"Model 1 wins: {model1_wins}, Model 2 wins: {model2_wins}")
     logging.info(
         f"Model 1 avg point differential: {model1_point_differential / (2 * rounds)} Model 2 avg point differential: {model2_point_differential / (2 * rounds)}"
     )

@@ -1,12 +1,27 @@
+import dataclasses
 import pathlib
 import pickle
 import typing
 
 import numpy as np
 
+import config
 import play
 import skyjo as sj
 import skynet
+import train_utils
+
+
+@dataclasses.dataclass(slots=True)
+class Config(config.Config):
+    max_size: int
+    spatial_input_shape: tuple[int, ...]
+    non_spatial_input_shape: tuple[int, ...]
+    action_mask_shape: tuple[int, ...]
+    outcome_target_shape: tuple[int, ...]
+    points_target_shape: tuple[int, ...]
+    policy_target_shape: tuple[int, ...]
+    path: pathlib.Path | None = None
 
 
 class ReplayBuffer:
@@ -19,94 +34,121 @@ class ReplayBuffer:
     from across all games.
     """
 
-    def __init__(self, max_size: int):
+    def __init__(
+        self,
+        max_size: int,
+        spatial_input_shape: tuple[int, ...],
+        non_spatial_input_shape: tuple[int, ...],
+        action_mask_shape: tuple[int, ...],
+        outcome_target_shape: tuple[int, ...],
+        points_target_shape: tuple[int, ...],
+        policy_target_shape: tuple[int, ...],
+        path: pathlib.Path | None = None,
+    ):
         self.max_size = max_size
-        self.spatial_input_buffer = []
-        self.non_spatial_input_buffer = []
-        self.policy_target_buffer = []
-        self.outcome_target_buffer = []
-        self.points_target_buffer = []
-        self.action_masks = []
+        self.spatial_input_buffer = np.empty(
+            (max_size, *spatial_input_shape), dtype=np.float32
+        )
+        self.non_spatial_input_buffer = np.empty(
+            (max_size, *non_spatial_input_shape), dtype=np.float32
+        )
+        self.action_masks = np.empty((max_size, *action_mask_shape), dtype=np.float32)
+        self.policy_target_buffer = np.empty(
+            (max_size, *policy_target_shape), dtype=np.float32
+        )
+        self.outcome_target_buffer = np.empty(
+            (max_size, *outcome_target_shape), dtype=np.float32
+        )
+        self.points_target_buffer = np.empty(
+            (max_size, *points_target_shape), dtype=np.float32
+        )
         self.count = 0
+        self.path = path
 
     @classmethod
-    def load(cls, path: pathlib.Path) -> "ReplayBuffer":
+    def from_config(cls, config: Config) -> typing.Self:
+        return cls(
+            config.max_size,
+            config.spatial_input_shape,
+            config.non_spatial_input_shape,
+            config.action_mask_shape,
+            config.outcome_target_shape,
+            config.points_target_shape,
+            config.policy_target_shape,
+        )
+
+    @classmethod
+    def load(cls, path: pathlib.Path) -> typing.Self:
         with open(path, "rb") as f:
             return pickle.load(f)
 
     def __len__(self):
-        return len(self.spatial_input_buffer)
+        return min(self.count, self.max_size)
 
     def add(
         self,
         game_state: sj.Skyjo,
-        policy_target: np.ndarray,
         outcome_target: np.ndarray,
         points_target: np.ndarray,
+        policy_target: np.ndarray,
     ):
-        if self.count < self.max_size:
-            self.spatial_input_buffer.append(skynet.get_spatial_state_numpy(game_state))
-            self.non_spatial_input_buffer.append(
-                skynet.get_non_spatial_state_numpy(game_state)
-            )
-            self.policy_target_buffer.append(policy_target)
-            self.outcome_target_buffer.append(outcome_target)
-            self.points_target_buffer.append(points_target)
-            self.action_masks.append(sj.actions(game_state))
-        else:
-            self.spatial_input_buffer[self.count % self.max_size] = (
-                skynet.get_spatial_state_numpy(game_state)
-            )
-            self.non_spatial_input_buffer[self.count % self.max_size] = (
-                skynet.get_non_spatial_state_numpy(game_state)
-            )
-            self.policy_target_buffer[self.count % self.max_size] = policy_target
-            self.outcome_target_buffer[self.count % self.max_size] = outcome_target
-            self.points_target_buffer[self.count % self.max_size] = points_target
-            self.action_masks[self.count % self.max_size] = sj.actions(game_state)
+        buffer_index = self.count
+        if self.count >= self.max_size:
+            buffer_index = self.count % self.max_size
+        self.spatial_input_buffer[buffer_index] = skynet.get_spatial_state_numpy(
+            game_state
+        )
+        self.non_spatial_input_buffer[buffer_index] = (
+            skynet.get_non_spatial_state_numpy(game_state)
+        )
+        self.action_masks[buffer_index] = sj.actions(game_state).astype(np.float32)
+        self.policy_target_buffer[buffer_index] = policy_target
+        self.outcome_target_buffer[buffer_index] = outcome_target
+        self.points_target_buffer[buffer_index] = points_target
         self.count += 1
 
-    def add_game_data(self, game_data: list[tuple]):
+    def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for game_state, policy_target, outcome_target, points_target in game_data:
-            self.add(game_state, policy_target, outcome_target, points_target)
 
-    def add_game_data_with_symmetry(self, game_data: list[tuple]):
+        for game_state, outcome_target, points_target, policy_target, _ in game_data:
+            self.add(game_state, outcome_target, points_target, policy_target)
+
+    def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for game_state, policy_target, outcome_target, points_target in game_data:
+        for game_state, outcome_target, points_target, policy_target, _ in game_data:
             for (
                 symmetric_game_state,
                 symmetric_policy_target,
             ) in play.get_skyjo_symmetries(game_state, policy_target):
                 self.add(
                     symmetric_game_state,
-                    symmetric_policy_target,
                     outcome_target,
                     points_target,
+                    symmetric_policy_target,
                 )
 
-    def sample_element(self) -> skynet.TrainingDataPoint:
+    def sample_element(self) -> train_utils.TrainingDataPoint:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
-            == len(self.policy_target_buffer)
+            == len(self.action_masks)
             == len(self.outcome_target_buffer)
             == len(self.points_target_buffer)
-            == len(self.action_masks)
+            == len(self.policy_target_buffer)
         ), "All buffers must be the same length"
-        assert len(self.spatial_input_buffer) > 0, "Buffer is empty"
+        assert len(self) > 0, "Buffer is empty"
         # Select a random index first
         index = np.random.randint(len(self.spatial_input_buffer))
         return (
             self.spatial_input_buffer[index],
             self.non_spatial_input_buffer[index],
-            self.policy_target_buffer[index],
+            self.action_masks[index],
             self.outcome_target_buffer[index],
             self.points_target_buffer[index],
-            self.action_masks[index],
+            self.policy_target_buffer[index],
         )
 
-    def sample_batch(self, batch_size: int) -> skynet.TrainingBatch:
+    def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
@@ -115,30 +157,38 @@ class ReplayBuffer:
             == len(self.points_target_buffer)
             == len(self.action_masks)
         ), "All buffers must be the same length"
-        assert len(self.spatial_input_buffer) > 0, "Buffer is empty"
-        assert batch_size <= len(self.spatial_input_buffer), (
-            f"Batch size {batch_size} cannot be larger than buffer size {len(self.spatial_input_buffer)} when sampling without replacement."
+        assert len(self) > 0, "Buffer is empty"
+        assert batch_size <= len(self), (
+            f"Batch size {batch_size} cannot be larger than buffer size {len(self)} when sampling without replacement."
         )
         indices = np.random.choice(
-            len(self.spatial_input_buffer), size=batch_size
-        )  # replace=False is ~30,0000x slower
+            len(self), size=batch_size
+        )  # replace=False is VERY slow
         # Retrieve elements using the sampled indices
         batch = (
-            np.array([self.spatial_input_buffer[i] for i in indices]),
-            np.array([self.non_spatial_input_buffer[i] for i in indices]),
-            np.array([self.policy_target_buffer[i] for i in indices]),
-            np.array([self.outcome_target_buffer[i] for i in indices]),
-            np.array([self.points_target_buffer[i] for i in indices]),
-            np.array([self.action_masks[i] for i in indices]),
+            self.spatial_input_buffer[indices],
+            self.non_spatial_input_buffer[indices],
+            self.action_masks[indices],
+            self.outcome_target_buffer[indices],
+            self.points_target_buffer[indices],
+            self.policy_target_buffer[indices],
         )
         return batch
 
     def generate_training_batches(
         self, batch_size: int, batch_count: int
-    ) -> typing.Generator[skynet.TrainingBatch, None, None]:
+    ) -> typing.Generator[train_utils.TrainingBatch, None, None]:
         for _ in range(batch_count):
             yield self.sample_batch(batch_size)
 
-    def save(self, path: pathlib.Path):
+    def save(self, path: pathlib.Path | None = None) -> pathlib.Path:
+        if path is None:
+            path = self.path
+
+        assert path is not None, (
+            "If path is not provided, it must be provided during initialization"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump(self, f)
+        return path

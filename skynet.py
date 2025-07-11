@@ -60,22 +60,6 @@ def to_state_value(
     return np.roll(value_output, shift=curr_player)
 
 
-TrainingDataPoint: typing.TypeAlias = tuple[
-    np.ndarray[tuple[int], np.float32],  # spatial input
-    np.ndarray[tuple[int], np.float32],  # non-spatial input
-    np.ndarray[tuple[int], np.float32],  # policy target
-    np.ndarray[tuple[int], np.float32],  # outcome target
-    np.ndarray[tuple[int], np.float32],  # points target
-]
-TrainingBatch: typing.TypeAlias = tuple[
-    np.ndarray[tuple[int, int, int, int, int], np.float32],  # spatial input
-    np.ndarray[tuple[int, int], np.float32],  # non-spatial input
-    np.ndarray[tuple[int, int], np.float32],  # policy target
-    np.ndarray[tuple[int, int], np.float32],  # outcome target
-    np.ndarray[tuple[int, int], np.float32],  # points target
-]
-
-
 def get_spatial_state_numpy(
     skyjo: sj.Skyjo,
 ) -> np.ndarray[tuple[int], np.float32]:
@@ -86,49 +70,6 @@ def get_non_spatial_state_numpy(
     skyjo: sj.Skyjo,
 ) -> np.ndarray[tuple[int], np.float32]:
     return sj.get_game(skyjo).astype(np.float32)
-
-
-# MARK: Loss
-
-
-def compute_policy_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    # loss = -(target * torch.log(predicted + 1e-9)).sum(
-    #     dim=1
-    # )  # add small epsilon to avoid log(0)
-    # return loss.mean()
-    return nn.CrossEntropyLoss(reduction="mean")(predicted, target)
-
-
-def compute_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    return nn.MSELoss(reduction="mean")(predicted, target)
-
-
-def base_total_loss(
-    model_output: SkyNetOutput,
-    value_targets: np.ndarray[tuple[int, int], np.float32],
-    points_targets: np.ndarray[tuple[int, int], np.float32],
-    policy_targets: np.ndarray[tuple[int, int], np.float32],
-    value_scale: float = 3.0,
-) -> torch.Tensor:
-    value_output, points_output, policy_output = model_output
-    assert policy_output.shape == policy_targets.shape, (
-        f"expected policy_output of shape {policy_targets.shape}, got {policy_output.shape}"
-    )
-    assert value_output.shape == value_targets.shape, (
-        f"expected value_output of shape {value_targets.shape}, got {value_output.shape}"
-    )
-    assert points_output.shape == points_targets.shape, (
-        f"expected points_output of shape {points_targets.shape}, got {points_output.shape}"
-    )
-    policy_loss = compute_policy_loss(
-        policy_output,
-        torch.tensor(policy_targets, device=policy_output.device, dtype=torch.float32),
-    )
-    value_loss = compute_value_loss(
-        value_output,
-        torch.tensor(value_targets, device=value_output.device, dtype=torch.float32),
-    )
-    return policy_loss + value_scale * value_loss
 
 
 # MARK: Model Output
@@ -214,11 +155,22 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     return value_output.numpy(), points_output.numpy(), policy_output.numpy()
 
 
+def numpy_to_tensors(
+    *numpy_arrays: np.ndarray[tuple[int, ...], np.float32],
+    device: torch.device = torch.device("cpu"),
+    dtype: torch.dtype = torch.float32,
+) -> tuple[torch.Tensor, ...]:
+    return tuple(
+        torch.tensor(array, dtype=dtype, device=device) for array in numpy_arrays
+    )
+
+
 @dataclasses.dataclass(slots=True)
 class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]
     points_output: np.ndarray[tuple[int], np.float32]
     policy_output: np.ndarray[tuple[int], np.float32]
+    policy_logits: np.ndarray[tuple[int], np.float32] | None = None
 
     @classmethod
     def from_skynet_output(
@@ -253,14 +205,22 @@ class SkyNetPrediction:
             value_output=value_numpy,
             points_output=points_numpy,
             policy_output=policy_probabilities_numpy,
+            policy_logits=policy_logits_numpy,
         )
 
     def __str__(self) -> str:
-        return f"{self.policy_output}\n{self.value_output}\n{self.points_output}"
+        return f"{self.value_output}\n{self.points_output}\n{self.policy_output}"
 
     def mask_and_renormalize(self, valid_actions_mask: np.ndarray[tuple[int], np.int8]):
         self.policy_output = mask_and_renormalize_policy_probabilities(
             self.policy_output, valid_actions_mask
+        )
+
+    def to_output(self) -> SkyNetOutput:
+        return (
+            torch.tensor(np.expand_dims(self.value_output, 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(self.points_output, 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(self.policy_logits, 0), dtype=torch.float32),
         )
 
 
@@ -305,7 +265,7 @@ class SimplePolicyLogitTail(nn.Module):
         logits = self.mlp(x)
         if mask is not None:
             logits = logits.masked_fill(~mask.bool(), -1e10)
-        return x
+        return logits
 
 
 class SimpleValueTail(nn.Module):
@@ -322,7 +282,7 @@ class SimpleValueTail(nn.Module):
                 in_features=self.input_dimensions,
                 out_features=self.players,
             ),
-            nn.Sigmoid(),
+            nn.Softmax(dim=-1),
         )
 
     def forward(self, x):
@@ -351,18 +311,14 @@ class EquivariantPolicyLogitTail(nn.Module):
 
     def __init__(
         self,
-        card_embedding_dimensions: int,
-        column_embedding_dimensions: int,
-        board_embedding_dimensions: int,
+        embedding_dimensions: int,
         global_state_embedding_dimensions: int,
         non_positional_actions: int = 4,
         rows: int = 3,
         columns: int = 4,
     ):
         super(EquivariantPolicyLogitTail, self).__init__()
-        self.card_embedding_dimensions = card_embedding_dimensions
-        self.column_embedding_dimensions = column_embedding_dimensions
-        self.board_embedding_dimensions = board_embedding_dimensions
+        self.embedding_dimensions = embedding_dimensions
         self.global_state_embedding_dimensions = global_state_embedding_dimensions
         self.non_positional_actions = non_positional_actions
         self.rows = rows
@@ -372,31 +328,40 @@ class EquivariantPolicyLogitTail(nn.Module):
         # with just a multi-layer perceptron (MLP). But, this could be swapped
         # for an self-attention block -> MLP or something else as long as the
         # transformation process preserves equivariance.
-        self.flip_logits_mlp = nn.Sequential(
+        self.positional_logits_mlp = nn.Sequential(
+            # nn.Linear(
+            #     in_features=self.embedding_dimensions
+            #     # + self.column_embedding_dimensions
+            #     + self.global_state_embedding_dimensions,
+            #     out_features=self.embedding_dimensions
+            #     # + self.column_embedding_dimensions
+            #     + self.global_state_embedding_dimensions,
+            # ),
+            # nn.ReLU(inplace=True),
             nn.Linear(
-                in_features=self.card_embedding_dimensions
+                in_features=self.embedding_dimensions
+                # + self.column_embedding_dimensions
                 + self.global_state_embedding_dimensions,
-                out_features=self.card_embedding_dimensions,
+                out_features=2,
             ),
-            nn.ReLU(inplace=True),
-            nn.Linear(
-                in_features=self.card_embedding_dimensions,
-                out_features=1,
-            ),
-        )
-        self.replace_logits_mlp = nn.Sequential(
-            nn.Linear(
-                in_features=self.card_embedding_dimensions
-                + self.global_state_embedding_dimensions,
-                out_features=self.card_embedding_dimensions,
-            ),
-            nn.ReLU(inplace=True),
-            nn.Linear(
-                in_features=self.card_embedding_dimensions,
-                out_features=1,
-            ),
+            # nn.Linear(
+            #     in_features=self.card_embedding_dimensions
+            #     + self.column_embedding_dimensions
+            #     + self.global_state_embedding_dimensions,
+            #     out_features=self.card_embedding_dimensions,
+            # ),
+            # nn.ReLU(inplace=True),
+            # nn.Linear(
+            #     in_features=self.card_embedding_dimensions,
+            #     out_features=2,
+            # ),
         )
         self.non_positional_logits_mlp = nn.Sequential(
+            # nn.Linear(
+            #     in_features=self.global_state_embedding_dimensions,
+            #     out_features=self.global_state_embedding_dimensions,
+            # ),
+            # nn.ReLU(inplace=True),
             nn.Linear(
                 in_features=self.global_state_embedding_dimensions,
                 out_features=self.non_positional_actions,
@@ -405,35 +370,33 @@ class EquivariantPolicyLogitTail(nn.Module):
 
     def forward(
         self,
-        current_board_card_embeddings: torch.Tensor,
+        flattened_card_embeddings: torch.Tensor,
         global_state_tensor: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        flattened_card_embeddings = einops.rearrange(
-            current_board_card_embeddings,
-            "b h w f -> b (h w) f",
-        )  # only current player's board
         expanded_global_state_tensor = einops.repeat(
             global_state_tensor,
             "b f -> b (h w) f",
             h=self.rows,
             w=self.columns,
         )
-        board_cards_with_global_context = torch.cat(
+        # expanded_column_summaries = einops.repeat(
+        #     column_summaries,
+        #     "b w f -> b (h w) f",
+        #     h=self.rows,
+        # )
+        expanded_global_state_tensor = torch.cat(
             (
                 flattened_card_embeddings,
+                # expanded_column_summaries,
                 expanded_global_state_tensor,
             ),
             dim=2,
         )
-        flip_logits = einops.rearrange(
-            self.flip_logits_mlp(board_cards_with_global_context),
-            "... 1 -> ...",
-        )
-        replace_logits = einops.rearrange(
-            self.replace_logits_mlp(board_cards_with_global_context),
-            "... 1 -> ...",
-        )
+
+        positional_logits = self.positional_logits_mlp(expanded_global_state_tensor)
+        flip_logits = positional_logits[:, :, 0]
+        replace_logits = positional_logits[:, :, 1]
         non_positional_logits = self.non_positional_logits_mlp(global_state_tensor)
         logits = torch.cat((non_positional_logits, flip_logits, replace_logits), dim=1)
         if mask is not None:
@@ -467,6 +430,7 @@ class SimpleSkyNet(nn.Module):
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
+        self.points_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
         self.device = device
         self.dropout_rate = dropout_rate
@@ -508,16 +472,16 @@ class SimpleSkyNet(nn.Module):
                 sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "p h w c -> 1 p h w c",
-        )
+        ).contiguous()
         non_spatial_tensor = einops.rearrange(
             torch.tensor(
                 sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "f -> 1 f",
-        )
+        ).contiguous()
         mask_tensor = torch.tensor(
             sj.actions(skyjo), dtype=torch.float32, device=self.device
-        )
+        ).contiguous()
         output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
 
         return SkyNetPrediction.from_skynet_output(output)
@@ -536,7 +500,155 @@ class SimpleSkyNet(nn.Module):
         return model_path
 
 
+class TransformerBlock(nn.Module):
+    """
+    One encoder-style transformer block à la Vaswani et al. (2017).
+
+    Args
+    ----
+    embed_dim : int
+        Token/patch embedding size (E).
+    num_heads : int
+        Number of attention heads (H).  E must be divisible by H.
+    mlp_ratio : float
+        Hidden size multiplier for the feed-forward “MLP”: usually 4.0.
+    dropout    : float
+        Dropout on attention weights and MLP activations.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: float | None = None,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.mlp_ratio = mlp_ratio
+        self.dropout = dropout
+        # --- Self-attention -------------------------------------------------
+        self.self_attn = nn.MultiheadAttention(
+            embed_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,  # (B, L, E) instead of (L, B, E)
+        )
+
+        # --- Two LayerNorms (post-LN setup) --------------------------------
+        self.norm1 = nn.LayerNorm(embed_dim)
+
+        # --- Feed-forward network (MLP) ------------------------------------
+        if self.mlp_ratio is not None:
+            hidden_dim = int(self.embed_dim * self.mlp_ratio)
+            self.norm2 = nn.LayerNorm(self.embed_dim)
+            self.mlp = nn.Sequential(
+                nn.Linear(embed_dim, hidden_dim),
+                nn.ReLU(inplace=True),  # or nn.ReLU()
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, embed_dim),
+                nn.Dropout(dropout),
+            )
+
+    # ----------------------------------------------------------------------
+    def forward(self, x):
+        """
+        x : (batch, seq_len, embed_dim)
+        """
+        # --- Self-attention sub-layer -------------------------------------
+        # LayerNorm first (post-LN). Residual added afterwards.
+        x_norm = self.norm1(x)
+        attn_out, _ = self.self_attn(
+            query=x_norm,
+            key=x_norm,
+            value=x_norm,
+            need_weights=False,
+        )
+        x = x + attn_out  # residual connection
+
+        # --- Feed-forward sub-layer ---------------------------------------
+        if self.mlp_ratio is not None:
+            x_norm = self.norm2(x)
+            mlp_out = self.mlp(x_norm)
+            x = x + mlp_out  # residual connection
+
+        return x
+
+
+class ResidualAttentionBlock(nn.Module):
+    """
+    One "tiny" encoder-style transformer block à la Vaswani et al. (2017).
+    This omits layernorms and the feed-forward sub-layer.
+
+    Args
+    ----
+    embed_dim : int
+        Token/patch embedding size (E).
+    num_heads : int
+        Number of attention heads (H).  E must be divisible by H.
+    mlp_ratio : float
+        Hidden size multiplier for the feed-forward “MLP”: usually 4.0.
+    dropout    : float
+        Dropout on attention weights and MLP activations.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        # --- Self-attention -------------------------------------------------
+        self.self_attn = nn.MultiheadAttention(
+            embed_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,  # (B, L, E) instead of (L, B, E)
+        )
+
+    # ----------------------------------------------------------------------
+    def forward(self, x):
+        """
+        x : (batch, seq_len, embed_dim)
+        """
+        # --- Self-attention sub-layer -------------------------------------
+        # LayerNorm first (post-LN). Residual added afterwards.
+        attn_out, _ = self.self_attn(
+            query=x,
+            key=x,
+            value=x,
+            need_weights=False,
+        )
+        x = x + attn_out  # residual connection
+
+        return x
+
+
 class EquivariantSkyNet(nn.Module):
+    """Equivariant SkyNet Model.
+
+    The key property is that it is "equivariant" in the sense that swapping cards
+    within a column will exactly swap the output logits in the flip and replace
+    actions. Similar swapping whole columns will swap the logits corresponding
+    to those columns. This was done be design since in the Skyjo game the order
+    of the cards within the column do not matter in the evaluation of the game
+    and on the underlying policy.
+
+    This property was achieved by pooling the cards within a column and then pooling
+    those columns into a board summary. The board summaries of the players,
+    along with the non-spatial state, are then transformed into a global state
+    representation. This representation is then passed to with each card slot and
+    identically transformed to produce the logits for the flip and replace actions.
+    This way the logits for the flip and replace actions are equivariant since
+    the pooling and transformation process is agnostic of position. And the logit
+    transformation is identical for each card slot.
+    """
+
     def __init__(
         self,
         spatial_input_shape: tuple[int, ...],  # (players, )
@@ -544,20 +656,19 @@ class EquivariantSkyNet(nn.Module):
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
         device: torch.device,
-        card_embedding_dimensions: int = 32,
-        non_spatial_embedding_dimensions: int = 32,
-        column_embedding_dimensions: int = 64,
-        board_embedding_dimensions: int = 128,
-        global_state_embedding_dimensions: int = 256,
+        embedding_dimensions: int = 16,
+        global_state_embedding_dimensions: int = 32,
+        num_heads: int = 4,
     ):
         super(EquivariantSkyNet, self).__init__()
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
+        self.points_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
-        self.card_embedding_dimensions = card_embedding_dimensions
-        self.column_embedding_dimensions = column_embedding_dimensions
-        self.board_embedding_dimensions = board_embedding_dimensions
+        self.embedding_dimensions = embedding_dimensions
+        self.global_state_embedding_dimensions = global_state_embedding_dimensions
+        self.num_heads = num_heads
         self.players = self.spatial_input_shape[0]
         self.rows = self.spatial_input_shape[1]
         self.columns = self.spatial_input_shape[2]
@@ -566,40 +677,64 @@ class EquivariantSkyNet(nn.Module):
         # Card Embedding
         self.card_embedder = nn.Linear(
             in_features=self.card_types,
-            out_features=self.card_embedding_dimensions,
+            out_features=self.embedding_dimensions,
             bias=False,
         )
 
         # Non-Spatial Embedding
-        self.non_spatial_embedding_dimensions = non_spatial_embedding_dimensions
         self.non_spatial_embedder = nn.Linear(
             in_features=self.non_spatial_input_shape[0],
-            out_features=self.non_spatial_embedding_dimensions,
+            out_features=self.embedding_dimensions,
             bias=False,
         )
 
+        self.column_summary_token = nn.Parameter(
+            torch.randn(1, 1, self.embedding_dimensions)
+        )
+
+        # self.column_attention = TransformerBlock(
+        #     embed_dim=self.embedding_dimensions,
+        #     num_heads=self.num_heads,
+        #     mlp_ratio=None,
+        #     dropout=0.0,
+        # )
+        self.column_attention = ResidualAttentionBlock(
+            embed_dim=self.embedding_dimensions,
+            num_heads=self.num_heads,
+            dropout=0.0,
+        )
+        # self.board_summary_token = nn.Parameter(
+        #     torch.randn(1, 1, self.embedding_dimensions)
+        # )
+        # self.board_attention = TransformerBlock(
+        #     embed_dim=self.embedding_dimensions,
+        #     num_heads=2,
+        #     mlp_ratio=0.0,
+        #     dropout=0.0,
+        # )
+
         # Spatial Layers
-        self.column_summarizer = nn.Sequential(
-            nn.Linear(
-                in_features=self.card_embedding_dimensions,
-                out_features=self.column_embedding_dimensions,
-            ),
-            nn.ReLU(inplace=True),
-        )
+        # self.column_summarizer = nn.Sequential(
+        #     nn.Linear(
+        #         in_features=self.card_embedding_dimensions,
+        #         out_features=self.column_embedding_dimensions,
+        #     ),
+        #     nn.ReLU(inplace=True),
+        # )
 
-        self.board_summarizer = nn.Sequential(
-            nn.Linear(
-                in_features=self.column_embedding_dimensions,
-                out_features=self.board_embedding_dimensions,
-            ),
-            nn.ReLU(inplace=True),
-        )
+        # self.board_summarizer = nn.Sequential(
+        #     nn.Linear(
+        #         in_features=self.column_embedding_dimensions,
+        #         out_features=self.board_embedding_dimensions,
+        #     ),
+        #     nn.ReLU(inplace=True),
+        # )
 
-        self.global_state_embedding_dimensions = global_state_embedding_dimensions
         self.global_state_embedder = nn.Sequential(
             nn.Linear(
-                in_features=self.non_spatial_embedding_dimensions
-                + self.board_embedding_dimensions * self.players,
+                in_features=self.embedding_dimensions * (self.players + 1),
+                # + self.board_embedding_dimensions * self.players,
+                # + self.embedding_dimensions * self.players,
                 out_features=self.global_state_embedding_dimensions,
             ),
             nn.ReLU(inplace=True),
@@ -607,7 +742,6 @@ class EquivariantSkyNet(nn.Module):
                 in_features=self.global_state_embedding_dimensions,
                 out_features=self.global_state_embedding_dimensions,
             ),
-            nn.ReLU(inplace=True),
         )
 
         # Tails
@@ -616,12 +750,23 @@ class EquivariantSkyNet(nn.Module):
             players=self.players,
         )
         self.policy_tail = EquivariantPolicyLogitTail(
-            card_embedding_dimensions=self.card_embedding_dimensions,
-            column_embedding_dimensions=self.column_embedding_dimensions,
-            board_embedding_dimensions=self.board_embedding_dimensions,
+            embedding_dimensions=self.embedding_dimensions,
             global_state_embedding_dimensions=self.global_state_embedding_dimensions,
         )
         self.set_device(device)
+
+    def set_device(self, device: torch.device):
+        self.device = device
+        self.to(device)
+
+    def save(self, dir: pathlib.Path) -> pathlib.Path:
+        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
+        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
+        torch.save(
+            self.state_dict(),
+            model_path,
+        )
+        return model_path
 
     def forward(
         self,
@@ -629,29 +774,78 @@ class EquivariantSkyNet(nn.Module):
         non_spatial_tensor: torch.Tensor,
         mask: torch.Tensor,
     ):
-        spatial_tensor = einops.rearrange(spatial_tensor, "b p h w c -> (b p h w) c")
         card_embeddings = self.card_embedder(spatial_tensor)
+        non_spatial_embeddings = self.non_spatial_embedder(non_spatial_tensor)
         card_embeddings = einops.rearrange(
-            card_embeddings,
-            "(b p h w) f -> b p h w f",
-            h=self.rows,
+            card_embeddings, "b p h w f -> (b p w) h f"
+        ).contiguous()
+        repeated_column_summary_tokens = einops.repeat(
+            self.column_summary_token,
+            "1 1 f -> bpw 1 f",
+            bpw=card_embeddings.shape[0],
+        )
+        repeated_non_spatial_embeddings = einops.repeat(
+            non_spatial_embeddings,
+            "b f -> (b p w) 1 f",
+            p=self.players,
+            w=self.columns,
+        )
+        with_cls_tokens = torch.cat(
+            (
+                repeated_column_summary_tokens,
+                repeated_non_spatial_embeddings,
+                card_embeddings,
+            ),
+            dim=1,
+        )
+        # Try adding column summary token
+        attended_cards = self.column_attention(
+            with_cls_tokens,
+        )
+
+        column_summaries = einops.rearrange(
+            attended_cards[:, 0, :],
+            "(b p w) f -> (b p) w f",
+            p=self.players,
+            w=self.columns,
+        )
+        attended_cards = attended_cards[:, 2:, :]
+        # repeated_board_summary_tokens = einops.repeat(
+        #     self.board_summary_token,
+        #     "1 1 f -> bp 1 f",
+        #     bp=column_summaries.shape[0],
+        # )
+        # repeated_non_spatial_embeddings = einops.repeat(
+        #     non_spatial_embeddings,
+        #     "b f -> (b p) 1 f",
+        #     p=self.players,
+        # )
+        # with_board_summary_tokens = torch.cat(
+        #     (
+        #         repeated_board_summary_tokens,
+        #         repeated_non_spatial_embeddings,
+        #         column_summaries,
+        #     ),
+        #     dim=1,
+        # )
+        # attended_columns = self.board_attention(
+        #     with_board_summary_tokens,
+        # )
+        # board_summaries = attended_columns[:, 0, :]
+        # attended_columns = attended_columns[:, 2:, :]
+
+        board_summaries = einops.reduce(
+            column_summaries,
+            "(b p) w f -> b (p f)",
+            reduction="sum",
             w=self.columns,
             p=self.players,
         )
-        non_spatial_embeddings = self.non_spatial_embedder(non_spatial_tensor)
 
-        pooled_columns = einops.reduce(
-            card_embeddings, "b p h w f -> b p w f", reduction="mean"
-        )
-        column_summaries = self.column_summarizer(pooled_columns)
-        pooled_boards = einops.reduce(
-            column_summaries, "b p w f -> b p f", reduction="mean"
-        )
-        board_summaries = self.board_summarizer(pooled_boards)
         global_state_embedding = self.global_state_embedder(
             torch.cat(
                 (
-                    einops.rearrange(board_summaries, "b p f -> b (p f)"),
+                    board_summaries,
                     non_spatial_embeddings,
                 ),
                 dim=1,
@@ -659,7 +853,12 @@ class EquivariantSkyNet(nn.Module):
         )
         value_out = self.value_tail(global_state_embedding)
         policy_out = self.policy_tail(
-            card_embeddings[:, 0, :, :],
+            einops.rearrange(
+                attended_cards,
+                "(b p w) h f -> b p (h w) f",
+                p=self.players,
+                w=self.columns,
+            )[:, 0, :].contiguous(),
             global_state_embedding,
             mask,
         )
@@ -671,76 +870,101 @@ class EquivariantSkyNet(nn.Module):
                 sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "p h w c -> 1 p h w c",
-        ).contiguous()
+        )
         non_spatial_tensor = einops.rearrange(
             torch.tensor(
                 sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
             ),
             "f -> 1 f",
-        ).contiguous()
+        )
         mask_tensor = torch.tensor(
             sj.actions(skyjo), dtype=torch.float32, device=self.device
         )
         output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
         return SkyNetPrediction.from_skynet_output(output)
 
-    def save(self, dir: pathlib.Path) -> pathlib.Path:
-        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
-        torch.save(
-            self.state_dict(),
-            model_path,
-        )
-        return model_path
-
-    def set_device(self, device: torch.device):
-        self.device = device
-        self.to(device)
-
 
 SkyNet: typing.TypeAlias = SimpleSkyNet | EquivariantSkyNet
 
 if __name__ == "__main__":
-    np.random.seed(0)
-    torch.manual_seed(0)
-    players = 2
-    game_state = sj.new(players=players)
-    players = game_state[3]
-    model = SimpleSkyNet(
-        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(players,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        hidden_layers=[32, 32],
-    )
-    model.set_device(torch.device("mps"))
-    game_state = sj.start_round(game_state)
-    model.eval()
-    prediction = model.predict(game_state)
-    print(prediction)
+    # np.random.seed(0)
+    # torch.manual_seed(0)
+    # players = 2
+    # game_state = sj.new(players=players)
+    # players = game_state[3]
+    # model = SimpleSkyNet(
+    #     spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+    #     non_spatial_input_shape=(sj.GAME_SIZE,),
+    #     value_output_shape=(players,),
+    #     policy_output_shape=(sj.MASK_SIZE,),
+    #     hidden_layers=[32, 32],
+    # )
+    # model.set_device(torch.device("mps"))
+    # game_state = sj.start_round(game_state)
+    # model.eval()
+    # prediction = model.predict(game_state)
+    # print(prediction)
 
-    model_path = model.save(pathlib.Path("models/test/"))
-    loaded_model = SimpleSkyNet(
-        spatial_input_shape=model.spatial_input_shape,
-        non_spatial_input_shape=model.non_spatial_input_shape,
-        value_output_shape=model.value_output_shape,
-        policy_output_shape=model.policy_output_shape,
-        hidden_layers=[32, 32],
+    # model_path = model.save(pathlib.Path("models/test/"))
+    # loaded_model = SimpleSkyNet(
+    #     spatial_input_shape=model.spatial_input_shape,
+    #     non_spatial_input_shape=model.non_spatial_input_shape,
+    #     value_output_shape=model.value_output_shape,
+    #     policy_output_shape=model.policy_output_shape,
+    #     hidden_layers=[32, 32],
+    # )
+    # loaded_model.load_state_dict(torch.load(model_path, weights_only=True))
+    # loaded_model.set_device(model.device)
+    # loaded_model.eval()
+    # loaded_prediction = loaded_model.predict(game_state)
+    # print(loaded_prediction)
+    # assert np.allclose(
+    #     prediction.policy_output,
+    #     loaded_prediction.policy_output,
+    # )
+    # assert np.allclose(
+    #     prediction.value_output,
+    #     loaded_prediction.value_output,
+    # )
+    # assert np.allclose(
+    #     prediction.points_output,
+    #     loaded_prediction.points_output,
+    # )
+
+    device = torch.device("mps")
+    model = EquivariantSkyNet(
+        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        value_output_shape=(2,),
+        policy_output_shape=(sj.MASK_SIZE,),
+        device=device,
+        embedding_dimensions=8,
+        global_state_embedding_dimensions=16,
     )
-    loaded_model.load_state_dict(torch.load(model_path, weights_only=True))
-    loaded_model.set_device(model.device)
-    loaded_model.eval()
-    loaded_prediction = loaded_model.predict(game_state)
-    print(loaded_prediction)
-    assert np.allclose(
-        prediction.policy_output,
-        loaded_prediction.policy_output,
+    batch_size = 512
+    spatial_tensor = torch.rand(
+        (batch_size, 2, 3, 4, 17), dtype=torch.float32, device=device
     )
-    assert np.allclose(
-        prediction.value_output,
-        loaded_prediction.value_output,
+    nonspatial_tensor = torch.rand(
+        (
+            batch_size,
+            sj.GAME_SIZE,
+        ),
+        dtype=torch.float32,
+        device=device,
     )
-    assert np.allclose(
-        prediction.points_output,
-        loaded_prediction.points_output,
+    mask_tensor = torch.rand(
+        (
+            batch_size,
+            sj.MASK_SIZE,
+        ),
+        dtype=torch.float32,
+        device=device,
     )
+    while True:
+        with torch.no_grad():
+            model.forward(
+                spatial_tensor,
+                nonspatial_tensor,
+                mask_tensor,
+            )

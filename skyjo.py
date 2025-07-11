@@ -232,10 +232,15 @@ def _rotate_skyjo(skyjo: Skyjo) -> Skyjo:
     )
 
 
-def _clear_columns(game: Game, table: Table) -> int | None:
+def _clear_columns(game: Game, table: Table, column: int | None = None) -> int | None:
     """Clear any columns where all values match."""
 
-    for i in range(COLUMN_COUNT):
+    if column is None:
+        columns = range(COLUMN_COUNT)
+    else:
+        columns = [column]
+
+    for i in columns:
         for j in range(CARD_SIZE):  # Not finger size, skip hidden and cleared
             if table[0, 0, i, j] and table[0, 1, i, j] and table[0, 2, i, j]:
                 table[0, :, i, j] = 0
@@ -312,7 +317,7 @@ def _player_table_is_visible(table: Table, player: int) -> bool:
 # MARK: Construction
 
 
-def new(*, players: int) -> Skyjo:
+def new(*, players: int, top: int | None = None, rng: Random = random) -> Skyjo:
     """Generate a fresh game with no visible discard."""
 
     game = np.ndarray((GAME_SIZE,), dtype=np.int16)
@@ -327,7 +332,11 @@ def new(*, players: int) -> Skyjo:
     deck = np.ndarray((CARD_SIZE,), dtype=np.int16)
     deck.fill(0)
     deck[:] = CARD_COUNTS
+    if top is None:
+        top = _choose_card(deck, rng)
 
+    _swap_top(game, top)
+    _remove_card(deck, top)
     return game, table, deck, players, 0, None, None
 
 
@@ -547,7 +556,11 @@ def get_game_over(skyjo: Skyjo) -> bool:
     return skyjo[6] == 0
 
 
-def hash_skyjo(skyjo: Skyjo) -> int:
+def get_game_about_to_end(skyjo: Skyjo) -> bool:
+    return skyjo[6] == 1
+
+
+def hash_skyjo(skyjo: Skyjo) -> bytes:
     """Hash the `skyjo` state.
 
     NOTE: This is  tobytes() can return the same hash for arrays of different shape.
@@ -638,7 +651,6 @@ def validate(skyjo: Skyjo) -> bool:
     Always returns `True` for use with `assert`. Validation errors are
     raised internally.
     """
-
     game = skyjo[0]
     table = skyjo[1]
     deck = skyjo[2]
@@ -647,10 +659,10 @@ def validate(skyjo: Skyjo) -> bool:
     # Game
     assert game.shape == (GAME_SIZE,)
     assert np.sum(game[GAME_ACTION : GAME_ACTION + ACTION_SIZE]) == 1
-    if game[GAME_ACTION + ACTION_FLIP_SECOND]:
-        assert np.sum(game[GAME_TOP : GAME_TOP + CARD_SIZE]) == 0
-        assert np.sum(game[GAME_DISCARDS : GAME_DISCARDS + CARD_SIZE]) == 0
-    else:
+    # if game[GAME_ACTION + ACTION_FLIP_SECOND]:
+    # assert np.sum(game[GAME_TOP : GAME_TOP + CARD_SIZE]) == 0
+    # assert np.sum(game[GAME_DISCARDS : GAME_DISCARDS + CARD_SIZE]) == 0
+    if not game[GAME_ACTION + ACTION_FLIP_SECOND]:
         assert np.sum(game[GAME_TOP : GAME_TOP + CARD_SIZE]) == 1
 
     # Table
@@ -700,7 +712,8 @@ def randomize(skyjo: Skyjo, rng: Random = random) -> Skyjo:
     card = skyjo[5]
 
     if card is not None:
-        raise ValueError("A random card has already been selected")
+        # raise ValueError("A random card has already been selected")
+        return skyjo
 
     # Deck is empty, reset with discarded cards
     if not deck.any():
@@ -743,22 +756,22 @@ def begin(skyjo: Skyjo) -> Skyjo:
     turn = skyjo[4]
     card = skyjo[5]
 
-    assert _get_top(game) is None
+    # assert _get_top(game) is None
     assert _get_action(game) in {
         ACTION_FLIP_SECOND,
         ACTION_FLIP_OR_REPLACE,
         ACTION_REPLACE,
     }
 
-    if card is None:
-        raise ValueError("Expected a randomly-drawn card")
+    # if card is None:
+    #     raise ValueError("Expected a randomly-drawn card")
 
     new_game = game.copy()
-    _swap_top(new_game, card)
+    # _swap_top(new_game, card)
     _replace_action(new_game, ACTION_DRAW_OR_TAKE)
 
     new_deck = deck.copy()
-    _remove_card(new_deck, card)
+    # _remove_card(new_deck, card)
 
     return new_game, table, new_deck, players, turn, None, None
 
@@ -864,7 +877,7 @@ def flip(
     new_table = table.copy()
     new_table[0, row, column, FINGER_HIDDEN] = 0
     new_table[0, row, column, card] = 1
-    _clear_columns(new_game, new_table)
+    _clear_columns(new_game, new_table, column)
     if rotate:
         _rotate_table(new_table, players)
 
@@ -931,7 +944,7 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     new_table = table.copy()
     new_table[0, row, column, finger] = 0
     new_table[0, row, column, top] = 1
-    _clear_columns(new_game, new_table)
+    _clear_columns(new_game, new_table, column)
     _rotate_table(new_table, players)
 
     # Remove the card from the deck for the next iteration.
@@ -1122,7 +1135,7 @@ def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Sky
         assert validate(skyjo)
         # All players have flipped initial cards, start round
         if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == players * 2:
-            skyjo = randomize(skyjo, rng=rng)
+            # skyjo = randomize(skyjo, rng=rng)
             skyjo = begin(skyjo)
     elif action == MASK_FLIP_SECOND_RIGHT:
         skyjo = randomize(skyjo, rng=rng)
@@ -1133,7 +1146,7 @@ def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Sky
         assert validate(skyjo)
         # All players have flipped initial cards, start round
         if skyjo[1][:, :, :, :CARD_SIZE].sum().item() == players * 2:
-            skyjo = randomize(skyjo, rng=rng)
+            # skyjo = randomize(skyjo, rng=rng)
             skyjo = begin(skyjo)
     elif action == MASK_DRAW:
         skyjo = randomize(skyjo, rng=rng)
