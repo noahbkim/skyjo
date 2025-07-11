@@ -576,6 +576,59 @@ class TransformerBlock(nn.Module):
         return x
 
 
+class ResidualAttentionBlock(nn.Module):
+    """
+    One "tiny" encoder-style transformer block à la Vaswani et al. (2017).
+    This omits layernorms and the feed-forward sub-layer.
+
+    Args
+    ----
+    embed_dim : int
+        Token/patch embedding size (E).
+    num_heads : int
+        Number of attention heads (H).  E must be divisible by H.
+    mlp_ratio : float
+        Hidden size multiplier for the feed-forward “MLP”: usually 4.0.
+    dropout    : float
+        Dropout on attention weights and MLP activations.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        # --- Self-attention -------------------------------------------------
+        self.self_attn = nn.MultiheadAttention(
+            embed_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,  # (B, L, E) instead of (L, B, E)
+        )
+
+    # ----------------------------------------------------------------------
+    def forward(self, x):
+        """
+        x : (batch, seq_len, embed_dim)
+        """
+        # --- Self-attention sub-layer -------------------------------------
+        # LayerNorm first (post-LN). Residual added afterwards.
+        attn_out, _ = self.self_attn(
+            query=x,
+            key=x,
+            value=x,
+            need_weights=False,
+        )
+        x = x + attn_out  # residual connection
+
+        return x
+
+
 class EquivariantSkyNet(nn.Module):
     """Equivariant SkyNet Model.
 
@@ -639,10 +692,15 @@ class EquivariantSkyNet(nn.Module):
             torch.randn(1, 1, self.embedding_dimensions)
         )
 
-        self.column_attention = TransformerBlock(
+        # self.column_attention = TransformerBlock(
+        #     embed_dim=self.embedding_dimensions,
+        #     num_heads=self.num_heads,
+        #     mlp_ratio=None,
+        #     dropout=0.0,
+        # )
+        self.column_attention = ResidualAttentionBlock(
             embed_dim=self.embedding_dimensions,
             num_heads=self.num_heads,
-            mlp_ratio=None,
             dropout=0.0,
         )
         # self.board_summary_token = nn.Parameter(

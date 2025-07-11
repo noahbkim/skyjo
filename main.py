@@ -143,7 +143,7 @@ if __name__ == "__main__":
         initial_model=model,
     )
     training_config = train.TrainConfig(
-        epochs=3,
+        epochs=5,
         batch_size=256,
         learn_rate=1e-3,
         loss_function=train_utils.base_policy_value_loss,
@@ -246,7 +246,6 @@ if __name__ == "__main__":
         training_config=training_config,
         training_data_buffer_config=training_data_buffer_config,
         batched_model_player_config=batched_model_player_config,
-        start_state_generator=create_random_potential_clear_position,
         outcome_rollouts=100,
         debug=debug,
         log_level=logging.DEBUG if debug else logging.INFO,
