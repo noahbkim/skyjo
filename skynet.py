@@ -692,17 +692,23 @@ class EquivariantSkyNet(nn.Module):
             torch.randn(1, 1, self.embedding_dimensions)
         )
 
-        # self.column_attention = TransformerBlock(
-        #     embed_dim=self.embedding_dimensions,
-        #     num_heads=self.num_heads,
-        #     mlp_ratio=None,
-        #     dropout=0.0,
-        # )
-        self.column_attention = ResidualAttentionBlock(
+        self.column_attention = TransformerBlock(
             embed_dim=self.embedding_dimensions,
             num_heads=self.num_heads,
+            mlp_ratio=None,
             dropout=0.0,
         )
+        self.column_attention2 = TransformerBlock(
+            embed_dim=self.embedding_dimensions,
+            num_heads=self.num_heads,
+            mlp_ratio=None,
+            dropout=0.0,
+        )
+        # self.column_attention = ResidualAttentionBlock(
+        #     embed_dim=self.embedding_dimensions,
+        #     num_heads=self.num_heads,
+        #     dropout=0.0,
+        # )
         # self.board_summary_token = nn.Parameter(
         #     torch.randn(1, 1, self.embedding_dimensions)
         # )

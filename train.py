@@ -172,15 +172,18 @@ def learn(
 
         # Add training data from the queue into the buffer
         logging.info(f"[LEARN] Generating {games_generated_per_iteration} games")
+        data_points = 0
         while (
             not training_data_queue.empty()
             or games_count - previous_games_count < games_generated_per_iteration
         ):
             game_data = training_data_queue.get()
             training_data_buffer.add_game_data(game_data)
+            data_points += len(game_data)
             games_count += 1
         logging.info(
             f"[LEARN] Finished generating {games_count - previous_games_count} games "
+            f"with {data_points} data points"
         )
         logging.info(
             f"[LEARN] Training data buffer length: {len(training_data_buffer)}, "

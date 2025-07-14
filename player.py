@@ -427,7 +427,7 @@ class BatchedModelPlayer(AbstractPlayer):
         )
 
 
-class PureModelPlayer(AbstractPlayer):
+class PureModelPolicyPlayer(AbstractPlayer):
     """Uses only the model to predict the action probabilities."""
 
     def __init__(self, model: skynet.SkyNet, temperature: float = 1.0):
@@ -446,4 +446,53 @@ class PureModelPlayer(AbstractPlayer):
             return action_probabilities
         action_probabilities = prediction.policy_output ** (1 / self.temperature)
         action_probabilities = action_probabilities / action_probabilities.sum()
+        return action_probabilities
+
+
+class PureModelValuePlayer(AbstractPlayer):
+    """Uses only the model to predict the value of the game."""
+
+    def __init__(self, model: skynet.SkyNet, terminal_state_rollouts: int = 10):
+        self.model = model
+        self.terminal_state_rollouts = terminal_state_rollouts
+
+    def get_action_probabilities(
+        self, game_state: sj.Skyjo
+    ) -> np.ndarray[tuple[int], np.float32]:
+        self.model.eval()
+        action_values = sj.actions(game_state) * 1e-7
+        for action in sj.get_actions(game_state):
+            if sj.get_game_about_to_end(game_state):
+                for _ in range(self.terminal_state_rollouts):
+                    next_state = sj.apply_action(game_state, action)
+                    winner = sj.get_winner(next_state)
+                    if winner == 0:
+                        action_values[action] += 1 / self.terminal_state_rollouts
+
+            elif sj.is_action_random(action, game_state):
+                cards_remaining = np.sum(sj.get_deck(game_state))
+                for card, card_count in enumerate(sj.get_deck(game_state)):
+                    if card_count > 0:
+                        next_state = sj.apply_action(
+                            sj.preordain(game_state, card), action
+                        )
+                        model_prediction = self.model.predict(next_state)
+                        action_values[action] += (
+                            skynet.to_state_value(
+                                model_prediction.value_output, sj.get_player(next_state)
+                            )[sj.get_player(game_state)]
+                            * card_count
+                            / cards_remaining
+                        )
+
+            else:
+                next_state = sj.apply_action(game_state, action)
+                model_prediction = self.model.predict(next_state)
+                action_values[action] = skynet.to_state_value(
+                    model_prediction.value_output, sj.get_player(next_state)
+                )[sj.get_player(game_state)]
+        # print(action_values)
+        # print(sj.get_action_name(np.argmax(action_values).item()))
+        action_probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+        action_probabilities[np.argmax(action_values).item()] = 1
         return action_probabilities

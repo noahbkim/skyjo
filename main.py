@@ -46,20 +46,32 @@ def create_random_potential_clear_position() -> sj.Skyjo:
 def model_faceoff_threshold(
     model: skynet.SkyNet,
     previous_model: skynet.SkyNet,
-    rounds: int,
+    policy_rounds: int,
+    value_rounds: int,
     temperature: float,
+    terminal_state_rollouts: int,
     win_percentage_threshold: float,
     start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
 ):
-    faceoff_result = faceoff.model_faceoff(
+    policy_faceoff_result = faceoff.model_policy_faceoff(
         model,
         previous_model,
-        rounds,
+        policy_rounds,
         temperature,
         start_state_generator,
     )
+    value_faceoff_result = faceoff.model_value_faceoff(
+        model,
+        previous_model,
+        value_rounds,
+        terminal_state_rollouts,
+        start_state_generator,
+    )
     return (
-        faceoff_result[0] / (faceoff_result[0] + faceoff_result[1])
+        policy_faceoff_result[0] / (policy_faceoff_result[0] + policy_faceoff_result[1])
+        > win_percentage_threshold
+    ) or (
+        value_faceoff_result[0] / (value_faceoff_result[0] + value_faceoff_result[1])
         > win_percentage_threshold
     )
 
@@ -151,7 +163,7 @@ if __name__ == "__main__":
     learn_config = train.LearnConfig(
         torch_device=device,
         learn_steps=1000,
-        games_generated_per_iteration=1000,
+        games_generated_per_iteration=500,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
             model, validation_batch
@@ -160,11 +172,14 @@ if __name__ == "__main__":
         model_faceoff_function=lambda model, previous_model: model_faceoff_threshold(
             model,
             previous_model,
-            100,
+            500,
+            50,
             1.0,
+            10,
             0.50,
-            create_random_potential_clear_position,
+            # create_random_potential_clear_position,
         ),
+        # model_faceoff_function=lambda model, previous_model: True,
         **training_config.kwargs("training"),
     )
 
@@ -183,31 +198,31 @@ if __name__ == "__main__":
     #     dirichlet_epsilon=0.25,
     # )
     mcts_config = mcts.MCTSConfig(
-        iterations=100,
+        iterations=400,
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
         forced_playout_k=2,
     )
     model_player_config = player.ModelPlayerConfig(
-        action_softmax_temperature=0.5,
+        action_softmax_temperature=1.0,
         **mcts_config.kwargs("mcts"),
     )
     batched_mcts_config = parallel_mcts.BatchedMCTSConfig(
-        iterations=1600,
+        iterations=400,
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
-        batched_leaf_count=16,
+        batched_leaf_count=2,
         virtual_loss=0.5,
-        forced_playout_k=2,
+        forced_playout_k=None,
     )
     batched_model_player_config = player.BatchedModelPlayerConfig(
         action_softmax_temperature=1.0,
         **batched_mcts_config.kwargs("mcts"),
     )
     training_data_buffer_config = buffer.Config(
-        max_size=100_000,
+        max_size=50_000,
         spatial_input_shape=(
             players,
             sj.ROW_COUNT,
@@ -232,7 +247,7 @@ if __name__ == "__main__":
     #     # predictor_config=predictor_config,
     #     training_data_buffer_config=training_data_buffer_config,
     #     model_player_config=model_player_config,
-    #     start_state_generator=create_random_potential_clear_position,
+    #     # start_state_generator=create_random_potential_clear_position,
     #     outcome_rollouts=100,
     #     debug=debug,
     #     log_level=logging.DEBUG if debug else logging.INFO,
