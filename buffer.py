@@ -46,6 +46,7 @@ class ReplayBuffer:
         path: pathlib.Path | None = None,
     ):
         self.max_size = max_size
+        self.game_states = [None] * max_size
         self.spatial_input_buffer = np.empty(
             (max_size, *spatial_input_shape), dtype=np.float32
         )
@@ -95,6 +96,7 @@ class ReplayBuffer:
         buffer_index = self.count
         if self.count >= self.max_size:
             buffer_index = self.count % self.max_size
+        self.game_states[buffer_index] = game_state
         self.spatial_input_buffer[buffer_index] = skynet.get_spatial_state_numpy(
             game_state
         )
