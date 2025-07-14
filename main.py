@@ -158,12 +158,15 @@ if __name__ == "__main__":
         epochs=5,
         batch_size=256,
         learn_rate=1e-3,
-        loss_function=train_utils.base_policy_value_loss,
+        loss_function=lambda model_outputs, targets: train_utils.base_policy_value_loss(
+            model_outputs, targets, value_scale=10.0
+        ),
     )
     learn_config = train.LearnConfig(
         torch_device=device,
         learn_steps=1000,
         games_generated_per_iteration=500,
+        loss_stats_function=train_utils.loss_details_summary,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
             model, validation_batch

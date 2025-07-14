@@ -60,19 +60,38 @@ class GameStats:
     action_counts: np.ndarray[tuple[int], np.float32]
     action_possibility_counts: np.ndarray[tuple[int], np.float32]
     clear_count: int
+    flip_count: int
+    flip_possibility_count: int
+    replace_face_up_count: int
+    replace_face_down_count: int
+    replace_possibility_count: int
 
     def to_record_dict(self) -> dict[str, typing.Any]:
         record_dict = {
             "game_length": self.game_length,
-            "outcome_state_value": self.outcome_state_value,
-            "scores_state_value": self.scores_state_value,
             "clear_count": self.clear_count,
         }
+        for i, outcome in enumerate(self.outcome_state_value):
+            record_dict[f"outcome_{i}"] = outcome
+        for i, score in enumerate(self.scores_state_value):
+            record_dict[f"score_{i}"] = score
+
+        flip_rate = self.flip_count / max(self.flip_possibility_count, 1)
+        replace_face_up_rate = self.replace_face_up_count / max(
+            self.replace_possibility_count, 1
+        )
+        replace_face_down_rate = self.replace_face_down_count / max(
+            self.replace_possibility_count, 1
+        )
+        record_dict["flip_rate"] = flip_rate
+        record_dict["replace_face_up_rate"] = replace_face_up_rate
+        record_dict["replace_face_down_rate"] = replace_face_down_rate
+
         action_rates = self.action_counts / np.maximum(
             self.action_possibility_counts, 1
         )
         for i in range(sj.MASK_SIZE):
-            record_dict[f"{sj.get_action_name(i)} rate"] = action_rates[i]
+            record_dict[f"{sj.get_action_name(i)}"] = action_rates[i]
         return record_dict
 
 
@@ -191,6 +210,8 @@ def game_history_to_game_data(
     # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
     action_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
     action_possibility_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    flip_count, flip_possibility_count = 0, 0
+    replace_face_up_count, replace_face_down_count, replace_possibility_count = 0, 0, 0
     for game_state, action, mcts_probs in game_history[:-1]:
         action_mask = sj.actions(game_state).astype(np.float32)
         training_data.append(
@@ -210,6 +231,22 @@ def game_history_to_game_data(
         )
         action_counts[action] += 1
         action_possibility_counts += action_mask
+        if action < sj.MASK_FLIP:
+            continue
+
+        # Always possible to replace a face up card or face down card
+        replace_possibility_count += 1
+        if np.any(action_mask[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT]):
+            flip_possibility_count += 1
+
+        if sj.MASK_FLIP <= action < sj.MASK_REPLACE:
+            flip_count += 1
+        else:
+            row, col = divmod(action - sj.MASK_REPLACE, sj.COLUMN_COUNT)
+            if sj.get_finger(game_state, row, col, 0) == sj.FINGER_HIDDEN:
+                replace_face_down_count += 1
+            else:
+                replace_face_up_count += 1
 
     cleared_cards = sj.get_table(game_history[-2][0])[:, :, :, sj.FINGER_CLEARED].sum()
     assert cleared_cards % 3 == 0, (
@@ -223,6 +260,11 @@ def game_history_to_game_data(
         action_counts=action_counts,
         action_possibility_counts=action_possibility_counts,
         clear_count=clear_count,
+        flip_count=flip_count,
+        flip_possibility_count=flip_possibility_count,
+        replace_face_up_count=replace_face_up_count,
+        replace_face_down_count=replace_face_down_count,
+        replace_possibility_count=replace_possibility_count,
     )
     return training_data, game_stats
 

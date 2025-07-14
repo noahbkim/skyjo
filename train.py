@@ -56,7 +56,7 @@ def train_step(
         policy_targets_tensor,
     ) = skynet.numpy_to_tensors(*batch, device=model.device, dtype=torch.float32)
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
-    loss = loss_function(
+    loss, loss_detail = loss_function(
         model_output,
         (outcome_targets_tensor, points_targets_tensor, policy_targets_tensor),
     )
@@ -64,7 +64,7 @@ def train_step(
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    return loss.item()
+    return loss.item(), loss_detail
 
 
 def train_epoch(
@@ -88,11 +88,12 @@ def train_epoch(
         learn_rate (float): The learning rate to use for training.
         loss_function (typing.Callable): The loss function to use for training.
     """
-    training_losses = []
+    training_loss_details = []
     for _ in range(len(training_data_buffer) // training_batch_size + 1):
         batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
-        training_losses.append(train_step(model, batch, loss_function, learn_rate))
-    return sum(training_losses) / len(training_losses)
+        loss, loss_detail = train_step(model, batch, loss_function, learn_rate)
+        training_loss_details.append(loss_detail)
+    return training_loss_details
 
 
 # MARK: Learning Loops
@@ -109,6 +110,7 @@ class LearnConfig(config.Config):
     training_loss_function: typing.Callable[
         [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
     ]
+    loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None
     validation_interval: int | None
     validation_function: typing.Callable[[skynet.SkyNet], None] | None
     update_model_interval: int | None
@@ -129,6 +131,7 @@ def learn(
     training_loss_function: typing.Callable[
         [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
     ],
+    loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None,
     validation_interval: int,
     validation_function: typing.Callable[[skynet.SkyNet], None] | None,
     update_model_interval: int,
@@ -195,14 +198,16 @@ def learn(
         previous_games_count = len(game_stats_list)
         logging.info(f"[LEARN] Training for {training_epochs} epochs")
         for i in range(training_epochs):
-            training_stats = train_epoch(
+            loss_details = train_epoch(
                 model,
                 training_data_buffer,
                 training_batch_size=training_batch_size,
                 learn_rate=training_learn_rate,
                 loss_function=training_loss_function,
             )
-            logging.info(f"[LEARN] Training Epoch {i} stats: {training_stats}")
+            if loss_stats_function is not None:
+                loss_stats = loss_stats_function(loss_details)
+                logging.info(f"[LEARN] Training Epoch {i} stats:\n{loss_stats}")
         logging.info(
             f"[LEARN] Finished training for {training_epochs} epochs with "
             f"{len(training_data_buffer) // training_batch_size + 1} batches"

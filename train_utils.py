@@ -35,6 +35,10 @@ TrainingTargets: typing.TypeAlias = tuple[
 
 # MARK: Data Helpers
 
+LossDetails: typing.TypeAlias = dict[
+    str, float
+]  # loss component name: loss component value
+
 
 def game_stats_summary(game_stats_list: list[play.GameStats]) -> pd.DataFrame:
     stats_df = pd.DataFrame.from_records(
@@ -114,16 +118,19 @@ def base_policy_value_loss(
     model_output: skynet.SkyNetOutput,
     targets: TrainingTargets,
     value_scale: float = 1.0,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, LossDetails]:
     value_loss, policy_loss = policy_value_losses(model_output, targets)
-    return value_scale * value_loss + policy_loss
+    return value_scale * value_loss + policy_loss, {
+        "value_loss": value_loss.item(),
+        "policy_loss": policy_loss.item(),
+    }
 
 
 def compute_model_loss_on_game_data(
     model: skynet.SkyNet,
     game_data: play.GameData,
     loss_function: typing.Callable[[skynet.SkyNetOutput, TrainingTargets], typing.Any],
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, LossDetails]:
     (
         spatial_inputs,
         non_spatial_inputs,
@@ -153,3 +160,7 @@ def compute_model_loss_on_game_data(
         model_output,
         (outcome_targets_tensor, points_targets_tensor, policy_targets_tensor),
     )
+
+
+def loss_details_summary(loss_details_list: list[LossDetails]) -> pd.DataFrame:
+    return pd.DataFrame.from_records(loss_details_list).describe().T
