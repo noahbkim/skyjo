@@ -1,6 +1,7 @@
 import typing
 
 import numpy as np
+import pandas as pd
 import torch
 
 import play
@@ -33,6 +34,13 @@ TrainingTargets: typing.TypeAlias = tuple[
 
 
 # MARK: Data Helpers
+
+
+def game_stats_summary(game_stats_list: list[play.GameStats]) -> pd.DataFrame:
+    stats_df = pd.DataFrame.from_records(
+        [game_stats.to_record_dict() for game_stats in game_stats_list]
+    )
+    return stats_df.describe().T
 
 
 def game_data_to_training_batch(

@@ -46,9 +46,34 @@ GameData: typing.TypeAlias = list[
         np.ndarray[tuple[int], np.float32],  # outcome target
         np.ndarray[tuple[int], np.float32],  # points target
         np.ndarray[tuple[int], np.float32],  # policy target
+        np.ndarray[tuple[int], np.float32],  # action mask
         sj.SkyjoAction,  # realized action
     ]
 ]
+
+
+@dataclasses.dataclass(slots=True)
+class GameStats:
+    game_length: int
+    outcome_state_value: sj.StateValue
+    scores_state_value: sj.StateValue
+    action_counts: np.ndarray[tuple[int], np.float32]
+    action_possibility_counts: np.ndarray[tuple[int], np.float32]
+    clear_count: int
+
+    def to_record_dict(self) -> dict[str, typing.Any]:
+        record_dict = {
+            "game_length": self.game_length,
+            "outcome_state_value": self.outcome_state_value,
+            "scores_state_value": self.scores_state_value,
+            "clear_count": self.clear_count,
+        }
+        action_rates = self.action_counts / np.maximum(
+            self.action_possibility_counts, 1
+        )
+        for i in range(sj.MASK_SIZE):
+            record_dict[f"{sj.get_action_name(i)} rate"] = action_rates[i]
+        return record_dict
 
 
 # MARK: Symmetry
@@ -140,7 +165,7 @@ def simulate_game_end(
 def game_history_to_game_data(
     game_history: GameHistory,
     terminal_rollouts: int = 1,
-) -> GameData:
+) -> tuple[GameData, GameStats]:
     """Converts game data to training data.
 
     Game data is a tuple of skyjo state and mcts action probabilities. Converts this
@@ -155,6 +180,7 @@ def game_history_to_game_data(
     Returns:
         A list of training data points.
     """
+    assert len(game_history) >= 20, f"Game history is too short: {len(game_history)}"
     training_data = []
     penultimate_state, penultimate_action = game_history[-2][0], game_history[-2][1]
     outcome_state_value, fixed_perspective_score = simulate_game_end(
@@ -163,7 +189,10 @@ def game_history_to_game_data(
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
     # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
+    action_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    action_possibility_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
     for game_state, action, mcts_probs in game_history[:-1]:
+        action_mask = sj.actions(game_state).astype(np.float32)
         training_data.append(
             (
                 game_state,  # game
@@ -175,10 +204,27 @@ def game_history_to_game_data(
                     -sj.get_player(game_state),
                 ),  # points target
                 mcts_probs,  # policy target
+                action_mask,  # action mask
                 action,  # realized action
             )
         )
-    return training_data
+        action_counts[action] += 1
+        action_possibility_counts += action_mask
+
+    cleared_cards = sj.get_table(game_history[-2][0])[:, :, :, sj.FINGER_CLEARED].sum()
+    assert cleared_cards % 3 == 0, (
+        f"Cleared cards is not divisible by 3: {cleared_cards}"
+    )
+    clear_count = cleared_cards // 3
+    game_stats = GameStats(
+        game_length=len(game_history) - 1,
+        outcome_state_value=outcome_state_value,
+        scores_state_value=fixed_perspective_score,
+        action_counts=action_counts,
+        action_possibility_counts=action_possibility_counts,
+        clear_count=clear_count,
+    )
+    return training_data, game_stats
 
 
 def print_game_history(

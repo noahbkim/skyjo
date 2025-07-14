@@ -172,26 +172,27 @@ def learn(
 
         # Add training data from the queue into the buffer
         logging.info(f"[LEARN] Generating {games_generated_per_iteration} games")
-        data_points = 0
+        game_stats_list = []
         while (
             not training_data_queue.empty()
-            or games_count - previous_games_count < games_generated_per_iteration
+            or len(game_stats_list) < games_generated_per_iteration
         ):
-            game_data = training_data_queue.get()
+            game_data, game_stats = training_data_queue.get()
             training_data_buffer.add_game_data(game_data)
-            data_points += len(game_data)
-            games_count += 1
+            game_stats_list.append(game_stats)
         logging.info(
-            f"[LEARN] Finished generating {games_count - previous_games_count} games "
-            f"with {data_points} data points"
+            f"[LEARN] Finished generating {len(game_stats_list) - previous_games_count} games "
+            f"with {sum([game_stats.game_length for game_stats in game_stats_list])} data points"
         )
         logging.info(
             f"[LEARN] Training data buffer length: {len(training_data_buffer)}, "
         )
         buffer_saved_path = training_data_buffer.save()
         logging.info(f"Saving training data buffer to {buffer_saved_path}")
-
-        previous_games_count = games_count
+        logging.info(
+            f"Generated game stats:\n{train_utils.game_stats_summary(game_stats_list)}"
+        )
+        previous_games_count = len(game_stats_list)
         logging.info(f"[LEARN] Training for {training_epochs} epochs")
         for i in range(training_epochs):
             training_stats = train_epoch(

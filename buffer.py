@@ -92,6 +92,7 @@ class ReplayBuffer:
         outcome_target: np.ndarray,
         points_target: np.ndarray,
         policy_target: np.ndarray,
+        action_mask: np.ndarray,
     ):
         buffer_index = self.count
         if self.count >= self.max_size:
@@ -103,7 +104,7 @@ class ReplayBuffer:
         self.non_spatial_input_buffer[buffer_index] = (
             skynet.get_non_spatial_state_numpy(game_state)
         )
-        self.action_masks[buffer_index] = sj.actions(game_state).astype(np.float32)
+        self.action_masks[buffer_index] = action_mask
         self.policy_target_buffer[buffer_index] = policy_target
         self.outcome_target_buffer[buffer_index] = outcome_target
         self.points_target_buffer[buffer_index] = points_target
@@ -112,12 +113,28 @@ class ReplayBuffer:
     def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
 
-        for game_state, outcome_target, points_target, policy_target, _ in game_data:
-            self.add(game_state, outcome_target, points_target, policy_target)
+        for (
+            game_state,
+            outcome_target,
+            points_target,
+            policy_target,
+            action_mask,
+            _,
+        ) in game_data:
+            self.add(
+                game_state, outcome_target, points_target, policy_target, action_mask
+            )
 
     def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for game_state, outcome_target, points_target, policy_target, _ in game_data:
+        for (
+            game_state,
+            outcome_target,
+            points_target,
+            policy_target,
+            action_mask,
+            _,
+        ) in game_data:
             for (
                 symmetric_game_state,
                 symmetric_policy_target,
@@ -127,6 +144,7 @@ class ReplayBuffer:
                     outcome_target,
                     points_target,
                     symmetric_policy_target,
+                    action_mask,
                 )
 
     def sample_element(self) -> train_utils.TrainingDataPoint:
