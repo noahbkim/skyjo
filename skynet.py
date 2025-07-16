@@ -704,6 +704,12 @@ class EquivariantSkyNet(nn.Module):
             mlp_ratio=None,
             dropout=0.0,
         )
+        self.column_attention3 = TransformerBlock(
+            embed_dim=self.embedding_dimensions,
+            num_heads=self.num_heads,
+            mlp_ratio=None,
+            dropout=0.0,
+        )
         # self.column_attention = ResidualAttentionBlock(
         #     embed_dim=self.embedding_dimensions,
         #     num_heads=self.num_heads,
@@ -807,6 +813,12 @@ class EquivariantSkyNet(nn.Module):
         # Try adding column summary token
         attended_cards = self.column_attention(
             with_cls_tokens,
+        )
+        attended_cards = self.column_attention2(
+            attended_cards,
+        )
+        attended_cards = self.column_attention3(
+            attended_cards,
         )
 
         column_summaries = einops.rearrange(
