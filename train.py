@@ -195,7 +195,7 @@ def learn(
         logging.info(
             f"Generated game stats:\n{train_utils.game_stats_summary(game_stats_list)}"
         )
-        previous_games_count = len(game_stats_list)
+        previous_games_count = previous_games_count + len(game_stats_list)
         logging.info(f"[LEARN] Training for {training_epochs} epochs")
         for i in range(training_epochs):
             loss_details = train_epoch(
