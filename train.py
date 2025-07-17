@@ -54,11 +54,17 @@ def train_step(
         outcome_targets_tensor,
         points_targets_tensor,
         policy_targets_tensor,
+        cleared_column_targets_tensor,
     ) = skynet.numpy_to_tensors(*batch, device=model.device, dtype=torch.float32)
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
     loss, loss_detail = loss_function(
         model_output,
-        (outcome_targets_tensor, points_targets_tensor, policy_targets_tensor),
+        (
+            outcome_targets_tensor,
+            points_targets_tensor,
+            policy_targets_tensor,
+            cleared_column_targets_tensor,
+        ),
     )
     # compute gradient and do SGD step
     optimizer.zero_grad()
@@ -184,7 +190,7 @@ def learn(
             training_data_buffer.add_game_data(game_data)
             game_stats_list.append(game_stats)
         logging.info(
-            f"[LEARN] Finished generating {len(game_stats_list) - previous_games_count} games "
+            f"[LEARN] Finished generating {len(game_stats_list)} games "
             f"with {sum([game_stats.game_length for game_stats in game_stats_list])} data points"
         )
         logging.info(
@@ -740,7 +746,7 @@ def main_train_on_greedy_ev_player_games(
                 loss = train_step(
                     model,
                     batch,
-                    loss_function=train_utils.base_policy_value_loss,
+                    loss_function=train_utils.base_loss,
                     learn_rate=1e-3,
                 )
                 training_losses.append(loss)
@@ -787,7 +793,7 @@ def main_overfit_small_training_sample(
                 loss = train_step(
                     model,
                     batch,
-                    loss_function=train_utils.base_policy_value_loss,
+                    loss_function=train_utils.base_loss,
                     learn_rate=1e-3,
                 )
                 training_losses.append(loss)

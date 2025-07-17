@@ -43,11 +43,11 @@ GameHistory: typing.TypeAlias = list[
 GameData: typing.TypeAlias = list[
     tuple[
         sj.Skyjo,  # game state
+        sj.SkyjoAction,  # realized action
         np.ndarray[tuple[int], np.float32],  # outcome target
         np.ndarray[tuple[int], np.float32],  # points target
         np.ndarray[tuple[int], np.float32],  # policy target
-        np.ndarray[tuple[int], np.float32],  # action mask
-        sj.SkyjoAction,  # realized action
+        np.ndarray[tuple[int], np.float32],  # clearing target
     ]
 ]
 
@@ -172,13 +172,22 @@ def simulate_game_end(
 ) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
     """Returns the outcome of the game"""
     players = sj.get_player_count(penultimate_state)
-    outcomes, scores = np.zeros(players), np.zeros(players)
+    outcomes, scores, cleared_columns = (
+        np.zeros(players),
+        np.zeros(players),
+        np.zeros(players * sj.COLUMN_COUNT),
+    )
+
     for _ in range(simulations):
         game_state = penultimate_state
         final_state = sj.apply_action(game_state, last_action)
         outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
         scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
-    return outcomes, scores
+        cleared_columns += (
+            sj.get_fixed_perspective_cleared_columns(final_state).reshape(-1)
+            / simulations
+        )
+    return outcomes, scores, cleared_columns
 
 
 def game_history_to_game_data(
@@ -202,9 +211,20 @@ def game_history_to_game_data(
     assert len(game_history) >= 20, f"Game history is too short: {len(game_history)}"
     training_data = []
     penultimate_state, penultimate_action = game_history[-2][0], game_history[-2][1]
-    outcome_state_value, fixed_perspective_score = simulate_game_end(
-        penultimate_state, penultimate_action, terminal_rollouts
-    )
+    if sj.is_action_random(penultimate_action, penultimate_state):
+        (
+            outcome_state_value,
+            fixed_perspective_score,
+            fixed_perspective_cleared_columns,
+        ) = simulate_game_end(penultimate_state, penultimate_action, terminal_rollouts)
+    else:
+        outcome_state_value = skynet.skyjo_to_state_value(game_history[-1][0])
+        fixed_perspective_score = sj.get_fixed_perspective_round_scores(
+            game_history[-1][0]
+        )
+        fixed_perspective_cleared_columns = sj.get_fixed_perspective_cleared_columns(
+            game_history[-1][0]
+        ).reshape(-1)
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
     # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
@@ -217,6 +237,7 @@ def game_history_to_game_data(
         training_data.append(
             (
                 game_state,  # game
+                action,  # realized action
                 np.roll(
                     outcome_state_value, -sj.get_player(game_state)
                 ),  # outcome target
@@ -225,8 +246,11 @@ def game_history_to_game_data(
                     -sj.get_player(game_state),
                 ),  # points target
                 mcts_probs,  # policy target
-                action_mask,  # action mask
-                action,  # realized action
+                np.roll(
+                    fixed_perspective_cleared_columns,
+                    -sj.get_player(game_state)
+                    * sj.COLUMN_COUNT,  # need to roll all columns
+                ),  # clearing target
             )
         )
         action_counts[action] += 1

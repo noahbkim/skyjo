@@ -117,9 +117,9 @@ if __name__ == "__main__":
         # column_embedding_dimensions=16,
         # board_embedding_dimensions=32,
         # non_spatial_embedding_dimensions=16,
-        embedding_dimensions=16,
-        global_state_embedding_dimensions=32,
-        num_heads=2,
+        embedding_dimensions=32,
+        global_state_embedding_dimensions=64,
+        num_heads=1,
     )
     # model.load_state_dict(
     #     torch.load(
@@ -146,9 +146,9 @@ if __name__ == "__main__":
             # "column_embedding_dimensions": 16,
             # "board_embedding_dimensions": 32,
             # "non_spatial_embedding_dimensions": 16,
-            "embedding_dimensions": 16,
+            "embedding_dimensions": 32,
             "num_heads": 2,
-            "global_state_embedding_dimensions": 32,
+            "global_state_embedding_dimensions": 64,
         },
         device=device,
         models_dir=models_dir,
@@ -158,14 +158,14 @@ if __name__ == "__main__":
         epochs=5,
         batch_size=256,
         learn_rate=1e-3,
-        loss_function=lambda model_outputs, targets: train_utils.base_policy_value_loss(
-            model_outputs, targets, value_scale=10.0
+        loss_function=lambda model_outputs, targets: train_utils.base_loss(
+            model_outputs, targets, value_scale=5.0
         ),
     )
     learn_config = train.LearnConfig(
         torch_device=device,
         learn_steps=1000,
-        games_generated_per_iteration=500,
+        games_generated_per_iteration=250,
         loss_stats_function=train_utils.loss_details_summary,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
@@ -176,7 +176,7 @@ if __name__ == "__main__":
             model,
             previous_model,
             500,
-            50,
+            25,
             1.0,
             10,
             0.50,
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
-        forced_playout_k=2,
+        forced_playout_k=None,
     )
     model_player_config = player.ModelPlayerConfig(
         action_softmax_temperature=1.0,
@@ -225,7 +225,7 @@ if __name__ == "__main__":
         **batched_mcts_config.kwargs("mcts"),
     )
     training_data_buffer_config = buffer.Config(
-        max_size=50_000,
+        max_size=75_000,
         spatial_input_shape=(
             players,
             sj.ROW_COUNT,
@@ -237,12 +237,13 @@ if __name__ == "__main__":
         policy_target_shape=(sj.MASK_SIZE,),
         outcome_target_shape=(players,),
         points_target_shape=(players,),
+        cleared_columns_target_shape=(players * sj.COLUMN_COUNT,),
         path=pathlib.Path(
             f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/buffer.pkl"
         ),
     )
     # train.run_multiprocessed_selfplay_with_local_predictor_learning(
-    #     process_count=9,
+    #     process_count=8,
     #     players=players,
     #     model_factory=model_factory,
     #     learn_config=learn_config,

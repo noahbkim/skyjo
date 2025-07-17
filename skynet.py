@@ -134,6 +134,7 @@ def get_single_model_output(
         model_output[0][idx],
         model_output[1][idx],
         model_output[2][idx],
+        model_output[3][idx],
     )
 
 
@@ -146,13 +147,21 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     value_output = output[0].detach()
     points_output = output[1].detach()
     policy_output = output[2].detach()
+    cleared_column_output = output[3].detach()
     if value_output.device != torch.device("cpu"):
         value_output = value_output.cpu()
     if points_output.device != torch.device("cpu"):
         points_output = points_output.cpu()
     if policy_output.device != torch.device("cpu"):
         policy_output = policy_output.cpu()
-    return value_output.numpy(), points_output.numpy(), policy_output.numpy()
+    if cleared_column_output.device != torch.device("cpu"):
+        cleared_column_output = cleared_column_output.cpu()
+    return (
+        value_output.numpy(),
+        points_output.numpy(),
+        policy_output.numpy(),
+        cleared_column_output.numpy(),
+    )
 
 
 def numpy_to_tensors(
@@ -170,6 +179,7 @@ class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]
     points_output: np.ndarray[tuple[int], np.float32]
     policy_output: np.ndarray[tuple[int], np.float32]
+    cleared_column_output: np.ndarray[tuple[int], np.float32]
     policy_logits: np.ndarray[tuple[int], np.float32] | None = None
 
     @classmethod
@@ -178,19 +188,23 @@ class SkyNetPrediction:
         output: SkyNetOutput,
     ) -> SkyNetPrediction:
         numpy_output = output_to_numpy(output)
-        value_numpy, points_numpy, policy_logits_numpy = get_single_model_output(
-            numpy_output, 0
+        value_numpy, points_numpy, policy_logits_numpy, cleared_columns_numpy = (
+            get_single_model_output(numpy_output, 0)
         )
 
         # Convert masked policy logits to probabilities
         # The logits from PolicyTail.forward are already masked (large negative numbers for invalid actions)
         # A standard softmax will handle these correctly, assigning near-zero probability to masked actions.
-        exp_logits = np.exp(
+        policy_exp_logits = np.exp(
             policy_logits_numpy - np.max(policy_logits_numpy, axis=-1, keepdims=True)
         )  # for numerical stability
-        policy_probabilities_numpy = exp_logits / np.sum(
-            exp_logits, axis=-1, keepdims=True
+        policy_probabilities_numpy = policy_exp_logits / np.sum(
+            policy_exp_logits, axis=-1, keepdims=True
         )
+
+        # Convert masked policy logits to probabilities
+        # The logits from PolicyTail.forward are already masked (large negative numbers for invalid actions)
+        # A standard softmax will handle these correctly, assigning near-zero probability to masked actions.
 
         assert (
             len(value_numpy.shape)
@@ -205,6 +219,7 @@ class SkyNetPrediction:
             value_output=value_numpy,
             points_output=points_numpy,
             policy_output=policy_probabilities_numpy,
+            cleared_column_output=cleared_columns_numpy,
             policy_logits=policy_logits_numpy,
         )
 
@@ -217,10 +232,14 @@ class SkyNetPrediction:
         )
 
     def to_output(self) -> SkyNetOutput:
+        assert self.policy_logits is not None, "expected policy logits"
         return (
             torch.tensor(np.expand_dims(self.value_output, 0), dtype=torch.float32),
             torch.tensor(np.expand_dims(self.points_output, 0), dtype=torch.float32),
             torch.tensor(np.expand_dims(self.policy_logits, 0), dtype=torch.float32),
+            torch.tensor(
+                np.expand_dims(self.cleared_column_output, 0), dtype=torch.float32
+            ),
         )
 
 
@@ -228,11 +247,13 @@ SkyNetOutput: typing.TypeAlias = tuple[
     torch.Tensor,  # value
     torch.Tensor,  # points
     torch.Tensor,  # policy
+    torch.Tensor,  # cleared columns
 ]
 SkyNetNumpyOutput: typing.TypeAlias = tuple[
     np.ndarray[tuple[int, ...], np.float32],  # value
     np.ndarray[tuple[int, ...], np.float32],  # points
     np.ndarray[tuple[int, ...], np.float32],  # policy
+    np.ndarray[tuple[int, ...], np.float32],  # cleared columns
 ]
 
 
@@ -402,6 +423,52 @@ class EquivariantPolicyLogitTail(nn.Module):
         if mask is not None:
             logits = logits.masked_fill(~mask.bool(), -1e10)
         return logits
+
+
+class SimpleClearedCardsTail(nn.Module):
+    """Simple tail that outputs the cleared cards for each player."""
+
+    def __init__(
+        self,
+        global_state_embedding_dimensions: int,
+        embedding_dimensions: int,
+        players: int,
+        columns: int,
+        card_types: int,
+    ):
+        super(SimpleClearedCardsTail, self).__init__()
+        self.global_state_embedding_dimensions = global_state_embedding_dimensions
+        self.embedding_dimensions = embedding_dimensions
+        self.players = players
+        self.columns = columns
+        self.card_types = card_types
+        self.mlp = nn.Sequential(
+            nn.Linear(
+                in_features=self.global_state_embedding_dimensions
+                + self.embedding_dimensions,
+                out_features=1,
+            ),
+            nn.Sigmoid(),
+        )
+
+    def forward(
+        self,
+        column_summaries: torch.Tensor,
+        global_state_embedding: torch.Tensor,
+    ):
+        repeated_global_state_embedding = einops.repeat(
+            global_state_embedding,  # (b f)
+            "b f -> b (p c) f",
+            p=self.players,
+            c=self.columns,
+        )
+        x = torch.cat((column_summaries, repeated_global_state_embedding), dim=-1)
+        return einops.rearrange(
+            self.mlp(x),
+            "b (p c) 1 -> b (p c)",
+            p=self.players,
+            c=self.columns,
+        )
 
 
 # MARK: SkyNets
@@ -765,6 +832,13 @@ class EquivariantSkyNet(nn.Module):
             embedding_dimensions=self.embedding_dimensions,
             global_state_embedding_dimensions=self.global_state_embedding_dimensions,
         )
+        self.cleared_cards_tail = SimpleClearedCardsTail(
+            global_state_embedding_dimensions=self.global_state_embedding_dimensions,
+            embedding_dimensions=self.embedding_dimensions,
+            players=self.players,
+            columns=self.columns,
+            card_types=self.card_types,
+        )
         self.set_device(device)
 
     def set_device(self, device: torch.device):
@@ -785,7 +859,7 @@ class EquivariantSkyNet(nn.Module):
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
         mask: torch.Tensor,
-    ):
+    ) -> SkyNetOutput:
         card_embeddings = self.card_embedder(spatial_tensor)
         non_spatial_embeddings = self.non_spatial_embedder(non_spatial_tensor)
         card_embeddings = einops.rearrange(
@@ -880,7 +954,16 @@ class EquivariantSkyNet(nn.Module):
             global_state_embedding,
             mask,
         )
-        return value_out, torch.zeros_like(value_out), policy_out
+        cleared_cards = self.cleared_cards_tail(
+            einops.rearrange(
+                column_summaries,
+                "(b p) w f -> b (p w) f",
+                p=self.players,
+                w=self.columns,
+            ),
+            global_state_embedding,
+        )
+        return value_out, torch.zeros_like(value_out), policy_out, cleared_cards
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         spatial_tensor = einops.rearrange(

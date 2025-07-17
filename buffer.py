@@ -21,6 +21,7 @@ class Config(config.Config):
     outcome_target_shape: tuple[int, ...]
     points_target_shape: tuple[int, ...]
     policy_target_shape: tuple[int, ...]
+    cleared_columns_target_shape: tuple[int, ...]
     path: pathlib.Path | None = None
 
 
@@ -43,6 +44,7 @@ class ReplayBuffer:
         outcome_target_shape: tuple[int, ...],
         points_target_shape: tuple[int, ...],
         policy_target_shape: tuple[int, ...],
+        cleared_columns_target_shape: tuple[int, ...],
         path: pathlib.Path | None = None,
     ):
         self.max_size = max_size
@@ -63,6 +65,9 @@ class ReplayBuffer:
         self.points_target_buffer = np.empty(
             (max_size, *points_target_shape), dtype=np.float32
         )
+        self.cleared_columns_target_buffer = np.empty(
+            (max_size, *cleared_columns_target_shape), dtype=np.float32
+        )
         self.count = 0
         self.path = path
 
@@ -76,6 +81,7 @@ class ReplayBuffer:
             config.outcome_target_shape,
             config.points_target_shape,
             config.policy_target_shape,
+            config.cleared_columns_target_shape,
         )
 
     @classmethod
@@ -92,7 +98,7 @@ class ReplayBuffer:
         outcome_target: np.ndarray,
         points_target: np.ndarray,
         policy_target: np.ndarray,
-        action_mask: np.ndarray,
+        cleared_columns_target: np.ndarray,
     ):
         buffer_index = self.count
         if self.count >= self.max_size:
@@ -104,10 +110,11 @@ class ReplayBuffer:
         self.non_spatial_input_buffer[buffer_index] = (
             skynet.get_non_spatial_state_numpy(game_state)
         )
-        self.action_masks[buffer_index] = action_mask
+        self.action_masks[buffer_index] = sj.actions(game_state).astype(np.float32)
         self.policy_target_buffer[buffer_index] = policy_target
         self.outcome_target_buffer[buffer_index] = outcome_target
         self.points_target_buffer[buffer_index] = points_target
+        self.cleared_columns_target_buffer[buffer_index] = cleared_columns_target
         self.count += 1
 
     def add_game_data(self, game_data: play.GameData):
@@ -115,25 +122,29 @@ class ReplayBuffer:
 
         for (
             game_state,
+            action,
             outcome_target,
             points_target,
             policy_target,
-            action_mask,
-            _,
+            cleared_columns_target,
         ) in game_data:
             self.add(
-                game_state, outcome_target, points_target, policy_target, action_mask
+                game_state,
+                outcome_target,
+                points_target,
+                policy_target,
+                cleared_columns_target,
             )
 
     def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
         for (
             game_state,
+            _,
             outcome_target,
             points_target,
             policy_target,
-            action_mask,
-            _,
+            cleared_columns_target,
         ) in game_data:
             for (
                 symmetric_game_state,
@@ -144,7 +155,7 @@ class ReplayBuffer:
                     outcome_target,
                     points_target,
                     symmetric_policy_target,
-                    action_mask,
+                    cleared_columns_target,
                 )
 
     def sample_element(self) -> train_utils.TrainingDataPoint:
@@ -155,6 +166,7 @@ class ReplayBuffer:
             == len(self.outcome_target_buffer)
             == len(self.points_target_buffer)
             == len(self.policy_target_buffer)
+            == len(self.cleared_columns_target_buffer)
         ), "All buffers must be the same length"
         assert len(self) > 0, "Buffer is empty"
         # Select a random index first
@@ -166,6 +178,7 @@ class ReplayBuffer:
             self.outcome_target_buffer[index],
             self.points_target_buffer[index],
             self.policy_target_buffer[index],
+            self.cleared_columns_target_buffer[index],
         )
 
     def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
@@ -176,6 +189,7 @@ class ReplayBuffer:
             == len(self.outcome_target_buffer)
             == len(self.points_target_buffer)
             == len(self.action_masks)
+            == len(self.cleared_columns_target_buffer)
         ), "All buffers must be the same length"
         assert len(self) > 0, "Buffer is empty"
         assert batch_size <= len(self), (
@@ -192,6 +206,7 @@ class ReplayBuffer:
             self.outcome_target_buffer[indices],
             self.points_target_buffer[indices],
             self.policy_target_buffer[indices],
+            self.cleared_columns_target_buffer[indices],
         )
         return batch
 
