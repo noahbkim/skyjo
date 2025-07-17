@@ -94,11 +94,11 @@ def model_policy_faceoff(
         if skynet.state_value_for_player(outcome, 0) == 1:
             model1_wins += 1
             assert round_scores[0] <= round_scores[1]
-            model2_point_differential += round_scores[1] - round_scores[0]
+            model2_point_differential += int(round_scores[1] - round_scores[0])
         else:
             model2_wins += 1
             assert round_scores[1] <= round_scores[0]
-            model1_point_differential += round_scores[0] - round_scores[1]
+            model1_point_differential += int(round_scores[0] - round_scores[1])
         outcome2, round_scores2 = model_policy_single_game_faceoff(
             model2,
             model1,
