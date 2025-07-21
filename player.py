@@ -470,20 +470,54 @@ class PureModelValuePlayer(AbstractPlayer):
                         action_values[action] += 1 / self.terminal_state_rollouts
 
             elif sj.is_action_random(action, game_state):
+                spatial_inputs = []
+                non_spatial_inputs = []
+                action_masks = []
                 cards_remaining = np.sum(sj.get_deck(game_state))
+                next_states = []
                 for card, card_count in enumerate(sj.get_deck(game_state)):
                     if card_count > 0:
                         next_state = sj.apply_action(
                             sj.preordain(game_state, card), action
                         )
-                        model_prediction = self.model.predict(next_state)
+                        spatial_inputs.append(
+                            skynet.get_spatial_state_numpy(next_state)
+                        )
+                        non_spatial_inputs.append(
+                            skynet.get_non_spatial_state_numpy(next_state)
+                        )
+                        action_masks.append(sj.actions(next_state))
+                        next_states.append(next_state)
+                model_output = self.model.forward(
+                    torch.tensor(
+                        spatial_inputs, dtype=torch.float32, device=self.model.device
+                    ),
+                    torch.tensor(
+                        non_spatial_inputs,
+                        dtype=torch.float32,
+                        device=self.model.device,
+                    ),
+                    torch.tensor(
+                        action_masks, dtype=torch.float32, device=self.model.device
+                    ),
+                )
+                idx = 0
+                for card, card_count in enumerate(sj.get_deck(game_state)):
+                    if card_count > 0:
+                        model_value_prediction = model_output[0][idx]
+                        if self.model.device != torch.device("cpu"):
+                            value_output = model_value_prediction.cpu().detach().numpy()
+                        else:
+                            value_output = model_value_prediction.detach().numpy()
                         action_values[action] += (
                             skynet.to_state_value(
-                                model_prediction.value_output, sj.get_player(next_state)
+                                value_output,
+                                sj.get_player(next_states[idx]),
                             )[sj.get_player(game_state)]
                             * card_count
                             / cards_remaining
                         )
+                        idx += 1
 
             else:
                 next_state = sj.apply_action(game_state, action)
