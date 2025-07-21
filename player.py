@@ -470,20 +470,54 @@ class PureModelValuePlayer(AbstractPlayer):
                         action_values[action] += 1 / self.terminal_state_rollouts
 
             elif sj.is_action_random(action, game_state):
+                spatial_inputs = []
+                non_spatial_inputs = []
+                action_masks = []
                 cards_remaining = np.sum(sj.get_deck(game_state))
+                next_states = []
                 for card, card_count in enumerate(sj.get_deck(game_state)):
                     if card_count > 0:
                         next_state = sj.apply_action(
                             sj.preordain(game_state, card), action
                         )
-                        model_prediction = self.model.predict(next_state)
+                        spatial_inputs.append(
+                            skynet.get_spatial_state_numpy(next_state)
+                        )
+                        non_spatial_inputs.append(
+                            skynet.get_non_spatial_state_numpy(next_state)
+                        )
+                        action_masks.append(sj.actions(next_state))
+                        next_states.append(next_state)
+                model_output = self.model.forward(
+                    torch.tensor(
+                        spatial_inputs, dtype=torch.float32, device=self.model.device
+                    ),
+                    torch.tensor(
+                        non_spatial_inputs,
+                        dtype=torch.float32,
+                        device=self.model.device,
+                    ),
+                    torch.tensor(
+                        action_masks, dtype=torch.float32, device=self.model.device
+                    ),
+                )
+                idx = 0
+                for card, card_count in enumerate(sj.get_deck(game_state)):
+                    if card_count > 0:
+                        model_value_prediction = model_output[0][idx]
+                        if self.model.device != torch.device("cpu"):
+                            value_output = model_value_prediction.cpu().detach().numpy()
+                        else:
+                            value_output = model_value_prediction.detach().numpy()
                         action_values[action] += (
                             skynet.to_state_value(
-                                model_prediction.value_output, sj.get_player(next_state)
+                                value_output,
+                                sj.get_player(next_states[idx]),
                             )[sj.get_player(game_state)]
                             * card_count
                             / cards_remaining
                         )
+                        idx += 1
 
             else:
                 next_state = sj.apply_action(game_state, action)
@@ -495,4 +529,51 @@ class PureModelValuePlayer(AbstractPlayer):
         # print(sj.get_action_name(np.argmax(action_values).item()))
         action_probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
         action_probabilities[np.argmax(action_values).item()] = 1
+        return action_probabilities
+
+
+class HumanPlayer(AbstractPlayer):
+    """A player that allows the human to play the game."""
+
+    def get_action_probabilities(
+        self, game_state: sj.Skyjo
+    ) -> np.ndarray[tuple[int], np.float32]:
+        print(sj.visualize_state(game_state))
+        game = sj.get_game(game_state)
+        action_probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+        if game[sj.GAME_ACTION + sj.ACTION_FLIP_SECOND]:
+            print("0: flip second card in same column")
+            print("1: flip second card in different column")
+            action = int(input("Enter action: "))
+            assert action in (0, 1)
+        elif game[sj.GAME_ACTION + sj.ACTION_DRAW_OR_TAKE]:
+            print("0: Draw")
+            print("1: Take")
+            action = int(input("Enter action: "))
+            assert action in (0, 1)
+            action = sj.MASK_DRAW + action
+        else:
+            if game[sj.GAME_ACTION + sj.ACTION_FLIP_OR_REPLACE]:
+                print("0: Flip")
+                print("1: Replace")
+                user_input = input("Enter action: ").strip().lower()
+                assert int(user_input) in (0, 1)
+                if user_input == "0":
+                    action = sj.MASK_FLIP
+                elif user_input == "1":
+                    action = sj.MASK_REPLACE
+            else:
+                assert game[sj.GAME_ACTION + sj.ACTION_REPLACE]
+                action = sj.MASK_REPLACE
+            user_input = (
+                input("Enter row and columns (comma separated): ").strip().lower()
+            )
+            assert len(user_input.split(",")) == 2
+            row, column = map(int, user_input.split(","))
+            assert 0 <= row < sj.ROW_COUNT
+            assert 0 <= column < sj.COLUMN_COUNT
+            action = action + row * sj.COLUMN_COUNT + column
+        assert sj.actions(game_state)[action]
+        print(sj.get_action_name(action))
+        action_probabilities[action] = 1
         return action_probabilities

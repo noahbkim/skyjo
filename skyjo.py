@@ -531,6 +531,18 @@ def get_fixed_perspective_winner(skyjo: Skyjo) -> int:
     return winner
 
 
+def get_cleared_columns(skyjo: Skyjo) -> np.ndarray[tuple[int, int], np.int8]:
+    """Get the columns that have been cleared."""
+    return skyjo[1][: get_player_count(skyjo), 0, :, FINGER_CLEARED]
+
+
+def get_fixed_perspective_cleared_columns(
+    skyjo: Skyjo,
+) -> np.ndarray[tuple[int, int], np.int8]:
+    """Get the columns that have been cleared from a fixed perspective."""
+    return np.roll(get_cleared_columns(skyjo), get_player(skyjo), axis=0)
+
+
 def get_turn(skyjo: Skyjo) -> int:
     """Get current turn count."""
 

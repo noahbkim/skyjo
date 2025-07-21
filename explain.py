@@ -321,7 +321,8 @@ def almost_surely_winning_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def almost_surely_winning_take_position_targets():
@@ -329,7 +330,8 @@ def almost_surely_winning_take_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 11] = 1.0
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def almost_surely_losing_position_targets():
@@ -337,7 +339,8 @@ def almost_surely_losing_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_DRAW] = 1.0
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def obvious_clear_position_targets():
@@ -345,7 +348,8 @@ def obvious_clear_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def obvious_clear_take_position_targets():
@@ -353,7 +357,8 @@ def obvious_clear_take_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 8] = 1.0
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def almost_clear_position_targets():
@@ -361,7 +366,8 @@ def almost_clear_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_DRAW] = 1.0
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def almost_clear_draw_low_position_targets():
@@ -369,7 +375,8 @@ def almost_clear_draw_low_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 1] = 1
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def early_flip_position_targets():
@@ -377,7 +384,8 @@ def early_flip_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_FLIP + 2 : sj.MASK_FLIP + 12] = 1 / 10
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def negative_clear_position_targets():
@@ -385,7 +393,8 @@ def negative_clear_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 def negative_clear_take_position_targets():
@@ -393,7 +402,8 @@ def negative_clear_take_position_targets():
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 1] = 1
     points_target = None
-    return value_target, points_target, policy_target
+    cleared_columns_target = None
+    return value_target, points_target, policy_target, cleared_columns_target
 
 
 # MARK: Evaluation
@@ -460,9 +470,11 @@ def validate_model_on_validation_examples(
         game_data.append(
             (
                 game_state,
+                None,
                 targets[0],
                 targets[1],
                 targets[2],
+                None,
             )
         )
     value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
@@ -481,6 +493,9 @@ def validate_model_on_validation_examples(
             if targets[1] is not None
             else None,
             torch.tensor(np.expand_dims(targets[2], 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(targets[3], 0), dtype=torch.float32)
+            if targets[3] is not None
+            else None,
         )
         value_loss, policy_loss = train_utils.policy_value_losses(
             model_prediction.to_output(), tensor_targets
@@ -526,7 +541,7 @@ def validate_model_with_games_data(
             spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor
         )
         value_loss, policy_loss = train_utils.policy_value_losses(
-            model_output, (value_targets_tensor, None, policy_targets_tensor)
+            model_output, (value_targets_tensor, None, policy_targets_tensor, None)
         )
         total_loss = value_loss_scale * value_loss + policy_loss
         base_policy_entropies = -(

@@ -94,11 +94,11 @@ def model_policy_faceoff(
         if skynet.state_value_for_player(outcome, 0) == 1:
             model1_wins += 1
             assert round_scores[0] <= round_scores[1]
-            model2_point_differential += round_scores[1] - round_scores[0]
+            model2_point_differential += int(round_scores[1] - round_scores[0])
         else:
             model2_wins += 1
             assert round_scores[1] <= round_scores[0]
-            model1_point_differential += round_scores[0] - round_scores[1]
+            model1_point_differential += int(round_scores[0] - round_scores[1])
         outcome2, round_scores2 = model_policy_single_game_faceoff(
             model2,
             model1,
@@ -108,11 +108,11 @@ def model_policy_faceoff(
         if skynet.state_value_for_player(outcome2, 0) == 1:
             model2_wins += 1
             assert round_scores2[0] <= round_scores2[1]
-            model1_point_differential += round_scores2[1] - round_scores2[0]
+            model1_point_differential += int(round_scores2[1] - round_scores2[0])
         else:
             model1_wins += 1
             assert round_scores2[1] <= round_scores2[0]
-            model2_point_differential += round_scores2[0] - round_scores2[1]
+            model2_point_differential += int(round_scores2[0] - round_scores2[1])
     logging.info(f"Model 1 wins: {model1_wins}, Model 2 wins: {model2_wins}")
     logging.info(
         f"Model 1 avg point differential: {model1_point_differential / (2 * rounds)} Model 2 avg point differential: {model2_point_differential / (2 * rounds)}"
@@ -142,11 +142,11 @@ def model_value_faceoff(
         if skynet.state_value_for_player(outcome, 0) == 1:
             model1_wins += 1
             assert round_scores[0] <= round_scores[1]
-            model2_point_differential += round_scores[1] - round_scores[0]
+            model2_point_differential += int(round_scores[1] - round_scores[0])
         else:
             model2_wins += 1
             assert round_scores[1] <= round_scores[0]
-            model1_point_differential += round_scores[0] - round_scores[1]
+            model1_point_differential += int(round_scores[0] - round_scores[1])
         outcome2, round_scores2 = model_value_single_game_faceoff(
             model2,
             model1,
@@ -156,11 +156,11 @@ def model_value_faceoff(
         if skynet.state_value_for_player(outcome2, 0) == 1:
             model2_wins += 1
             assert round_scores2[0] <= round_scores2[1]
-            model1_point_differential += round_scores2[1] - round_scores2[0]
+            model1_point_differential += int(round_scores2[1] - round_scores2[0])
         else:
             model1_wins += 1
             assert round_scores2[1] <= round_scores2[0]
-            model2_point_differential += round_scores2[0] - round_scores2[1]
+            model2_point_differential += int(round_scores2[0] - round_scores2[1])
     logging.info(f"Model 1 wins: {model1_wins}, Model 2 wins: {model2_wins}")
     logging.info(
         f"Model 1 avg point differential: {model1_point_differential / (2 * rounds)} Model 2 avg point differential: {model2_point_differential / (2 * rounds)}"
