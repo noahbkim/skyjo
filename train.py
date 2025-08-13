@@ -542,6 +542,7 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
     debug: bool = False,
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
+    load_training_data_buffer_path: pathlib.Path | None = None,
 ):
     """Runs a distributed training loop.
 
@@ -560,9 +561,17 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
     logging.info(f"Using start position generator: {start_state_generator}")
     selfplay_actors = []
     try:
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
-        )
+        if load_training_data_buffer_path is not None:
+            logging.info(
+                f"Loading existing training data buffer from {load_training_data_buffer_path}"
+            )
+            training_data_buffer = buffer.ReplayBuffer.load(
+                load_training_data_buffer_path
+            )
+        else:
+            training_data_buffer = buffer.ReplayBuffer(
+                **training_data_buffer_config.kwargs()
+            )
 
         # Predictor clients setup
         model_update_queues = {i: mp.Queue() for i in range(process_count)}
