@@ -121,7 +121,15 @@ if __name__ == "__main__":
         global_state_embedding_dimensions=64,
         num_heads=1,
     )
-    # model.load_state_dict(
+    model.load_state_dict(
+        torch.load(
+            # "./models/distributed/20250724_102027/model_20250730_055847.pth",
+            # "./models/distributed/20250730_075618/model_20250810_041449.pth",
+            # "./models/special/20250813/model_20250813_185028.pth",
+            "./models/special/20250811_164319/model_20250818_234645.pth",
+            weights_only=True,
+        )
+    )
     #     torch.load(
     #         "./models/distributed/20250608_212522/model_20250609_023411.pth",
     #         weights_only=True,
@@ -155,7 +163,7 @@ if __name__ == "__main__":
         initial_model=model,
     )
     training_config = train.TrainConfig(
-        epochs=5,
+        epochs=2,
         batch_size=256,
         learn_rate=1e-3,
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
@@ -165,7 +173,7 @@ if __name__ == "__main__":
     learn_config = train.LearnConfig(
         torch_device=device,
         learn_steps=1000,
-        games_generated_per_iteration=250,
+        games_generated_per_iteration=2500,
         loss_stats_function=train_utils.loss_details_summary,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
@@ -212,11 +220,11 @@ if __name__ == "__main__":
         **mcts_config.kwargs("mcts"),
     )
     batched_mcts_config = parallel_mcts.BatchedMCTSConfig(
-        iterations=400,
+        iterations=1600,
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
-        batched_leaf_count=2,
+        batched_leaf_count=4,
         virtual_loss=0.5,
         forced_playout_k=None,
     )
@@ -225,7 +233,7 @@ if __name__ == "__main__":
         **batched_mcts_config.kwargs("mcts"),
     )
     training_data_buffer_config = buffer.Config(
-        max_size=75_000,
+        max_size=2_000_000,
         spatial_input_shape=(
             players,
             sj.ROW_COUNT,
@@ -269,6 +277,9 @@ if __name__ == "__main__":
         debug=debug,
         log_level=logging.DEBUG if debug else logging.INFO,
         log_dir=log_dir,
+        # load_training_data_buffer_path=pathlib.Path(
+        #     "./data/training_data/20250730_075618/buffer.pkl"
+        # ),
     )
     # train.run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
     #     process_count=9,
