@@ -386,6 +386,7 @@ class BatchedModelPlayer(AbstractPlayer):
         mcts_batched_leaf_count: int,
         mcts_virtual_loss: float,
         mcts_forced_playout_k: float | None,
+        debug: bool = False,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
@@ -398,12 +399,15 @@ class BatchedModelPlayer(AbstractPlayer):
         self.mcts_batched_leaf_count = mcts_batched_leaf_count
         self.mcts_virtual_loss = mcts_virtual_loss
         self.mcts_forced_playout_k = mcts_forced_playout_k
+        self.debug = debug
 
     def get_action_probabilities(
         self,
         game_state: sj.Skyjo,
     ) -> np.ndarray[tuple[int], np.float32]:
         node = self.run_mcts(game_state)
+        if self.debug:
+            print(node)
         return node.policy_targets(
             self.action_softmax_temperature, self.mcts_forced_playout_k
         )
