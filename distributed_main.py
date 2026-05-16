@@ -11,10 +11,19 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-from skyjo import buffer, explain, factory, mcts, player, predictor, skynet, train
+from skyjo import (
+    buffer,
+    explain,
+    factory,
+    mcts,
+    play,
+    player,
+    predictor,
+    skynet,
+    train,
+    train_utils,
+)
 from skyjo import game as sj
-from skyjo import play, train_utils
-
 
 StartStateGenerator: typing.TypeAlias = typing.Callable[[], sj.Skyjo | None]
 
@@ -97,9 +106,7 @@ def run_apply_async_local_selfplay_learning(
     start_state_generator: StartStateGenerator | None = None,
     outcome_rollouts: int = 1,
 ) -> None:
-    training_data_buffer = buffer.ReplayBuffer(
-        **training_data_buffer_config.kwargs()
-    )
+    training_data_buffer = buffer.ReplayBuffer(**training_data_buffer_config.kwargs())
     model = model_factory.get_latest_model()
     model.set_device(learn_config.torch_device)
 
@@ -115,8 +122,7 @@ def run_apply_async_local_selfplay_learning(
                 learn_config.validation_function(model)
 
             model_state_dict = {
-                name: value.detach().cpu()
-                for name, value in model.state_dict().items()
+                name: value.detach().cpu() for name, value in model.state_dict().items()
             }
             async_results = [
                 pool.apply_async(
