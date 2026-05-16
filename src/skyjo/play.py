@@ -13,12 +13,12 @@ import typing
 
 import numpy as np
 
-import mcts
-import parallel_mcts
-import player
-import predictor
-import skyjo as sj
-import skynet
+from . import mcts
+from . import parallel_mcts
+from . import player
+from . import predictor
+from . import game as sj
+from . import skynet
 
 # MARK: Config
 
@@ -613,8 +613,6 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
 
 if __name__ == "__main__":
     import torch
-
-    import player
 
     device = torch.device("cpu")
     model = skynet.EquivariantSkyNet(

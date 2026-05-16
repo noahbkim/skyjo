@@ -5,9 +5,9 @@ import logging
 import numpy as np
 import torch
 
-import skyjo as sj
-import skynet
-import train_utils
+from . import game as sj
+from . import skynet
+from . import train_utils
 
 # MARK: Game state creation
 

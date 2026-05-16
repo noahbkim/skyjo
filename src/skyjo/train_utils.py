@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-import play
-import skyjo as sj
-import skynet
+from . import play
+from . import game as sj
+from . import skynet
 
 # MARK: Types
 

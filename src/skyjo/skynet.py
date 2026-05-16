@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-import skyjo as sj
+from . import game as sj
 
 """
 einops and general dimension notation:

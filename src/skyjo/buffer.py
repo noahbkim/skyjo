@@ -5,11 +5,11 @@ import typing
 
 import numpy as np
 
-import config
-import play
-import skyjo as sj
-import skynet
-import train_utils
+from . import config
+from . import play
+from . import game as sj
+from . import skynet
+from . import train_utils
 
 
 @dataclasses.dataclass(slots=True)

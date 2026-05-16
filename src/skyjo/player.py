@@ -8,12 +8,12 @@ import dataclasses
 import numpy as np
 import torch
 
-import config
-import mcts
-import parallel_mcts
-import predictor
-import skyjo as sj
-import skynet
+from . import config
+from . import mcts
+from . import parallel_mcts
+from . import predictor
+from . import game as sj
+from . import skynet
 
 
 class AbstractPlayer(abc.ABC):

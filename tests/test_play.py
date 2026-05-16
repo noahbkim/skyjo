@@ -3,8 +3,8 @@ import math
 import numpy as np
 import pytest
 
-import play
 import skyjo as sj
+from skyjo import play
 
 
 def test_get_skyjo_symmetries():

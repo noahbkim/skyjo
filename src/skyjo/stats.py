@@ -1,6 +1,6 @@
 import numpy as np
 
-import skyjo as sj
+from . import game as sj
 
 # MARK: Probability Helpers
 

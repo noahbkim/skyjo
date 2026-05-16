@@ -1,9 +1,9 @@
 import logging
 import typing
 
-import player
-import skyjo as sj
-import skynet
+from . import player
+from . import game as sj
+from . import skynet
 
 
 def single_game_faceoff(

@@ -21,10 +21,10 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-import config
-import factory
-import skyjo as sj
-import skynet
+from . import config
+from . import factory
+from . import game as sj
+from . import skynet
 
 # MARK: Types
 

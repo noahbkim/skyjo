@@ -7,8 +7,8 @@ import typing
 
 import torch
 
-import skyjo as sj
-import skynet
+from . import game as sj
+from . import skynet
 
 
 class SkyNetModelFactory:

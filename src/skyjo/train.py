@@ -12,16 +12,16 @@ import typing
 import torch
 import torch.multiprocessing as mp
 
-import buffer
-import config
-import explain
-import factory
-import play
-import player
-import predictor
-import skyjo as sj
-import skynet
-import train_utils
+from . import buffer
+from . import config
+from . import explain
+from . import factory
+from . import play
+from . import player
+from . import predictor
+from . import game as sj
+from . import skynet
+from . import train_utils
 
 # MARK: Training
 

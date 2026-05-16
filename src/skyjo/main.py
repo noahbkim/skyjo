@@ -6,18 +6,18 @@ import typing
 import numpy as np
 import torch
 
-import buffer
-import explain
-import faceoff
-import factory
-import mcts
-import parallel_mcts
-import player
-import predictor
-import skyjo as sj
-import skynet
-import train
-import train_utils
+from . import buffer
+from . import explain
+from . import faceoff
+from . import factory
+from . import mcts
+from . import parallel_mcts
+from . import player
+from . import predictor
+from . import game as sj
+from . import skynet
+from . import train
+from . import train_utils
 
 
 def create_obvious_clear_or_almost_clear_position() -> sj.Skyjo:
@@ -79,8 +79,6 @@ def model_faceoff_threshold(
 if __name__ == "__main__":
     import datetime
     import pickle as pkl
-
-    import skyjo as sj
 
     np.random.seed(0)
     torch.manual_seed(0)
