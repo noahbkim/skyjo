@@ -21,10 +21,8 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-from . import config
-from . import factory
+from . import config, factory, skynet
 from . import game as sj
-from . import skynet
 
 # MARK: Types
 
@@ -480,6 +478,13 @@ class PredictorProcess(mp.Process):
                         ),
                         dtype=torch.float32,
                     ).share_memory_(),  # policy output
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            model.value_output_shape[0] * sj.COLUMN_COUNT,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # cleared columns output
                 )
 
     def _setup_logging(self):
@@ -583,11 +588,28 @@ class PredictorProcess(mp.Process):
 
                     # Model Inference
                     with torch.no_grad():
-                        value_output, points_output, policy_output = model(
+                        model_output = model(
                             spatial_input_tensor,
                             non_spatial_input_tensor,
                             mask_tensor,
                         )
+                        if len(model_output) == 3:
+                            value_output, points_output, policy_output = model_output
+                            cleared_columns_output = torch.zeros(
+                                (
+                                    value_output.shape[0],
+                                    model.value_output_shape[0] * sj.COLUMN_COUNT,
+                                ),
+                                dtype=value_output.dtype,
+                                device=value_output.device,
+                            )
+                        else:
+                            (
+                                value_output,
+                                points_output,
+                                policy_output,
+                                cleared_columns_output,
+                            ) = model_output
 
                     # Send outputs back to clients
                     processed_count = 0
@@ -601,6 +623,7 @@ class PredictorProcess(mp.Process):
                             value_tensor,
                             points_tensor,
                             policy_tensor,
+                            cleared_columns_tensor,
                         ) = self.output_queues[queue_id].get_free()
                         prediction_ids_tensor[:batch_size] = prediction_ids[
                             processed_count : processed_count + batch_size
@@ -614,6 +637,9 @@ class PredictorProcess(mp.Process):
                         policy_tensor[:batch_size] = policy_output[
                             processed_count : processed_count + batch_size
                         ]
+                        cleared_columns_tensor[:batch_size] = cleared_columns_output[
+                            processed_count : processed_count + batch_size
+                        ]
 
                         # Put results back into output queue
                         self.output_queues[queue_id].put(
@@ -621,6 +647,7 @@ class PredictorProcess(mp.Process):
                             value_tensor,
                             points_tensor,
                             policy_tensor,
+                            cleared_columns_tensor,
                             batch_size,
                         )
                         processed_count += batch_size
