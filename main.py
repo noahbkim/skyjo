@@ -121,15 +121,15 @@ if __name__ == "__main__":
         global_state_embedding_dimensions=64,
         num_heads=1,
     )
-    model.load_state_dict(
-        torch.load(
-            # "./models/distributed/20250724_102027/model_20250730_055847.pth",
-            # "./models/distributed/20250730_075618/model_20250810_041449.pth",
-            # "./models/special/20250813/model_20250813_185028.pth",
-            "./models/special/20250811_164319/model_20250818_234645.pth",
-            weights_only=True,
-        )
-    )
+    # model.load_state_dict(
+    #     torch.load(
+    #         # "./models/distributed/20250724_102027/model_20250730_055847.pth",
+    #         # "./models/distributed/20250730_075618/model_20250810_041449.pth",
+    #         # "./models/special/20250813/model_20250813_185028.pth",
+    #         "./models/special/20250811_164319/model_20250818_234645.pth",
+    #         weights_only=True,
+    #     )
+    # )
     #     torch.load(
     #         "./models/distributed/20250608_212522/model_20250609_023411.pth",
     #         weights_only=True,
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         batch_size=256,
         learn_rate=1e-3,
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
-            model_outputs, targets, value_scale=5.0
+            model_outputs, targets, value_scale=1.0
         ),
     )
     learn_config = train.LearnConfig(
@@ -250,37 +250,37 @@ if __name__ == "__main__":
             f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/buffer.pkl"
         ),
     )
-    # train.run_multiprocessed_selfplay_with_local_predictor_learning(
-    #     process_count=8,
-    #     players=players,
-    #     model_factory=model_factory,
-    #     learn_config=learn_config,
-    #     training_config=training_config,
-    #     # predictor_config=predictor_config,
-    #     training_data_buffer_config=training_data_buffer_config,
-    #     model_player_config=model_player_config,
-    #     # start_state_generator=create_random_potential_clear_position,
-    #     outcome_rollouts=100,
-    #     debug=debug,
-    #     log_level=logging.DEBUG if debug else logging.INFO,
-    #     log_dir=log_dir,
-    # )
-    train.run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
-        process_count=9,
+    train.run_multiprocessed_selfplay_with_local_predictor_learning(
+        process_count=8,
         players=players,
         model_factory=model_factory,
         learn_config=learn_config,
         training_config=training_config,
+        # predictor_config=predictor_config,
         training_data_buffer_config=training_data_buffer_config,
-        batched_model_player_config=batched_model_player_config,
+        model_player_config=model_player_config,
+        # start_state_generator=create_random_potential_clear_position,
         outcome_rollouts=100,
         debug=debug,
         log_level=logging.DEBUG if debug else logging.INFO,
         log_dir=log_dir,
-        # load_training_data_buffer_path=pathlib.Path(
-        #     "./data/training_data/20250730_075618/buffer.pkl"
-        # ),
     )
+    # train.run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
+    #     process_count=9,
+    #     players=players,
+    #     model_factory=model_factory,
+    #     learn_config=learn_config,
+    #     training_config=training_config,
+    #     training_data_buffer_config=training_data_buffer_config,
+    #     batched_model_player_config=batched_model_player_config,
+    #     outcome_rollouts=100,
+    #     debug=debug,
+    #     log_level=logging.DEBUG if debug else logging.INFO,
+    #     log_dir=log_dir,
+    #     # load_training_data_buffer_path=pathlib.Path(
+    #     #     "./data/training_data/20250730_075618/buffer.pkl"
+    #     # ),
+    # )
     # train.run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
     #     process_count=9,
     #     players=players,
