@@ -13,12 +13,8 @@ import typing
 
 import numpy as np
 
-from . import mcts
-from . import parallel_mcts
-from . import player
-from . import predictor
 from . import game as sj
-from . import skynet
+from . import mcts, parallel_mcts, player, predictor, skynet
 
 # MARK: Config
 
@@ -303,6 +299,33 @@ def print_game_history(
 
 
 # MARK: Selfplay
+
+
+def distributed_play(
+    players: list[player.AbstractPlayer],
+    start_state: sj.Skyjo | None = None,
+    number_of_games: int = 1,
+) -> list[GameHistory]:
+    game_histories = []
+    for _ in range(number_of_games):
+        if start_state is None:
+            game_state = sj.new(players=len(players))
+            game_state = sj.start_round(game_state)
+        else:
+            game_state = start_state
+        game_history = []
+        while not sj.get_game_over(game_state):
+            action_probabilities = players[
+                sj.get_player(game_state)
+            ].get_action_probabilities(game_state)
+            action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
+            assert sj.actions(game_state)[action]
+            game_history.append((game_state, action, action_probabilities))
+            game_state = sj.apply_action(game_state, action)
+
+        game_history.append((game_state, None, None))
+        game_histories.append(game_history)
+    return game_histories
 
 
 def play(

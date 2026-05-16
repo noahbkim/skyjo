@@ -6,18 +6,20 @@ import typing
 import numpy as np
 import torch
 
-from . import buffer
-from . import explain
-from . import faceoff
-from . import factory
-from . import mcts
-from . import parallel_mcts
-from . import player
-from . import predictor
-from . import game as sj
-from . import skynet
-from . import train
-from . import train_utils
+from skyjo import (
+    buffer,
+    explain,
+    faceoff,
+    factory,
+    mcts,
+    parallel_mcts,
+    player,
+    predictor,
+    skynet,
+    train,
+    train_utils,
+)
+from skyjo import game as sj
 
 
 def create_obvious_clear_or_almost_clear_position() -> sj.Skyjo:
