@@ -513,7 +513,7 @@ class PureModelValuePlayer(AbstractPlayer):
                 idx = 0
                 for card, card_count in enumerate(sj.get_deck(game_state)):
                     if card_count > 0:
-                        model_value_prediction = model_output[0][idx]
+                        model_value_prediction = model_output.value[idx]
                         if self.model.device != torch.device("cpu"):
                             value_output = model_value_prediction.cpu().detach().numpy()
                         else:

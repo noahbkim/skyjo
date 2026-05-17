@@ -30,20 +30,16 @@ from . import train_utils
 class TrainConfig(config.Config):
     batch_size: int
     epochs: int
-    loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ]
+    loss_function: train_utils.LossFunction
     learn_rate: float
 
 
 def train_step(
     model: skynet.SkyNet,
     batch: train_utils.TrainingBatch,
-    loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ],
+    loss_function: train_utils.LossFunction,
     learn_rate: float = 1e-4,
-) -> None:
+) -> tuple[float, train_utils.LossDetails]:
     """Performs a single training step on the model."""
     optimizer = torch.optim.Adam(model.parameters(), lr=learn_rate, weight_decay=1e-4)
     model.train()
@@ -55,11 +51,21 @@ def train_step(
         points_targets_tensor,
         policy_targets_tensor,
         cleared_column_targets_tensor,
-    ) = skynet.numpy_to_tensors(*batch, device=model.device, dtype=torch.float32)
+    ) = skynet.numpy_to_tensors(
+        batch.spatial_inputs,
+        batch.non_spatial_inputs,
+        batch.action_masks,
+        batch.value_targets,
+        batch.points_targets,
+        batch.policy_targets,
+        batch.cleared_columns_targets,
+        device=model.device,
+        dtype=torch.float32,
+    )
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
     loss, loss_detail = loss_function(
         model_output,
-        (
+        train_utils.TensorTrainingTargets(
             value_targets_tensor,
             points_targets_tensor,
             policy_targets_tensor,
@@ -78,9 +84,7 @@ def train_epoch(
     training_data_buffer: buffer.ReplayBuffer,
     training_batch_size: int,
     learn_rate: float,
-    loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ],
+    loss_function: train_utils.LossFunction,
 ):
     """Performs a single training epoch.
 
@@ -113,9 +117,7 @@ class LearnConfig(config.Config):
     training_epochs: int
     training_batch_size: int
     training_learn_rate: float
-    training_loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ]
+    training_loss_function: train_utils.LossFunction
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None
     validation_interval: int | None
     validation_function: typing.Callable[[skynet.SkyNet], None] | None
@@ -134,9 +136,7 @@ def learn(
     training_epochs: int,
     training_batch_size: int,
     training_learn_rate: float,
-    training_loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ],
+    training_loss_function: train_utils.LossFunction,
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None,
     validation_interval: int,
     validation_function: typing.Callable[[skynet.SkyNet], None] | None,

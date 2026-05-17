@@ -96,6 +96,38 @@ def get_non_spatial_state_numpy(
 # MARK: Model Output
 
 
+class SupportsCoreSkyNetOutput(typing.Protocol):
+    """Shared tensor fields required by the core SkyNet losses."""
+
+    value: torch.Tensor
+    points: torch.Tensor
+    policy_logits: torch.Tensor
+    cleared_columns: torch.Tensor
+
+
+class EquivariantOutput(typing.NamedTuple):
+    """Core output returned by EquivariantSkyNet.
+
+    The field order is intentionally tuple-compatible with the previous
+    SkyNetOutput tuple: value, points, policy logits, cleared columns.
+    """
+
+    value: torch.Tensor
+    points: torch.Tensor
+    policy_logits: torch.Tensor
+    cleared_columns: torch.Tensor
+
+
+SkyNetOutput: typing.TypeAlias = EquivariantOutput
+
+
+class SkyNetNumpyOutput(typing.NamedTuple):
+    value: np.ndarray[tuple[int, ...], np.float32]
+    points: np.ndarray[tuple[int, ...], np.float32]
+    policy_logits: np.ndarray[tuple[int, ...], np.float32]
+    cleared_columns: np.ndarray[tuple[int, ...], np.float32]
+
+
 def batch_mask_and_renormalize_policy_probabilities(
     batch_policies: np.ndarray[tuple[int, int], np.float32],
     batch_masks: np.ndarray[tuple[int, int], np.int8],
@@ -151,11 +183,11 @@ def mask_and_renormalize_policy_probabilities(
 def get_single_model_output(
     model_output: SkyNetOutput | SkyNetNumpyOutput, idx: int
 ) -> SkyNetOutput | SkyNetNumpyOutput:
-    return (
-        model_output[0][idx],
-        model_output[1][idx],
-        model_output[2][idx],
-        model_output[3][idx],
+    return type(model_output)(
+        model_output.value[idx],
+        model_output.points[idx],
+        model_output.policy_logits[idx],
+        model_output.cleared_columns[idx],
     )
 
 
@@ -165,10 +197,10 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     Handles the detaching and converting to numpy
     (including copying to cpu when device is not cpu).
     """
-    value_output = output[0].detach()
-    points_output = output[1].detach()
-    policy_output = output[2].detach()
-    cleared_column_output = output[3].detach()
+    value_output = output.value.detach()
+    points_output = output.points.detach()
+    policy_output = output.policy_logits.detach()
+    cleared_column_output = output.cleared_columns.detach()
     if value_output.device != torch.device("cpu"):
         value_output = value_output.cpu()
     if points_output.device != torch.device("cpu"):
@@ -177,7 +209,7 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
         policy_output = policy_output.cpu()
     if cleared_column_output.device != torch.device("cpu"):
         cleared_column_output = cleared_column_output.cpu()
-    return (
+    return SkyNetNumpyOutput(
         value_output.numpy(),
         points_output.numpy(),
         policy_output.numpy(),
@@ -254,7 +286,7 @@ class SkyNetPrediction:
 
     def to_output(self) -> SkyNetOutput:
         assert self.policy_logits is not None, "expected policy logits"
-        return (
+        return EquivariantOutput(
             torch.tensor(np.expand_dims(self.value_output, 0), dtype=torch.float32),
             torch.tensor(np.expand_dims(self.points_output, 0), dtype=torch.float32),
             torch.tensor(np.expand_dims(self.policy_logits, 0), dtype=torch.float32),
@@ -262,20 +294,6 @@ class SkyNetPrediction:
                 np.expand_dims(self.cleared_column_output, 0), dtype=torch.float32
             ),
         )
-
-
-SkyNetOutput: typing.TypeAlias = tuple[
-    torch.Tensor,  # value
-    torch.Tensor,  # points
-    torch.Tensor,  # policy
-    torch.Tensor,  # cleared columns
-]
-SkyNetNumpyOutput: typing.TypeAlias = tuple[
-    np.ndarray[tuple[int, ...], np.float32],  # value
-    np.ndarray[tuple[int, ...], np.float32],  # points
-    np.ndarray[tuple[int, ...], np.float32],  # policy
-    np.ndarray[tuple[int, ...], np.float32],  # cleared columns
-]
 
 
 # MARK: Tail Modules
@@ -586,7 +604,21 @@ class SimpleSkyNet(nn.Module):
         x = self.mlp(x)
         value_out = self.value_tail(x)
         policy_out = self.policy_tail(x, mask)
-        return value_out, torch.zeros_like(value_out), policy_out
+        points_out = torch.zeros_like(value_out)
+        cleared_columns_out = torch.zeros(
+            (
+                value_out.shape[0],
+                self.value_output_shape[0] * sj.COLUMN_COUNT,
+            ),
+            dtype=value_out.dtype,
+            device=value_out.device,
+        )
+        return EquivariantOutput(
+            value_out,
+            points_out,
+            policy_out,
+            cleared_columns_out,
+        )
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         spatial_tensor = einops.rearrange(
@@ -1018,7 +1050,12 @@ class EquivariantSkyNet(nn.Module):
             ),
             global_state_embedding,
         )
-        return value_out, torch.zeros_like(value_out), policy_out, cleared_cards
+        return EquivariantOutput(
+            value_out,
+            torch.zeros_like(value_out),
+            policy_out,
+            cleared_cards,
+        )
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         spatial_tensor = einops.rearrange(

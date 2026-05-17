@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from . import game as sj
+from . import play
 from . import skynet
 from . import train_utils
 
@@ -468,13 +469,15 @@ def validate_model_on_validation_examples(
     game_data = []
     for description, game_state, targets in VALIDATION_EXAMPLES:
         game_data.append(
-            (
+            play.GameDataPoint(
                 game_state,
                 None,
-                targets[0],
-                targets[1],
-                targets[2],
-                None,
+                train_utils.NumpyTrainingTargets(
+                    targets[0],
+                    targets[1],
+                    targets[2],
+                    None,
+                ),
             )
         )
     value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
@@ -487,7 +490,7 @@ def validate_model_on_validation_examples(
     logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
     for description, game_state, targets in VALIDATION_EXAMPLES:
         model_prediction = model.predict(game_state)
-        tensor_targets = (
+        tensor_targets = train_utils.TensorTrainingTargets(
             torch.tensor(np.expand_dims(targets[0], 0), dtype=torch.float32),
             torch.tensor(np.expand_dims(targets[1], 0), dtype=torch.float32)
             if targets[1] is not None
@@ -516,32 +519,34 @@ def validate_model_with_games_data(
 ):
     model.eval()
     with torch.no_grad():
-        (
-            spatial_inputs,
-            non_spatial_inputs,
-            masks,
-            value_targets,
-            points_targets,
-            policy_targets,
-        ) = validation_batch
         spatial_inputs_tensor = torch.tensor(
-            spatial_inputs, dtype=torch.float32, device=model.device
+            validation_batch.spatial_inputs, dtype=torch.float32, device=model.device
         )
         non_spatial_inputs_tensor = torch.tensor(
-            non_spatial_inputs, dtype=torch.float32, device=model.device
+            validation_batch.non_spatial_inputs,
+            dtype=torch.float32,
+            device=model.device,
         )
-        masks_tensor = torch.tensor(masks, dtype=torch.float32, device=model.device)
+        masks_tensor = torch.tensor(
+            validation_batch.action_masks, dtype=torch.float32, device=model.device
+        )
         value_targets_tensor = torch.tensor(
-            value_targets, dtype=torch.float32, device=model.device
+            validation_batch.value_targets, dtype=torch.float32, device=model.device
         )
         policy_targets_tensor = torch.tensor(
-            policy_targets, dtype=torch.float32, device=model.device
+            validation_batch.policy_targets, dtype=torch.float32, device=model.device
         )
         model_output = model(
             spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor
         )
         value_loss, policy_loss = train_utils.policy_value_losses(
-            model_output, (value_targets_tensor, None, policy_targets_tensor, None)
+            model_output,
+            train_utils.TensorTrainingTargets(
+                value_targets_tensor,
+                None,
+                policy_targets_tensor,
+                None,
+            ),
         )
         total_loss = value_loss_scale * value_loss + policy_loss
         base_policy_entropies = -(

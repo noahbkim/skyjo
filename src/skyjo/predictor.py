@@ -842,7 +842,7 @@ class DistributedPredictorClient(AbstractPredictorClient):
         to_return = (
             self.current_output[0][self.sample_count].item(),
             skynet.SkyNetPrediction.from_skynet_output(
-                (
+                skynet.EquivariantOutput(
                     self.current_output[1][self.sample_count].unsqueeze(0),
                     self.current_output[2][self.sample_count].unsqueeze(0),
                     self.current_output[3][self.sample_count].unsqueeze(0),
@@ -866,7 +866,7 @@ class DistributedPredictorClient(AbstractPredictorClient):
                 (
                     self.current_output[0][sample_idx].item(),
                     skynet.SkyNetPrediction.from_skynet_output(
-                        (
+                        skynet.EquivariantOutput(
                             self.current_output[1][sample_idx].unsqueeze(0),
                             self.current_output[2][sample_idx].unsqueeze(0),
                             self.current_output[3][sample_idx].unsqueeze(0),
@@ -1005,6 +1005,7 @@ class LocalPredictorClient(AbstractPredictorClient):
                 value_output = value_output.cpu()
                 points_output = points_output.cpu()
                 policy_output = policy_output.cpu()
+                cleared_columns_output = cleared_columns_output.cpu()
         self.output_queue.append(
             (
                 prediction_ids[:batch_size],
@@ -1023,7 +1024,7 @@ class LocalPredictorClient(AbstractPredictorClient):
         to_return = (
             self.current_output[0][self.sample_count],
             skynet.SkyNetPrediction.from_skynet_output(
-                (
+                skynet.EquivariantOutput(
                     self.current_output[1][self.sample_count].unsqueeze(0),
                     self.current_output[2][self.sample_count].unsqueeze(0),
                     self.current_output[3][self.sample_count].unsqueeze(0),
@@ -1047,7 +1048,7 @@ class LocalPredictorClient(AbstractPredictorClient):
                 (
                     self.current_output[0][sample_idx],
                     skynet.SkyNetPrediction.from_skynet_output(
-                        (
+                        skynet.EquivariantOutput(
                             self.current_output[1][sample_idx].unsqueeze(0),
                             self.current_output[2][sample_idx].unsqueeze(0),
                             self.current_output[3][sample_idx].unsqueeze(0),

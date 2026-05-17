@@ -95,7 +95,7 @@ class ReplayBuffer:
     def add(
         self,
         game_state: sj.Skyjo,
-        outcome_target: np.ndarray,
+        value_target: np.ndarray,
         points_target: np.ndarray,
         policy_target: np.ndarray,
         cleared_columns_target: np.ndarray,
@@ -112,7 +112,7 @@ class ReplayBuffer:
         )
         self.action_masks[buffer_index] = sj.actions(game_state).astype(np.float32)
         self.policy_target_buffer[buffer_index] = policy_target
-        self.outcome_target_buffer[buffer_index] = outcome_target
+        self.outcome_target_buffer[buffer_index] = value_target
         self.points_target_buffer[buffer_index] = points_target
         self.cleared_columns_target_buffer[buffer_index] = cleared_columns_target
         self.count += 1
@@ -120,42 +120,30 @@ class ReplayBuffer:
     def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
 
-        for (
-            game_state,
-            action,
-            outcome_target,
-            points_target,
-            policy_target,
-            cleared_columns_target,
-        ) in game_data:
+        for data_point in game_data:
+            targets = train_utils.as_numpy_training_targets(data_point.targets)
             self.add(
-                game_state,
-                outcome_target,
-                points_target,
-                policy_target,
-                cleared_columns_target,
+                data_point.state,
+                targets.value,
+                targets.points,
+                targets.policy,
+                targets.cleared_columns,
             )
 
     def add_game_data_with_symmetry(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
-        for (
-            game_state,
-            _,
-            outcome_target,
-            points_target,
-            policy_target,
-            cleared_columns_target,
-        ) in game_data:
+        for data_point in game_data:
+            targets = train_utils.as_numpy_training_targets(data_point.targets)
             for (
                 symmetric_game_state,
                 symmetric_policy_target,
-            ) in play.get_skyjo_symmetries(game_state, policy_target):
+            ) in play.get_skyjo_symmetries(data_point.state, targets.policy):
                 self.add(
                     symmetric_game_state,
-                    outcome_target,
-                    points_target,
+                    targets.value,
+                    targets.points,
                     symmetric_policy_target,
-                    cleared_columns_target,
+                    targets.cleared_columns,
                 )
 
     def sample_element(self) -> train_utils.TrainingDataPoint:
@@ -171,7 +159,7 @@ class ReplayBuffer:
         assert len(self) > 0, "Buffer is empty"
         # Select a random index first
         index = np.random.randint(len(self.spatial_input_buffer))
-        return (
+        return train_utils.TrainingDataPoint(
             self.spatial_input_buffer[index],
             self.non_spatial_input_buffer[index],
             self.action_masks[index],
@@ -199,7 +187,7 @@ class ReplayBuffer:
             len(self), size=batch_size
         )  # replace=False is VERY slow
         # Retrieve elements using the sampled indices
-        batch = (
+        batch = train_utils.TrainingBatch(
             self.spatial_input_buffer[indices],
             self.non_spatial_input_buffer[indices],
             self.action_masks[indices],

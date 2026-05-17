@@ -72,13 +72,13 @@ def test_base_loss_scales_raw_score_differential_mse():
     cleared_columns_target = torch.zeros((1, 2), dtype=torch.float32)
 
     loss, details = train_utils.base_loss(
-        (
+        skynet.EquivariantOutput(
             value_output,
             torch.zeros_like(value_output),
             policy_output,
             cleared_columns_output,
         ),
-        (
+        train_utils.TensorTrainingTargets(
             value_target,
             torch.zeros_like(value_target),
             policy_target,

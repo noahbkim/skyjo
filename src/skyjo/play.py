@@ -29,23 +29,38 @@ class ModelMCTSSelfplayConfig:
 
 # MARK: Types
 
-# Purely to represent what happened in a game.
-GameHistory: typing.TypeAlias = list[
-    tuple[sj.Skyjo, sj.SkyjoAction, np.ndarray[tuple[int], np.float32]]
-    # (game state, action, action probabilities)
-]
+FloatArray: typing.TypeAlias = np.ndarray[tuple[int, ...], np.float32]
+ActionProbabilities: typing.TypeAlias = FloatArray
 
-# Contains the targets for training
-GameData: typing.TypeAlias = list[
-    tuple[
-        sj.Skyjo,  # game state
-        sj.SkyjoAction,  # realized action
-        np.ndarray[tuple[int], np.float32],  # outcome target
-        np.ndarray[tuple[int], np.float32],  # points target
-        np.ndarray[tuple[int], np.float32],  # policy target
-        np.ndarray[tuple[int], np.float32],  # clearing target
-    ]
-]
+
+class GameHistoryEntry(typing.NamedTuple):
+    """One observed decision point from self-play.
+
+    Terminal entries use None for action and action_probabilities. The field
+    order remains tuple-compatible with the previous GameHistory tuple.
+    """
+
+    state: sj.Skyjo
+    action: sj.SkyjoAction | None
+    action_probabilities: ActionProbabilities | None
+
+
+GameHistory: typing.TypeAlias = list[GameHistoryEntry]
+
+
+class GameDataPoint(typing.NamedTuple):
+    """One generated training row.
+
+    Targets are intentionally opaque to gameplay generation. Training utilities
+    decide how to interpret them for a specific model/loss setup.
+    """
+
+    state: sj.Skyjo
+    action: sj.SkyjoAction | None
+    targets: typing.Any
+
+
+GameData: typing.TypeAlias = list[GameDataPoint]
 
 
 @dataclasses.dataclass(slots=True)
@@ -89,6 +104,9 @@ class GameStats:
         for i in range(sj.MASK_SIZE):
             record_dict[f"{sj.get_action_name(i)}"] = action_rates[i]
         return record_dict
+
+
+GeneratedEpisode: typing.TypeAlias = tuple[GameData, GameStats]
 
 
 # MARK: Symmetry
@@ -215,7 +233,9 @@ def game_history_to_game_data(
     """
     assert len(game_history) >= 20, f"Game history is too short: {len(game_history)}"
     training_data = []
-    penultimate_state, penultimate_action = game_history[-2][0], game_history[-2][1]
+    penultimate_state = game_history[-2].state
+    penultimate_action = game_history[-2].action
+    assert penultimate_action is not None, "expected penultimate action"
     if sj.is_action_random(penultimate_action, penultimate_state):
         (
             outcome_state_value,
@@ -224,15 +244,14 @@ def game_history_to_game_data(
             fixed_perspective_cleared_columns,
         ) = simulate_game_end(penultimate_state, penultimate_action, terminal_rollouts)
     else:
-        outcome_state_value = skynet.skyjo_to_state_value(game_history[-1][0])
+        terminal_state = game_history[-1].state
+        outcome_state_value = skynet.skyjo_to_state_value(terminal_state)
         score_differential_state_value = (
-            skynet.skyjo_to_score_differential_state_value(game_history[-1][0])
+            skynet.skyjo_to_score_differential_state_value(terminal_state)
         )
-        fixed_perspective_score = sj.get_fixed_perspective_round_scores(
-            game_history[-1][0]
-        )
+        fixed_perspective_score = sj.get_fixed_perspective_round_scores(terminal_state)
         fixed_perspective_cleared_columns = sj.get_fixed_perspective_cleared_columns(
-            game_history[-1][0]
+            terminal_state
         ).reshape(-1)
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
@@ -243,23 +262,27 @@ def game_history_to_game_data(
     replace_face_up_count, replace_face_down_count, replace_possibility_count = 0, 0, 0
     for game_state, action, mcts_probs in game_history[:-1]:
         action_mask = sj.actions(game_state).astype(np.float32)
+        assert action is not None, "expected non-terminal action"
+        assert mcts_probs is not None, "expected non-terminal action probabilities"
         training_data.append(
-            (
+            GameDataPoint(
                 game_state,  # game
                 action,  # realized action
-                np.roll(
-                    score_differential_state_value, -sj.get_player(game_state)
-                ),  # score-differential value target
-                np.roll(
-                    fixed_perspective_score,
-                    -sj.get_player(game_state),
-                ),  # points target
-                mcts_probs,  # policy target
-                np.roll(
-                    fixed_perspective_cleared_columns,
-                    -sj.get_player(game_state)
-                    * sj.COLUMN_COUNT,  # need to roll all columns
-                ),  # clearing target
+                (
+                    np.roll(
+                        score_differential_state_value, -sj.get_player(game_state)
+                    ),  # score-differential value target
+                    np.roll(
+                        fixed_perspective_score,
+                        -sj.get_player(game_state),
+                    ),  # points target
+                    mcts_probs,  # policy target
+                    np.roll(
+                        fixed_perspective_cleared_columns,
+                        -sj.get_player(game_state)
+                        * sj.COLUMN_COUNT,  # need to roll all columns
+                    ),  # clearing target
+                ),
             )
         )
         action_counts[action] += 1
@@ -281,7 +304,9 @@ def game_history_to_game_data(
             else:
                 replace_face_up_count += 1
 
-    cleared_cards = sj.get_table(game_history[-2][0])[:, :, :, sj.FINGER_CLEARED].sum()
+    cleared_cards = (
+        sj.get_table(game_history[-2].state)[:, :, :, sj.FINGER_CLEARED].sum()
+    )
     assert cleared_cards % 3 == 0, (
         f"Cleared cards is not divisible by 3: {cleared_cards}"
     )
@@ -333,10 +358,12 @@ def distributed_play(
             ].get_action_probabilities(game_state)
             action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
             assert sj.actions(game_state)[action]
-            game_history.append((game_state, action, action_probabilities))
+            game_history.append(
+                GameHistoryEntry(game_state, action, action_probabilities)
+            )
             game_state = sj.apply_action(game_state, action)
 
-        game_history.append((game_state, None, None))
+        game_history.append(GameHistoryEntry(game_state, None, None))
         game_histories.append(game_history)
     return game_histories
 
@@ -364,7 +391,7 @@ def play(
         ].get_action_probabilities(game_state)
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append((game_state, action, action_probabilities))
+        game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         game_state = sj.apply_action(game_state, action)
         if debug:
             print(sj.get_action_name(action))
@@ -372,7 +399,7 @@ def play(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_history.append((game_state, None, None))
+    game_history.append(GameHistoryEntry(game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -423,7 +450,7 @@ def model_player_selfplay(
         )
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append((game_state, action, action_probabilities))
+        game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         if sj.is_action_random(action, game_state):
             game_state = sj.apply_action(game_state, action)
             if not sj.get_game_over(game_state):
@@ -441,7 +468,7 @@ def model_player_selfplay(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_history.append((game_state, None, None))
+    game_history.append(GameHistoryEntry(game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -495,7 +522,7 @@ def batched_model_player_selfplay(
 
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append((game_state, action, action_probabilities))
+        game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         if sj.is_action_random(action, game_state):
             game_state = sj.apply_action(game_state, action)
             if not sj.get_game_over(game_state):
@@ -513,7 +540,7 @@ def batched_model_player_selfplay(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_history.append((game_state, None, None))
+    game_history.append(GameHistoryEntry(game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -555,11 +582,11 @@ class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
         self._stop_event = mp.Event()
 
     @abc.abstractmethod
-    def generate_episode(self) -> GameData:
+    def generate_episode(self) -> GeneratedEpisode:
         pass
 
     @abc.abstractmethod
-    def add_game_data(self, game_data: GameData):
+    def add_game_data(self, game_data: GeneratedEpisode):
         pass
 
     def stop(self):
@@ -579,12 +606,12 @@ class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
     def game_stats(self, game_data: GameData):
         """Computes statistics from episode game data. Can be overridden by subclasses."""
         actions = np.zeros(sj.MASK_SIZE)
-        for _, _, _, _, realized_action in game_data:
-            actions[realized_action] += 1
+        for data_point in game_data:
+            if data_point.action is not None:
+                actions[data_point.action] += 1
         return {
-            "game_length": sj.get_turn(game_data[-1][0]),
-            "outcome": game_data[-1][1],
-            "scores": game_data[-1][2],
+            "game_length": sj.get_turn(game_data[-1].state),
+            "targets": game_data[-1].targets,
             "action_counts": actions,
             "action_frequencies": actions / len(game_data),
         }
@@ -631,7 +658,7 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
         self.outcome_rollouts = outcome_rollouts
         self.play_callable = play_callable
 
-    def generate_episode(self) -> GameData:
+    def generate_episode(self) -> GeneratedEpisode:
         start_state = None
         if self.start_state_generator is not None:
             start_state = self.start_state_generator()
@@ -643,7 +670,7 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
         )
         return game_history_to_game_data(game_history, self.outcome_rollouts)
 
-    def add_game_data(self, game_data: GameData):
+    def add_game_data(self, game_data: GeneratedEpisode):
         self.game_data_queue.put(game_data)
 
 
