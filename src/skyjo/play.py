@@ -149,14 +149,10 @@ def game_history_to_game_data(
     game_history: GameHistory,
     terminal_rollouts: int = 1,
 ) -> tuple[GameData, GameStats]:
-    """Converts game data to training data.
-
-    Game data is a tuple of skyjo state and mcts action probabilities. Converts this
-    to a list of training data points which contain the current state, and targets
-    for the network to train on.
+    """Convert self-play history into training rows and aggregate game stats.
 
     Args:
-        game_data: A list of tuples containing a skyjo state and mcts action probabilities.
+        game_history: Observed decision points from a completed game.
         terminal_rollouts: The number of terminal rollouts to use to compute the outcome
             state value and fixed perspective score.
 
@@ -200,21 +196,12 @@ def game_history_to_game_data(
             GameDataPoint(
                 game_state,  # game
                 action,  # realized action
-                (
-                    np.roll(
+                {
+                    "value": np.roll(
                         score_differential_state_value, -sj.get_player(game_state)
-                    ),  # score-differential value target
-                    np.roll(
-                        fixed_perspective_score,
-                        -sj.get_player(game_state),
-                    ),  # points target
-                    mcts_probs,  # policy target
-                    np.roll(
-                        fixed_perspective_cleared_columns,
-                        -sj.get_player(game_state)
-                        * sj.COLUMN_COUNT,  # need to roll all columns
-                    ),  # clearing target
-                ),
+                    ),
+                    "policy": mcts_probs,
+                },
             )
         )
         action_counts[action] += 1

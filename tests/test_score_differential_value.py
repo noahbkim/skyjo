@@ -36,7 +36,7 @@ def test_bounded_score_differential_tail_range():
     batch_size = 4
 
     with torch.no_grad():
-        value_output, _, _, _ = model(
+        value_output, policy_logits = model(
             torch.rand(
                 batch_size,
                 2,
@@ -49,6 +49,7 @@ def test_bounded_score_differential_tail_range():
         )
 
     assert value_output.shape == (batch_size, 2)
+    assert policy_logits.shape == (batch_size, sj.MASK_SIZE)
     assert torch.all(value_output <= 0)
     assert torch.all(value_output >= -skynet.SCORE_DIFFERENTIAL_CAP)
 
@@ -66,26 +67,19 @@ def test_outcome_probability_tail_still_returns_probability_simplex():
 def test_base_loss_scales_raw_score_differential_mse():
     value_output = torch.tensor([[0.0, -10.0]], dtype=torch.float32)
     value_target = torch.tensor([[0.0, -20.0]], dtype=torch.float32)
-    policy_output = torch.tensor([[1.0, 0.0]], dtype=torch.float32)
+    policy_output = torch.tensor([[0.0, 0.0]], dtype=torch.float32)
     policy_target = torch.tensor([[1.0, 0.0]], dtype=torch.float32)
-    cleared_columns_output = torch.zeros((1, 2), dtype=torch.float32)
-    cleared_columns_target = torch.zeros((1, 2), dtype=torch.float32)
 
     loss, details = train_utils.base_loss(
         skynet.EquivariantOutput(
             value_output,
-            torch.zeros_like(value_output),
             policy_output,
-            cleared_columns_output,
         ),
         train_utils.TensorTrainingTargets(
             value_target,
-            torch.zeros_like(value_target),
             policy_target,
-            cleared_columns_target,
         ),
         policy_scale=0.0,
-        cleared_columns_scale=0.0,
     )
 
     raw_mse = torch.tensor(50.0)

@@ -100,22 +100,18 @@ class SupportsCoreSkyNetOutput(typing.Protocol):
     """Shared tensor fields required by the core SkyNet losses."""
 
     value: torch.Tensor
-    points: torch.Tensor
     policy_logits: torch.Tensor
-    cleared_columns: torch.Tensor
 
 
 class EquivariantOutput(typing.NamedTuple):
     """Core output returned by EquivariantSkyNet.
 
-    The field order is intentionally tuple-compatible with the previous
-    SkyNetOutput tuple: value, points, policy logits, cleared columns.
+    The field order is intentionally tuple-compatible with the base
+    value/policy model contract.
     """
 
     value: torch.Tensor
-    points: torch.Tensor
     policy_logits: torch.Tensor
-    cleared_columns: torch.Tensor
 
 
 SkyNetOutput: typing.TypeAlias = EquivariantOutput
@@ -123,9 +119,7 @@ SkyNetOutput: typing.TypeAlias = EquivariantOutput
 
 class SkyNetNumpyOutput(typing.NamedTuple):
     value: np.ndarray[tuple[int, ...], np.float32]
-    points: np.ndarray[tuple[int, ...], np.float32]
     policy_logits: np.ndarray[tuple[int, ...], np.float32]
-    cleared_columns: np.ndarray[tuple[int, ...], np.float32]
 
 
 def batch_mask_and_renormalize_policy_probabilities(
@@ -185,9 +179,7 @@ def get_single_model_output(
 ) -> SkyNetOutput | SkyNetNumpyOutput:
     return type(model_output)(
         model_output.value[idx],
-        model_output.points[idx],
         model_output.policy_logits[idx],
-        model_output.cleared_columns[idx],
     )
 
 
@@ -198,22 +190,14 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     (including copying to cpu when device is not cpu).
     """
     value_output = output.value.detach()
-    points_output = output.points.detach()
     policy_output = output.policy_logits.detach()
-    cleared_column_output = output.cleared_columns.detach()
     if value_output.device != torch.device("cpu"):
         value_output = value_output.cpu()
-    if points_output.device != torch.device("cpu"):
-        points_output = points_output.cpu()
     if policy_output.device != torch.device("cpu"):
         policy_output = policy_output.cpu()
-    if cleared_column_output.device != torch.device("cpu"):
-        cleared_column_output = cleared_column_output.cpu()
     return SkyNetNumpyOutput(
         value_output.numpy(),
-        points_output.numpy(),
         policy_output.numpy(),
-        cleared_column_output.numpy(),
     )
 
 
@@ -230,9 +214,7 @@ def numpy_to_tensors(
 @dataclasses.dataclass(slots=True)
 class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]
-    points_output: np.ndarray[tuple[int], np.float32]
     policy_output: np.ndarray[tuple[int], np.float32]
-    cleared_column_output: np.ndarray[tuple[int], np.float32]
     policy_logits: np.ndarray[tuple[int], np.float32] | None = None
 
     @classmethod
@@ -241,9 +223,7 @@ class SkyNetPrediction:
         output: SkyNetOutput,
     ) -> SkyNetPrediction:
         numpy_output = output_to_numpy(output)
-        value_numpy, points_numpy, policy_logits_numpy, cleared_columns_numpy = (
-            get_single_model_output(numpy_output, 0)
-        )
+        value_numpy, policy_logits_numpy = get_single_model_output(numpy_output, 0)
 
         # Convert masked policy logits to probabilities
         # The logits from PolicyTail.forward are already masked (large negative numbers for invalid actions)
@@ -261,23 +241,20 @@ class SkyNetPrediction:
 
         assert (
             len(value_numpy.shape)
-            == len(points_numpy.shape)
             == len(policy_probabilities_numpy.shape)
             == 1
         ), (
-            "expected value_output, points_output, and policy_output to be a single result and not batched results."
-            f"value_output.shape: {value_numpy.shape}, points_output.shape: {points_numpy.shape}, policy_output.shape: {policy_probabilities_numpy.shape}"
+            "expected value_output and policy_output to be a single result and not batched results."
+            f"value_output.shape: {value_numpy.shape}, policy_output.shape: {policy_probabilities_numpy.shape}"
         )
         return SkyNetPrediction(
             value_output=value_numpy,
-            points_output=points_numpy,
             policy_output=policy_probabilities_numpy,
-            cleared_column_output=cleared_columns_numpy,
             policy_logits=policy_logits_numpy,
         )
 
     def __str__(self) -> str:
-        return f"{self.value_output}\n{self.points_output}\n{self.policy_output}"
+        return f"{self.value_output}\n{self.policy_output}"
 
     def mask_and_renormalize(self, valid_actions_mask: np.ndarray[tuple[int], np.int8]):
         self.policy_output = mask_and_renormalize_policy_probabilities(
@@ -288,11 +265,7 @@ class SkyNetPrediction:
         assert self.policy_logits is not None, "expected policy logits"
         return EquivariantOutput(
             torch.tensor(np.expand_dims(self.value_output, 0), dtype=torch.float32),
-            torch.tensor(np.expand_dims(self.points_output, 0), dtype=torch.float32),
             torch.tensor(np.expand_dims(self.policy_logits, 0), dtype=torch.float32),
-            torch.tensor(
-                np.expand_dims(self.cleared_column_output, 0), dtype=torch.float32
-            ),
         )
 
 
@@ -568,7 +541,6 @@ class SimpleSkyNet(nn.Module):
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
-        self.points_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
         self.device = device
         self.dropout_rate = dropout_rate
@@ -586,7 +558,7 @@ class SimpleSkyNet(nn.Module):
             with_activations.append(linear_layers[layer])
             with_activations.append(nn.ReLU(inplace=True))
         self.mlp = nn.Sequential(*with_activations, nn.Dropout(self.dropout_rate))
-        self.value_tail = SimpleOutcomeProbabilityTail(
+        self.value_tail = BoundedScoreDifferentialTail(
             hidden_layers[-1], value_output_shape[0]
         )
         self.policy_tail = SimplePolicyLogitTail(
@@ -604,20 +576,9 @@ class SimpleSkyNet(nn.Module):
         x = self.mlp(x)
         value_out = self.value_tail(x)
         policy_out = self.policy_tail(x, mask)
-        points_out = torch.zeros_like(value_out)
-        cleared_columns_out = torch.zeros(
-            (
-                value_out.shape[0],
-                self.value_output_shape[0] * sj.COLUMN_COUNT,
-            ),
-            dtype=value_out.dtype,
-            device=value_out.device,
-        )
         return EquivariantOutput(
             value_out,
-            points_out,
             policy_out,
-            cleared_columns_out,
         )
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
@@ -818,7 +779,6 @@ class EquivariantSkyNet(nn.Module):
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
-        self.points_output_shape = value_output_shape
         self.policy_output_shape = policy_output_shape
         self.embedding_dimensions = embedding_dimensions
         self.global_state_embedding_dimensions = global_state_embedding_dimensions
@@ -918,13 +878,6 @@ class EquivariantSkyNet(nn.Module):
         self.policy_tail = EquivariantPolicyLogitTail(
             embedding_dimensions=self.embedding_dimensions,
             global_state_embedding_dimensions=self.global_state_embedding_dimensions,
-        )
-        self.cleared_cards_tail = SimpleClearedCardsTail(
-            global_state_embedding_dimensions=self.global_state_embedding_dimensions,
-            embedding_dimensions=self.embedding_dimensions,
-            players=self.players,
-            columns=self.columns,
-            card_types=self.card_types,
         )
         self.set_device(device)
 
@@ -1041,20 +994,9 @@ class EquivariantSkyNet(nn.Module):
             global_state_embedding,
             mask,
         )
-        cleared_cards = self.cleared_cards_tail(
-            einops.rearrange(
-                column_summaries,
-                "(b p) w f -> b (p w) f",
-                p=self.players,
-                w=self.columns,
-            ),
-            global_state_embedding,
-        )
         return EquivariantOutput(
             value_out,
-            torch.zeros_like(value_out),
             policy_out,
-            cleared_cards,
         )
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
