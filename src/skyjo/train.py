@@ -43,35 +43,21 @@ def train_step(
     """Performs a single training step on the model."""
     optimizer = torch.optim.Adam(model.parameters(), lr=learn_rate, weight_decay=1e-4)
     model.train()
-    (
-        spatial_inputs_tensor,
-        non_spatial_inputs_tensor,
-        masks_tensor,
-        value_targets_tensor,
-        points_targets_tensor,
-        policy_targets_tensor,
-        cleared_column_targets_tensor,
-    ) = skynet.numpy_to_tensors(
-        batch.spatial_inputs,
-        batch.non_spatial_inputs,
-        batch.action_masks,
-        batch.value_targets,
-        batch.points_targets,
-        batch.policy_targets,
-        batch.cleared_columns_targets,
+    spatial_inputs_tensor = torch.tensor(
+        batch.spatial_inputs, dtype=torch.float32, device=model.device
+    )
+    non_spatial_inputs_tensor = torch.tensor(
+        batch.non_spatial_inputs, dtype=torch.float32, device=model.device
+    )
+    masks_tensor = torch.tensor(
+        batch.action_masks, dtype=torch.float32, device=model.device
+    )
+    tensor_targets = train_utils.numpy_targets_to_tensors(
+        batch.targets,
         device=model.device,
-        dtype=torch.float32,
     )
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
-    loss, loss_detail = loss_function(
-        model_output,
-        train_utils.TensorTrainingTargets(
-            value_targets_tensor,
-            points_targets_tensor,
-            policy_targets_tensor,
-            cleared_column_targets_tensor,
-        ),
-    )
+    loss, loss_detail = loss_function(model_output, tensor_targets)
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()

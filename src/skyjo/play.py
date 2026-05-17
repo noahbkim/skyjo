@@ -5,7 +5,6 @@ from __future__ import annotations
 import abc
 import dataclasses
 import datetime
-import itertools
 import logging
 import multiprocessing as mp
 import pathlib
@@ -107,73 +106,6 @@ class GameStats:
 
 
 GeneratedEpisode: typing.TypeAlias = tuple[GameData, GameStats]
-
-
-# MARK: Symmetry
-# NOTE: NOT CURRENTLY NOT USED
-
-
-COLUMN_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.COLUMN_COUNT)))
-ROW_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.ROW_COUNT)))
-
-
-def get_symmetry_policy(
-    original_policy: np.ndarray[tuple[int], np.float32],
-    new_column_order: tuple[int, ...],
-) -> np.ndarray[tuple[int], np.float32]:
-    """Takes an original policy (sj.MASK_SIZE,) and returns a new policy based
-    on the new_column_order permutation.
-    """
-    new_policy = original_policy.copy()
-    flip_policy = new_policy[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT]
-    flip_grid = flip_policy.reshape(sj.ROW_COUNT, sj.COLUMN_COUNT)
-    permuted_flip_grid = flip_grid[:, new_column_order]
-    new_policy[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT] = (
-        permuted_flip_grid.reshape(-1)
-    )
-    replace_policy = new_policy[sj.MASK_REPLACE : sj.MASK_REPLACE + sj.FINGER_COUNT]
-    replace_grid = replace_policy.reshape(sj.ROW_COUNT, sj.COLUMN_COUNT)
-    permuted_replace_grid = replace_grid[:, new_column_order]
-    new_policy[sj.MASK_REPLACE : sj.MASK_REPLACE + sj.FINGER_COUNT] = (
-        permuted_replace_grid.reshape(-1)
-    )
-    return new_policy
-
-
-def get_skyjo_symmetries(
-    skyjo: sj.Skyjo, policy: np.ndarray[tuple[int], np.float32]
-) -> list[tuple[sj.Skyjo, np.ndarray[tuple[int], np.float32]]]:
-    """Return a list of symmetrically equivalent `Skyjo` states and corresponding policy."""
-    # TODO: Make this work for within column permutations too
-    symmetries = []
-    symmetry_hashes = set()
-    for player_column_orders in itertools.combinations_with_replacement(
-        COLUMN_ORDER_PERMUTATIONS, sj.get_player_count(skyjo)
-    ):
-        new_table = sj.get_board(skyjo).copy()
-        for player_idx, column_order in enumerate(player_column_orders):
-            # Note: new_table[player_idx, :, column_order, :] results in a
-            # shape that is different.
-            # https://stackoverflow.com/questions/55829631/why-using-an-array-as-an-index-changes-the-shape-of-a-multidimensional-ndarray
-            new_table[player_idx] = new_table[player_idx][:, column_order, :]
-        if new_table.tobytes() not in symmetry_hashes:
-            symmetry_hashes.add(new_table.tobytes())
-            new_policy = get_symmetry_policy(policy, player_column_orders[0])
-            symmetries.append(
-                (
-                    (
-                        skyjo[0],
-                        new_table,
-                        skyjo[2],
-                        skyjo[3],
-                        skyjo[4],
-                        skyjo[5],
-                        skyjo[6],
-                    ),
-                    new_policy,
-                )
-            )
-    return symmetries
 
 
 # MARK: Helpers

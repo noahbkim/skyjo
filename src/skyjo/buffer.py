@@ -12,16 +12,19 @@ from . import skynet
 from . import train_utils
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class TargetShapeSpec:
+    name: str
+    shape: tuple[int, ...]
+
+
 @dataclasses.dataclass(slots=True)
 class Config(config.Config):
     max_size: int
     spatial_input_shape: tuple[int, ...]
     non_spatial_input_shape: tuple[int, ...]
     action_mask_shape: tuple[int, ...]
-    outcome_target_shape: tuple[int, ...]
-    points_target_shape: tuple[int, ...]
-    policy_target_shape: tuple[int, ...]
-    cleared_columns_target_shape: tuple[int, ...]
+    target_specs: tuple[TargetShapeSpec, ...]
     path: pathlib.Path | None = None
 
 
@@ -41,13 +44,15 @@ class ReplayBuffer:
         spatial_input_shape: tuple[int, ...],
         non_spatial_input_shape: tuple[int, ...],
         action_mask_shape: tuple[int, ...],
-        outcome_target_shape: tuple[int, ...],
-        points_target_shape: tuple[int, ...],
-        policy_target_shape: tuple[int, ...],
-        cleared_columns_target_shape: tuple[int, ...],
+        target_specs: tuple[TargetShapeSpec, ...] | list[TargetShapeSpec | dict[str, typing.Any]],
         path: pathlib.Path | None = None,
     ):
         self.max_size = max_size
+        self.target_specs = tuple(
+            spec if isinstance(spec, TargetShapeSpec) else TargetShapeSpec(**spec)
+            for spec in target_specs
+        )
+        self.target_names = tuple(spec.name for spec in self.target_specs)
         self.game_states = [None] * max_size
         self.spatial_input_buffer = np.empty(
             (max_size, *spatial_input_shape), dtype=np.float32
@@ -56,18 +61,10 @@ class ReplayBuffer:
             (max_size, *non_spatial_input_shape), dtype=np.float32
         )
         self.action_masks = np.empty((max_size, *action_mask_shape), dtype=np.float32)
-        self.policy_target_buffer = np.empty(
-            (max_size, *policy_target_shape), dtype=np.float32
-        )
-        self.outcome_target_buffer = np.empty(
-            (max_size, *outcome_target_shape), dtype=np.float32
-        )
-        self.points_target_buffer = np.empty(
-            (max_size, *points_target_shape), dtype=np.float32
-        )
-        self.cleared_columns_target_buffer = np.empty(
-            (max_size, *cleared_columns_target_shape), dtype=np.float32
-        )
+        self.target_buffers = {
+            spec.name: np.empty((max_size, *spec.shape), dtype=np.float32)
+            for spec in self.target_specs
+        }
         self.count = 0
         self.path = path
 
@@ -78,10 +75,7 @@ class ReplayBuffer:
             config.spatial_input_shape,
             config.non_spatial_input_shape,
             config.action_mask_shape,
-            config.outcome_target_shape,
-            config.points_target_shape,
-            config.policy_target_shape,
-            config.cleared_columns_target_shape,
+            config.target_specs,
         )
 
     @classmethod
@@ -95,14 +89,14 @@ class ReplayBuffer:
     def add(
         self,
         game_state: sj.Skyjo,
-        value_target: np.ndarray,
-        points_target: np.ndarray,
-        policy_target: np.ndarray,
-        cleared_columns_target: np.ndarray,
+        targets: typing.Any,
     ):
         buffer_index = self.count
         if self.count >= self.max_size:
             buffer_index = self.count % self.max_size
+        normalized_targets = train_utils.normalize_numpy_targets(
+            targets, self.target_names
+        )
         self.game_states[buffer_index] = game_state
         self.spatial_input_buffer[buffer_index] = skynet.get_spatial_state_numpy(
             game_state
@@ -111,51 +105,28 @@ class ReplayBuffer:
             skynet.get_non_spatial_state_numpy(game_state)
         )
         self.action_masks[buffer_index] = sj.actions(game_state).astype(np.float32)
-        self.policy_target_buffer[buffer_index] = policy_target
-        self.outcome_target_buffer[buffer_index] = value_target
-        self.points_target_buffer[buffer_index] = points_target
-        self.cleared_columns_target_buffer[buffer_index] = cleared_columns_target
+        for name, target_buffer in self.target_buffers.items():
+            target_value = normalized_targets.get(name)
+            assert target_value is not None, f"expected target {name} to be present"
+            target_buffer[buffer_index] = target_value
         self.count += 1
 
     def add_game_data(self, game_data: play.GameData):
         """Adds a game's worth of training data to the buffer."""
 
         for data_point in game_data:
-            targets = train_utils.as_numpy_training_targets(data_point.targets)
-            self.add(
-                data_point.state,
-                targets.value,
-                targets.points,
-                targets.policy,
-                targets.cleared_columns,
-            )
-
-    def add_game_data_with_symmetry(self, game_data: play.GameData):
-        """Adds a game's worth of training data to the buffer."""
-        for data_point in game_data:
-            targets = train_utils.as_numpy_training_targets(data_point.targets)
-            for (
-                symmetric_game_state,
-                symmetric_policy_target,
-            ) in play.get_skyjo_symmetries(data_point.state, targets.policy):
-                self.add(
-                    symmetric_game_state,
-                    targets.value,
-                    targets.points,
-                    symmetric_policy_target,
-                    targets.cleared_columns,
-                )
+            self.add(data_point.state, data_point.targets)
 
     def sample_element(self) -> train_utils.TrainingDataPoint:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
             == len(self.action_masks)
-            == len(self.outcome_target_buffer)
-            == len(self.points_target_buffer)
-            == len(self.policy_target_buffer)
-            == len(self.cleared_columns_target_buffer)
         ), "All buffers must be the same length"
+        for target_buffer in self.target_buffers.values():
+            assert len(self.spatial_input_buffer) == len(target_buffer), (
+                "All buffers must be the same length"
+            )
         assert len(self) > 0, "Buffer is empty"
         # Select a random index first
         index = np.random.randint(len(self.spatial_input_buffer))
@@ -163,22 +134,19 @@ class ReplayBuffer:
             self.spatial_input_buffer[index],
             self.non_spatial_input_buffer[index],
             self.action_masks[index],
-            self.outcome_target_buffer[index],
-            self.points_target_buffer[index],
-            self.policy_target_buffer[index],
-            self.cleared_columns_target_buffer[index],
+            {name: target_buffer[index] for name, target_buffer in self.target_buffers.items()},
         )
 
     def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
         assert (
             len(self.spatial_input_buffer)
             == len(self.non_spatial_input_buffer)
-            == len(self.policy_target_buffer)
-            == len(self.outcome_target_buffer)
-            == len(self.points_target_buffer)
             == len(self.action_masks)
-            == len(self.cleared_columns_target_buffer)
         ), "All buffers must be the same length"
+        for target_buffer in self.target_buffers.values():
+            assert len(self.spatial_input_buffer) == len(target_buffer), (
+                "All buffers must be the same length"
+            )
         assert len(self) > 0, "Buffer is empty"
         assert batch_size <= len(self), (
             f"Batch size {batch_size} cannot be larger than buffer size {len(self)} when sampling without replacement."
@@ -191,10 +159,10 @@ class ReplayBuffer:
             self.spatial_input_buffer[indices],
             self.non_spatial_input_buffer[indices],
             self.action_masks[indices],
-            self.outcome_target_buffer[indices],
-            self.points_target_buffer[indices],
-            self.policy_target_buffer[indices],
-            self.cleared_columns_target_buffer[indices],
+            {
+                name: target_buffer[indices]
+                for name, target_buffer in self.target_buffers.items()
+            },
         )
         return batch
 

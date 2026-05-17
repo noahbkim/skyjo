@@ -19,6 +19,13 @@ ValueTarget: typing.TypeAlias = FloatArray
 PointsTarget: typing.TypeAlias = FloatArray
 PolicyTarget: typing.TypeAlias = FloatArray
 ClearedColumnsTarget: typing.TypeAlias = FloatArray
+TargetArrays: typing.TypeAlias = dict[str, FloatArray | None]
+CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = (
+    "value",
+    "points",
+    "policy",
+    "cleared_columns",
+)
 
 
 class NumpyTrainingTargets(typing.NamedTuple):
@@ -42,38 +49,54 @@ class TrainingDataPoint(typing.NamedTuple):
     spatial_input: SpatialInput
     non_spatial_input: NonSpatialInput
     action_mask: ActionMask
-    value_target: ValueTarget
-    points_target: PointsTarget
-    policy_target: PolicyTarget
-    cleared_columns_target: ClearedColumnsTarget
+    target_arrays: TargetArrays
 
     @property
-    def targets(self) -> NumpyTrainingTargets:
-        return NumpyTrainingTargets(
-            self.value_target,
-            self.points_target,
-            self.policy_target,
-            self.cleared_columns_target,
-        )
+    def targets(self) -> TargetArrays:
+        return self.target_arrays
+
+    @property
+    def value_target(self) -> ValueTarget:
+        return self.target_arrays["value"]
+
+    @property
+    def points_target(self) -> PointsTarget | None:
+        return self.target_arrays.get("points")
+
+    @property
+    def policy_target(self) -> PolicyTarget:
+        return self.target_arrays["policy"]
+
+    @property
+    def cleared_columns_target(self) -> ClearedColumnsTarget | None:
+        return self.target_arrays.get("cleared_columns")
 
 
 class TrainingBatch(typing.NamedTuple):
     spatial_inputs: SpatialInput
     non_spatial_inputs: NonSpatialInput
     action_masks: ActionMask
-    value_targets: ValueTarget
-    points_targets: PointsTarget
-    policy_targets: PolicyTarget
-    cleared_columns_targets: ClearedColumnsTarget
+    target_arrays: TargetArrays
 
     @property
-    def targets(self) -> NumpyTrainingTargets:
-        return NumpyTrainingTargets(
-            self.value_targets,
-            self.points_targets,
-            self.policy_targets,
-            self.cleared_columns_targets,
-        )
+    def targets(self) -> TargetArrays:
+        return self.target_arrays
+
+    @property
+    def value_targets(self) -> ValueTarget:
+        return self.target_arrays["value"]
+
+    @property
+    def points_targets(self) -> PointsTarget | None:
+        return self.target_arrays.get("points")
+
+    @property
+    def policy_targets(self) -> PolicyTarget:
+        return self.target_arrays["policy"]
+
+    @property
+    def cleared_columns_targets(self) -> ClearedColumnsTarget | None:
+        return self.target_arrays.get("cleared_columns")
 
 
 # MARK: Data Helpers
@@ -93,26 +116,62 @@ class LossFunction(typing.Protocol):
 
 
 def as_numpy_training_targets(targets: typing.Any) -> NumpyTrainingTargets:
+    target_dict = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
+    return NumpyTrainingTargets(
+        target_dict["value"],
+        target_dict.get("points"),
+        target_dict["policy"],
+        target_dict.get("cleared_columns"),
+    )
+
+
+def normalize_numpy_targets(
+    targets: typing.Any,
+    target_names: typing.Sequence[str] = CORE_TARGET_NAMES,
+) -> TargetArrays:
     if isinstance(targets, NumpyTrainingTargets):
-        return targets
+        return {
+            "value": targets.value,
+            "points": targets.points,
+            "policy": targets.policy,
+            "cleared_columns": targets.cleared_columns,
+        }
     if isinstance(targets, collections.abc.Mapping):
-        return NumpyTrainingTargets(
-            targets["value"],
-            targets.get("points"),
-            targets["policy"],
-            targets.get("cleared_columns"),
-        )
+        return {name: targets.get(name) for name in target_names}
     if all(
         hasattr(targets, field)
-        for field in ("value", "points", "policy", "cleared_columns")
+        for field in target_names
     ):
-        return NumpyTrainingTargets(
-            targets.value,
-            targets.points,
-            targets.policy,
-            targets.cleared_columns,
-        )
-    return NumpyTrainingTargets(*targets)
+        return {name: getattr(targets, name) for name in target_names}
+    target_values = tuple(targets)
+    assert len(target_values) == len(target_names), (
+        f"expected {len(target_names)} targets, got {len(target_values)}"
+    )
+    return {
+        name: value for name, value in zip(target_names, target_values, strict=True)
+    }
+
+
+def numpy_targets_to_tensors(
+    targets: NumpyTrainingTargets | TargetArrays,
+    *,
+    device: torch.device,
+) -> TensorTrainingTargets:
+    normalized_targets = as_numpy_training_targets(targets)
+    return TensorTrainingTargets(
+        torch.tensor(normalized_targets.value, dtype=torch.float32, device=device),
+        None
+        if normalized_targets.points is None
+        else torch.tensor(
+            normalized_targets.points, dtype=torch.float32, device=device
+        ),
+        torch.tensor(normalized_targets.policy, dtype=torch.float32, device=device),
+        None
+        if normalized_targets.cleared_columns is None
+        else torch.tensor(
+            normalized_targets.cleared_columns, dtype=torch.float32, device=device
+        ),
+    )
 
 
 def game_stats_summary(game_stats_list: list[play.GameStats]) -> pd.DataFrame:
@@ -124,6 +183,7 @@ def game_stats_summary(game_stats_list: list[play.GameStats]) -> pd.DataFrame:
 
 def game_data_to_training_batch(
     game_data: play.GameData,
+    target_names: typing.Sequence[str] = CORE_TARGET_NAMES,
 ) -> TrainingBatch:
     spatial_states = [
         skynet.get_spatial_state_numpy(data_point.state) for data_point in game_data
@@ -132,19 +192,25 @@ def game_data_to_training_batch(
         skynet.get_non_spatial_state_numpy(data_point.state) for data_point in game_data
     ]
     action_masks = [sj.actions(data_point.state) for data_point in game_data]
-    targets = [as_numpy_training_targets(data_point.targets) for data_point in game_data]
-    value_targets = [target.value for target in targets]
-    points_targets = [target.points for target in targets]
-    policy_targets = [target.policy for target in targets]
-    cleared_columns_targets = [target.cleared_columns for target in targets]
+    normalized_targets = [
+        normalize_numpy_targets(data_point.targets, target_names)
+        for data_point in game_data
+    ]
+    batched_targets: TargetArrays = {}
+    for name in target_names:
+        field_values = [target[name] for target in normalized_targets]
+        if any(value is None for value in field_values):
+            assert all(value is None for value in field_values), (
+                f"expected target field {name} to be consistently present or absent"
+            )
+            batched_targets[name] = None
+        else:
+            batched_targets[name] = np.array(field_values, dtype=np.float32)
     return TrainingBatch(
         np.array(spatial_states, dtype=np.float32),
         np.array(non_spatial_states, dtype=np.float32),
         np.array(action_masks, dtype=np.float32),
-        np.array(value_targets, dtype=np.float32),
-        np.array(points_targets, dtype=np.float32),
-        np.array(policy_targets, dtype=np.float32),
-        np.array(cleared_columns_targets, dtype=np.float32),
+        batched_targets,
     )
 
 
@@ -263,27 +329,14 @@ def compute_model_loss_on_game_data(
     mask_tensor = torch.tensor(
         batch.action_masks, dtype=torch.float32, device=model.device
     )
-    policy_targets_tensor = torch.tensor(
-        batch.policy_targets, dtype=torch.float32, device=model.device
-    )
-    value_targets_tensor = torch.tensor(
-        batch.value_targets, dtype=torch.float32, device=model.device
-    )
-    points_targets_tensor = torch.tensor(
-        batch.points_targets, dtype=torch.float32, device=model.device
-    )
-    cleared_columns_targets_tensor = torch.tensor(
-        batch.cleared_columns_targets, dtype=torch.float32, device=model.device
+    tensor_targets = numpy_targets_to_tensors(
+        batch.targets,
+        device=model.device,
     )
     model_output = model(spatial_tensor, non_spatial_tensor, mask_tensor)
     return loss_function(
         model_output,
-        TensorTrainingTargets(
-            value_targets_tensor,
-            points_targets_tensor,
-            policy_targets_tensor,
-            cleared_columns_targets_tensor,
-        ),
+        tensor_targets,
     )
 
 
