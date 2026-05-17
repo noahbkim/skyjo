@@ -30,20 +30,12 @@ HAND_ROWS = 3
 HAND_COLUMNS = 4
 
 
-def draw_random_index(pile: Sequence[int], rng: random.Random = random) -> int:
-    needle = rng.randint(0, sum(pile))
-    for index, haystack in enumerate(pile):
-        if needle < haystack:
-            return index
-        needle -= haystack
-    assert False
-
-
 class Action(IntEnum):
-    REVEAL_SECOND_CARD = 1  # pre-game second card reveal
-    DRAW_CARD = 2
-    DISCARD_DRAW_AND_REVEAL_CARD = 3
-    REPLACE_CARD_WITH_DRAW = 4
+    REVEAL_SECOND_CARD = 0  # pre-game second card reveal
+    DRAW_CARD = 1
+    DISCARD_DRAW_AND_REVEAL_CARD = 2
+    REPLACE_CARD_WITH_DRAW = 3
+    REPLACE_CARD_WITH_DISCARD = 4
 
 
 class Finger(NamedTuple):
@@ -73,7 +65,6 @@ class Finger(NamedTuple):
 
     def with_replaced(self, card_index: int) -> Finger:
         assert self.card_index is not None
-        assert not self.is_revealed
         return Finger(card_index, True)
 
     def with_cleared(self) -> Finger:
@@ -92,9 +83,6 @@ class Player(NamedTuple):
     """The player's current hand of cards, column-contiguous."""
 
     # Extensions
-
-    last_novel_turn: int
-    """The last turn during which this player revealed a card."""
 
     @property
     def hand_score(self) -> int:
@@ -132,11 +120,7 @@ class Player(NamedTuple):
             for i, (finger, card_index) in enumerate(zip(self.hand, card_indices))
         )
 
-        return Player(
-            score=self.score,
-            hand=hand,
-            last_novel_turn=self.last_novel_turn,
-        )
+        return Player(score=self.score, hand=hand)
 
     def with_revealed_card(self, finger_index: int) -> Player:
         """Reveal a card present on the board."""
@@ -158,17 +142,13 @@ class Player(NamedTuple):
             finger.is_revealed and finger.card_index == card_index
             for finger in hand[column_start:column_stop]
         ):
-            return (
+            hand = (
                 *hand[:column_start],
                 *map(Finger.with_cleared, hand[column_start:column_stop]),
                 *hand[column_stop:],
             )
 
-        return Player(
-            score=self.score,
-            hand=hand,
-            last_novel_turn=self.last_novel_turn,
-        )
+        return Player(score=self.score, hand=hand)
 
     def with_replaced_card(self, finger_index: int, card_index: int) -> Player:
         """Replace a card present on the board."""
@@ -188,17 +168,31 @@ class Player(NamedTuple):
             finger.is_revealed and finger.card_index == card_index
             for finger in hand[column_start:column_stop]
         ):
-            return (
+            hand = (
                 *hand[:column_start],
                 *map(Finger.with_cleared, hand[column_start:column_stop]),
                 *hand[column_stop:],
             )
 
-        return Player(
-            score=self.score,
-            hand=hand,
-            last_novel_turn=self.last_novel_turn,
-        )
+        return Player(score=self.score, hand=hand)
+
+
+def pick_random_index(pile: Sequence[int], rng: random.Random = random) -> int:
+    needle = rng.randint(0, sum(pile))
+    for index, haystack in enumerate(pile):
+        if needle < haystack:
+            return index
+        needle -= haystack
+    assert False
+
+
+def with_draw(pile: Sequence[int], index: int) -> tuple[int, ...]:
+    assert pile[index] > 0
+    return (*pile[:index], pile[index] - 1, *pile[index + 1 :])
+
+
+def with_discard(pile: Sequence[int], index: int) -> tuple[int, ...]:
+    return (*pile[:index], pile[index] + 1, *pile[index + 1 :])
 
 
 class Game(NamedTuple):
@@ -273,11 +267,7 @@ class Game(NamedTuple):
         """Construct a new game."""
 
         finger = Finger(card_index=None, is_revealed=True)
-        player = Player(
-            score=0,
-            hand=(finger,) * HAND_ROWS * HAND_COLUMNS,
-            last_novel_turn=0,
-        )
+        player = Player(score=0, hand=(finger,) * HAND_ROWS * HAND_COLUMNS)
 
         return Game(
             turn=0,
@@ -289,11 +279,7 @@ class Game(NamedTuple):
             players=(player,) * players,
         )
 
-    def with_deal(
-        self,
-        discarded_card_index: int,
-        deal_card_indices: Iterable[int],
-    ) -> Game:
+    def with_deal(self, card_indices: Iterable[int]) -> Game:
         assert self.turn == 0
         assert self.action is None
         assert self.drawn_card_index is None
@@ -302,10 +288,10 @@ class Game(NamedTuple):
         draw_pile = list(self.draw_pile)
 
         def deal_card_index_from_draw_pile() -> Iterator[int]:
-            for deal_card_index in deal_card_indices:
-                assert draw_pile[deal_card_index] > 0
-                draw_pile[deal_card_index] -= 1
-                yield deal_card_index
+            for card_index in card_indices:
+                assert draw_pile[card_index] > 0
+                draw_pile[card_index] -= 1
+                yield card_index
 
         dealer = deal_card_index_from_draw_pile()
 
@@ -335,7 +321,7 @@ class Game(NamedTuple):
 
         def deal_card_index_from_draw_pile() -> Iterator[int]:
             while True:
-                deal_card_index = draw_random_index(draw_pile, rng=rng)
+                deal_card_index = pick_random_index(draw_pile, rng=rng)
                 draw_pile[deal_card_index] -= 1
                 yield deal_card_index
 
@@ -387,11 +373,7 @@ class Game(NamedTuple):
         assert sum(self.draw_pile) > 0
 
         # Remove the drawn card from the draw pile.
-        draw_pile = (
-            *self.draw_pile[:drawn_card_index],
-            self.draw_pile[drawn_card_index] - 1,
-            *self.draw_pile[drawn_card_index + 1 :],
-        )
+        draw_pile = with_draw(self.draw_pile, drawn_card_index)
 
         # Shuffle the discards into the draw pile if there are no more draws.
         # Always do this at the end of actions, if possible, so we don't have
@@ -415,7 +397,7 @@ class Game(NamedTuple):
     def with_random_drawn_card(self, rng: random.Random = random) -> Game:
         """Draw a random card from the pile but do nothing with it."""
 
-        drawn_card_index = draw_random_index(self.draw_pile, rng=rng)
+        drawn_card_index = pick_random_index(self.draw_pile, rng=rng)
         return self.with_drawn_card(drawn_card_index)
 
     def with_draw_discarded_and_card_revealed(self, finger_index: int) -> Game:
@@ -426,21 +408,27 @@ class Game(NamedTuple):
         assert self.discarded_card_index is not None
 
         # Put the current discarded card into the pile.
-        discard_pile = (
-            *self.discard_pile[: self.discarded_card_index],
-            self.discard_pile[self.discarded_card_index] + 1,
-            *self.discard_pile[self.discarded_card_index + 1 :],
-        )
+        discard_pile = with_discard(self.discard_pile, self.discarded_card_index)
 
         # Move the drawn card to be the discarded card.
         discarded_card_index = self.drawn_card_index
         drawn_card_index = None
 
         # Reveal the requested card.
+        card_index = self.players[0].hand[finger_index].card_index
         players = (
             self.players[0].with_revealed_card(finger_index),
             *self.players[1:],
         )
+
+        # If the card got cleared, we need to replace the current discarded
+        # card and update the discard pile. This is a little wasteful but we'll
+        # wait to profile before we inline it since it's rare.
+        if players[0].hand[finger_index].is_cleared:
+            discard_pile = with_discard(discard_pile, discarded_card_index)
+            discard_pile = with_discard(discard_pile, card_index)
+            discard_pile = with_discard(discard_pile, card_index)
+            discarded_card_index = card_index
 
         # Rotate players. Left separate from reveal for clarity.
         players = (*players[1:], players[0])
@@ -462,20 +450,27 @@ class Game(NamedTuple):
         assert self.drawn_card_index is not None
 
         # Put the current discarded card into the pile.
-        discard_pile = (
-            *self.discard_pile[: self.discarded_card_index],
-            self.discard_pile[self.discarded_card_index] + 1,
-            *self.discard_pile[self.discarded_card_index + 1 :],
-        )
+        discard_pile = with_discard(self.discard_pile, self.discarded_card_index)
 
+        # Move the replaced card to be the new discarded card.
         discarded_card_index = self.players[0].hand[finger_index].card_index
-        drawn_card_index = None
 
         # Replace the card in the player's hand.
+        card_index = self.drawn_card_index
+        drawn_card_index = None
         players = (
-            self.players[0].with_replaced_card(finger_index, self.drawn_card_index),
+            self.players[0].with_replaced_card(finger_index, card_index),
             *self.players[1:],
         )
+
+        # If the card got cleared, we need to replace the current discarded
+        # card and update the discard pile. This is a little wasteful but we'll
+        # wait to profile before we inline it since it's rare.
+        if players[0].hand[finger_index].is_cleared:
+            discard_pile = with_discard(discard_pile, discarded_card_index)
+            discard_pile = with_discard(discard_pile, card_index)
+            discard_pile = with_discard(discard_pile, card_index)
+            discarded_card_index = card_index
 
         # Rotate players. Left separate from replace for clarity.
         players = (*players[1:], players[0])
@@ -484,6 +479,45 @@ class Game(NamedTuple):
             turn=self.turn + 1,
             action=Action.DISCARD_DRAW_AND_REVEAL_CARD,
             drawn_card_index=drawn_card_index,
+            draw_pile=self.draw_pile,
+            discarded_card_index=discarded_card_index,
+            discard_pile=discard_pile,
+            players=players,
+        )
+
+    def with_card_replaced_with_discard(self, finger_index: int) -> Game:
+        """Replace a card in the current hand with the drawn card."""
+
+        assert self.drawn_card_index is None
+
+        discard_pile = self.discard_pile
+
+        # Put the current discarded card into the pile.
+        card_index = self.discarded_card_index
+        discarded_card_index = self.players[0].hand[finger_index].card_index
+
+        # Replace the card in the player's hand.
+        players = (
+            self.players[0].with_replaced_card(finger_index, card_index),
+            *self.players[1:],
+        )
+
+        # If the card got cleared, we need to replace the current discarded
+        # card and update the discard pile. This is a little wasteful but we'll
+        # wait to profile before we inline it since it's rare.
+        if players[0].hand[finger_index].is_cleared:
+            discard_pile = with_discard(discard_pile, discarded_card_index)
+            discard_pile = with_discard(discard_pile, card_index)
+            discard_pile = with_discard(discard_pile, card_index)
+            discarded_card_index = card_index
+
+        # Rotate players. Left separate from replace for clarity.
+        players = (*players[1:], players[0])
+
+        return Game(
+            turn=self.turn + 1,
+            action=Action.REPLACE_CARD_WITH_DISCARD,
+            drawn_card_index=self.drawn_card_index,
             draw_pile=self.draw_pile,
             discarded_card_index=discarded_card_index,
             discard_pile=discard_pile,
