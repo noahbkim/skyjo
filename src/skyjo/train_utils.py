@@ -5,9 +5,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from . import play
 from . import game as sj
-from . import skynet
+from . import play, skynet
 
 # MARK: Types
 
@@ -18,7 +17,12 @@ ActionMask: typing.TypeAlias = FloatArray
 ValueTarget: typing.TypeAlias = FloatArray
 PolicyTarget: typing.TypeAlias = FloatArray
 TargetArrays: typing.TypeAlias = dict[str, FloatArray]
-CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = ("value", "policy")
+VALUE_TARGET_NAME: typing.Final[str] = "value"
+POLICY_TARGET_NAME: typing.Final[str] = "policy"
+CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = (
+    VALUE_TARGET_NAME,
+    POLICY_TARGET_NAME,
+)
 
 
 class NumpyTrainingTargets(typing.NamedTuple):
@@ -46,11 +50,11 @@ class TrainingDataPoint(typing.NamedTuple):
 
     @property
     def value_target(self) -> ValueTarget:
-        return self.target_arrays["value"]
+        return self.target_arrays[VALUE_TARGET_NAME]
 
     @property
     def policy_target(self) -> PolicyTarget:
-        return self.target_arrays["policy"]
+        return self.target_arrays[POLICY_TARGET_NAME]
 
 
 class TrainingBatch(typing.NamedTuple):
@@ -65,11 +69,11 @@ class TrainingBatch(typing.NamedTuple):
 
     @property
     def value_targets(self) -> ValueTarget:
-        return self.target_arrays["value"]
+        return self.target_arrays[VALUE_TARGET_NAME]
 
     @property
     def policy_targets(self) -> PolicyTarget:
-        return self.target_arrays["policy"]
+        return self.target_arrays[POLICY_TARGET_NAME]
 
 
 # MARK: Data Helpers
@@ -84,15 +88,14 @@ class LossFunction(typing.Protocol):
         self,
         model_output: skynet.SupportsCoreSkyNetOutput,
         targets: TensorTrainingTargets,
-    ) -> tuple[torch.Tensor, LossDetails]:
-        ...
+    ) -> tuple[torch.Tensor, LossDetails]: ...
 
 
 def as_numpy_training_targets(targets: typing.Any) -> NumpyTrainingTargets:
     target_dict = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
     return NumpyTrainingTargets(
-        target_dict["value"],
-        target_dict["policy"],
+        target_dict[VALUE_TARGET_NAME],
+        target_dict[POLICY_TARGET_NAME],
     )
 
 
@@ -102,8 +105,8 @@ def normalize_numpy_targets(
 ) -> TargetArrays:
     if isinstance(targets, NumpyTrainingTargets):
         return {
-            "value": targets.value,
-            "policy": targets.policy,
+            VALUE_TARGET_NAME: targets.value,
+            POLICY_TARGET_NAME: targets.policy,
         }
     if isinstance(targets, collections.abc.Mapping):
         return {name: targets[name] for name in target_names}
@@ -153,7 +156,9 @@ def game_data_to_training_batch(
         for data_point in game_data
     ]
     batched_targets: TargetArrays = {
-        name: np.array([target[name] for target in normalized_targets], dtype=np.float32)
+        name: np.array(
+            [target[name] for target in normalized_targets], dtype=np.float32
+        )
         for name in target_names
     }
     return TrainingBatch(

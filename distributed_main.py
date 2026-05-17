@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import logging
 import pathlib
-import pickle as pkl
 import random
 import typing
 
@@ -47,11 +46,15 @@ def play_games_locally(
     random.seed(seed)
     torch.manual_seed(seed)
 
+    spatial_input_shape = (players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
+    non_spatial_input_shape = (sj.GAME_SIZE,)
+    value_output_shape = (players,)
+    policy_output_shape = (sj.MASK_SIZE,)
     model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(players,),
-        policy_output_shape=(sj.MASK_SIZE,),
+        spatial_input_shape=spatial_input_shape,
+        non_spatial_input_shape=non_spatial_input_shape,
+        value_output_shape=value_output_shape,
+        policy_output_shape=policy_output_shape,
         device=torch.device("cpu"),
         **model_kwargs,
     )
@@ -239,28 +242,20 @@ if __name__ == "__main__":
         filemode="w",
     )
 
-    validation_batch_path = pathlib.Path(
-        "./data/validation/greedy_ev_validation_batch.pkl"
-    )
-    validation_function = None
-    if validation_batch_path.exists():
-        with open(validation_batch_path, "rb") as f:
-            validation_batch = pkl.load(f)
-        validation_function = lambda model: explain.validate_model(
-            model,
-            validation_batch,
-        )
-
     model_kwargs = {
         "embedding_dimensions": 32,
         "global_state_embedding_dimensions": 64,
         "num_heads": 2,
     }
+    spatial_input_shape = (players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
+    non_spatial_input_shape = (sj.GAME_SIZE,)
+    value_output_shape = (players,)
+    policy_output_shape = (sj.MASK_SIZE,)
     model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(players,),
-        policy_output_shape=(sj.MASK_SIZE,),
+        spatial_input_shape=spatial_input_shape,
+        non_spatial_input_shape=non_spatial_input_shape,
+        value_output_shape=value_output_shape,
+        policy_output_shape=policy_output_shape,
         device=device,
         **model_kwargs,
     )
@@ -276,21 +271,23 @@ if __name__ == "__main__":
 
     training_config = train.TrainConfig(
         epochs=2,
-        batch_size=256,
+        batch_size=32,
         learn_rate=1e-3,
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
             model_outputs,
             targets,
-            value_scale=1 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+            value_scale=1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
         ),
     )
     learn_config = train.LearnConfig(
         torch_device=device,
-        learn_steps=1000,
-        games_generated_per_iteration=2500,
+        learn_steps=2,
+        games_generated_per_iteration=8,
         loss_stats_function=train_utils.loss_details_summary,
         validation_interval=1,
-        validation_function=validation_function,
+        validation_function=lambda model: explain.validate_model(
+            model,
+        ),
         update_model_interval=1,
         model_faceoff_function=None,
         **training_config.kwargs("training"),
@@ -309,13 +306,9 @@ if __name__ == "__main__":
     )
     training_data_buffer_config = buffer.Config(
         max_size=2_000_000,
-        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        action_mask_shape=(sj.MASK_SIZE,),
-        outcome_target_shape=(players,),  # score-differential value target
-        points_target_shape=(players,),
-        policy_target_shape=(sj.MASK_SIZE,),
-        cleared_columns_target_shape=(players * sj.COLUMN_COUNT,),
+        spatial_input_shape=spatial_input_shape,
+        non_spatial_input_shape=non_spatial_input_shape,
+        action_mask_shape=policy_output_shape,
         path=pathlib.Path("./data/training_data") / timestamp / "buffer.pkl",
     )
 

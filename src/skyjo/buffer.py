@@ -18,13 +18,62 @@ class TargetShapeSpec:
     shape: tuple[int, ...]
 
 
+TargetSpecs: typing.TypeAlias = tuple[TargetShapeSpec, ...]
+TargetSpecInput: typing.TypeAlias = (
+    TargetSpecs | list[TargetShapeSpec | dict[str, typing.Any]] | None
+)
+
+
+def core_target_specs(
+    players: int,
+    action_mask_shape: tuple[int, ...],
+) -> TargetSpecs:
+    return (
+        TargetShapeSpec(
+            name=train_utils.VALUE_TARGET_NAME,
+            shape=(players,),
+        ),
+        TargetShapeSpec(
+            name=train_utils.POLICY_TARGET_NAME,
+            shape=action_mask_shape,
+        ),
+    )
+
+
+def default_target_specs(
+    spatial_input_shape: tuple[int, ...],
+    action_mask_shape: tuple[int, ...],
+) -> TargetSpecs:
+    assert len(spatial_input_shape) > 0, (
+        "spatial_input_shape must include the player dimension"
+    )
+    return core_target_specs(
+        players=spatial_input_shape[0],
+        action_mask_shape=action_mask_shape,
+    )
+
+
+def resolve_target_specs(
+    target_specs: TargetSpecInput,
+    *,
+    spatial_input_shape: tuple[int, ...],
+    action_mask_shape: tuple[int, ...],
+) -> TargetSpecs:
+    if target_specs is None:
+        return default_target_specs(spatial_input_shape, action_mask_shape)
+    return tuple(
+        spec if isinstance(spec, TargetShapeSpec) else TargetShapeSpec(**spec)
+        for spec in target_specs
+    )
+
+
 @dataclasses.dataclass(slots=True)
 class Config(config.Config):
     max_size: int
     spatial_input_shape: tuple[int, ...]
     non_spatial_input_shape: tuple[int, ...]
     action_mask_shape: tuple[int, ...]
-    target_specs: tuple[TargetShapeSpec, ...]
+    target_specs: TargetSpecs | None = None
     path: pathlib.Path | None = None
 
 
@@ -44,13 +93,14 @@ class ReplayBuffer:
         spatial_input_shape: tuple[int, ...],
         non_spatial_input_shape: tuple[int, ...],
         action_mask_shape: tuple[int, ...],
-        target_specs: tuple[TargetShapeSpec, ...] | list[TargetShapeSpec | dict[str, typing.Any]],
+        target_specs: TargetSpecInput = None,
         path: pathlib.Path | None = None,
     ):
         self.max_size = max_size
-        self.target_specs = tuple(
-            spec if isinstance(spec, TargetShapeSpec) else TargetShapeSpec(**spec)
-            for spec in target_specs
+        self.target_specs = resolve_target_specs(
+            target_specs,
+            spatial_input_shape=spatial_input_shape,
+            action_mask_shape=action_mask_shape,
         )
         self.target_names = tuple(spec.name for spec in self.target_specs)
         self.game_states = [None] * max_size
@@ -76,6 +126,7 @@ class ReplayBuffer:
             config.non_spatial_input_shape,
             config.action_mask_shape,
             config.target_specs,
+            config.path,
         )
 
     @classmethod
