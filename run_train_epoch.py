@@ -159,12 +159,13 @@ def main(
         model.load_state_dict(load_state_dict(weights, device=device))
 
     batch_count = buffer_size // batch_size + 1
+    optimizer = train.make_optimizer(model, learn_rate)
     train_start = time.perf_counter()
     loss_details = train.train_epoch(
         model,
         training_data_buffer,
         training_batch_size=batch_size,
-        learn_rate=learn_rate,
+        optimizer=optimizer,
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
             model_outputs,
             targets,

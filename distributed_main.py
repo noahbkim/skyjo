@@ -112,6 +112,7 @@ def run_apply_async_local_selfplay_learning(
     training_data_buffer = buffer.ReplayBuffer(**training_data_buffer_config.kwargs())
     model = model_factory.get_latest_model()
     model.set_device(learn_config.torch_device)
+    optimizer = train.make_optimizer(model, training_config.learn_rate)
 
     with mp.Pool(processes=process_count) as pool:
         for iteration in range(learn_config.learn_steps):
@@ -189,7 +190,7 @@ def run_apply_async_local_selfplay_learning(
                     model,
                     training_data_buffer,
                     training_batch_size=training_config.batch_size,
-                    learn_rate=training_config.learn_rate,
+                    optimizer=optimizer,
                     loss_function=training_config.loss_function,
                 )
                 if learn_config.loss_stats_function is not None:
