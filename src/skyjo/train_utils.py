@@ -1,39 +1,79 @@
+import collections.abc
 import typing
 
 import numpy as np
 import pandas as pd
 import torch
 
-from . import play
 from . import game as sj
-from . import skynet
+from . import play, skynet
 
 # MARK: Types
 
-TrainingDataPoint: typing.TypeAlias = tuple[
-    np.ndarray[tuple[int], np.float32],  # spatial input
-    np.ndarray[tuple[int], np.float32],  # non-spatial input
-    np.ndarray[tuple[int], np.float32],  # action mask
-    np.ndarray[tuple[int], np.float32],  # outcome target
-    np.ndarray[tuple[int], np.float32],  # points target
-    np.ndarray[tuple[int], np.float32],  # policy target
-    np.ndarray[tuple[int], np.float32],  # cleared columns target
-]
-TrainingBatch: typing.TypeAlias = tuple[
-    np.ndarray[tuple[int, int, int, int, int], np.float32],  # spatial input
-    np.ndarray[tuple[int, int], np.float32],  # non-spatial input
-    np.ndarray[tuple[int, int], np.float32],  # action mask
-    np.ndarray[tuple[int, int], np.float32],  # outcome target
-    np.ndarray[tuple[int, int], np.float32],  # points target
-    np.ndarray[tuple[int, int], np.float32],  # policy target
-    np.ndarray[tuple[int, int], np.float32],  # cleared columns target
-]
-TrainingTargets: typing.TypeAlias = tuple[
-    torch.Tensor,  # outcome target
-    torch.Tensor,  # points target
-    torch.Tensor,  # policy target
-    torch.Tensor,  # cleared columns target
-]
+FloatArray: typing.TypeAlias = np.ndarray[tuple[int, ...], np.float32]
+SpatialInput: typing.TypeAlias = FloatArray
+NonSpatialInput: typing.TypeAlias = FloatArray
+ActionMask: typing.TypeAlias = FloatArray
+ValueTarget: typing.TypeAlias = FloatArray
+PolicyTarget: typing.TypeAlias = FloatArray
+TargetArrays: typing.TypeAlias = dict[str, FloatArray]
+VALUE_TARGET_NAME: typing.Final[str] = "value"
+POLICY_TARGET_NAME: typing.Final[str] = "policy"
+CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = (
+    VALUE_TARGET_NAME,
+    POLICY_TARGET_NAME,
+)
+
+
+class NumpyTrainingTargets(typing.NamedTuple):
+    value: ValueTarget
+    policy: PolicyTarget
+
+
+class TensorTrainingTargets(typing.NamedTuple):
+    value: torch.Tensor
+    policy: torch.Tensor
+
+
+TrainingTargets: typing.TypeAlias = TensorTrainingTargets
+
+
+class TrainingDataPoint(typing.NamedTuple):
+    spatial_input: SpatialInput
+    non_spatial_input: NonSpatialInput
+    action_mask: ActionMask
+    target_arrays: TargetArrays
+
+    @property
+    def targets(self) -> TargetArrays:
+        return self.target_arrays
+
+    @property
+    def value_target(self) -> ValueTarget:
+        return self.target_arrays[VALUE_TARGET_NAME]
+
+    @property
+    def policy_target(self) -> PolicyTarget:
+        return self.target_arrays[POLICY_TARGET_NAME]
+
+
+class TrainingBatch(typing.NamedTuple):
+    spatial_inputs: SpatialInput
+    non_spatial_inputs: NonSpatialInput
+    action_masks: ActionMask
+    target_arrays: TargetArrays
+
+    @property
+    def targets(self) -> TargetArrays:
+        return self.target_arrays
+
+    @property
+    def value_targets(self) -> ValueTarget:
+        return self.target_arrays[VALUE_TARGET_NAME]
+
+    @property
+    def policy_targets(self) -> PolicyTarget:
+        return self.target_arrays[POLICY_TARGET_NAME]
 
 
 # MARK: Data Helpers
@@ -41,6 +81,56 @@ TrainingTargets: typing.TypeAlias = tuple[
 LossDetails: typing.TypeAlias = dict[
     str, float
 ]  # loss component name: loss component value
+
+
+class LossFunction(typing.Protocol):
+    def __call__(
+        self,
+        model_output: skynet.SupportsCoreSkyNetOutput,
+        targets: TensorTrainingTargets,
+    ) -> tuple[torch.Tensor, LossDetails]: ...
+
+
+def as_numpy_training_targets(targets: typing.Any) -> NumpyTrainingTargets:
+    target_dict = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
+    return NumpyTrainingTargets(
+        target_dict[VALUE_TARGET_NAME],
+        target_dict[POLICY_TARGET_NAME],
+    )
+
+
+def normalize_numpy_targets(
+    targets: typing.Any,
+    target_names: typing.Sequence[str] = CORE_TARGET_NAMES,
+) -> TargetArrays:
+    if isinstance(targets, NumpyTrainingTargets):
+        return {
+            VALUE_TARGET_NAME: targets.value,
+            POLICY_TARGET_NAME: targets.policy,
+        }
+    if isinstance(targets, collections.abc.Mapping):
+        return {name: targets[name] for name in target_names}
+    if all(hasattr(targets, field) for field in target_names):
+        return {name: getattr(targets, name) for name in target_names}
+    target_values = tuple(targets)
+    assert len(target_values) == len(target_names), (
+        f"expected {len(target_names)} targets, got {len(target_values)}"
+    )
+    return {
+        name: value for name, value in zip(target_names, target_values, strict=True)
+    }
+
+
+def numpy_targets_to_tensors(
+    targets: NumpyTrainingTargets | TargetArrays,
+    *,
+    device: torch.device,
+) -> TensorTrainingTargets:
+    normalized_targets = as_numpy_training_targets(targets)
+    return TensorTrainingTargets(
+        torch.tensor(normalized_targets.value, dtype=torch.float32, device=device),
+        torch.tensor(normalized_targets.policy, dtype=torch.float32, device=device),
+    )
 
 
 def game_stats_summary(game_stats_list: list[play.GameStats]) -> pd.DataFrame:
@@ -52,26 +142,30 @@ def game_stats_summary(game_stats_list: list[play.GameStats]) -> pd.DataFrame:
 
 def game_data_to_training_batch(
     game_data: play.GameData,
+    target_names: typing.Sequence[str] = CORE_TARGET_NAMES,
 ) -> TrainingBatch:
     spatial_states = [
-        skynet.get_spatial_state_numpy(state_tuple[0]) for state_tuple in game_data
+        skynet.get_spatial_state_numpy(data_point.state) for data_point in game_data
     ]
     non_spatial_states = [
-        skynet.get_non_spatial_state_numpy(state_tuple[0]) for state_tuple in game_data
+        skynet.get_non_spatial_state_numpy(data_point.state) for data_point in game_data
     ]
-    action_masks = [sj.actions(state_tuple[0]) for state_tuple in game_data]
-    outcome_targets = [state_tuple[2] for state_tuple in game_data]
-    points_targets = [state_tuple[3] for state_tuple in game_data]
-    policy_targets = [state_tuple[4] for state_tuple in game_data]
-    cleared_columns_targets = [state_tuple[5] for state_tuple in game_data]
-    return (
+    action_masks = [sj.actions(data_point.state) for data_point in game_data]
+    normalized_targets = [
+        normalize_numpy_targets(data_point.targets, target_names)
+        for data_point in game_data
+    ]
+    batched_targets: TargetArrays = {
+        name: np.array(
+            [target[name] for target in normalized_targets], dtype=np.float32
+        )
+        for name in target_names
+    }
+    return TrainingBatch(
         np.array(spatial_states, dtype=np.float32),
         np.array(non_spatial_states, dtype=np.float32),
         np.array(action_masks, dtype=np.float32),
-        np.array(outcome_targets, dtype=np.float32),
-        np.array(points_targets, dtype=np.float32),
-        np.array(policy_targets, dtype=np.float32),
-        np.array(cleared_columns_targets, dtype=np.float32),
+        batched_targets,
     )
 
 
@@ -92,84 +186,39 @@ def l1_value_loss(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor
     return torch.nn.L1Loss(reduction="mean")(predicted, target)
 
 
-def mse_cleared_columns_loss(
-    predicted: torch.Tensor, target: torch.Tensor
-) -> torch.Tensor:
-    return torch.nn.MSELoss(reduction="mean")(predicted, target)
-
-
 def policy_value_losses(
-    model_output: skynet.SkyNetOutput,
-    targets: TrainingTargets,
+    model_output: skynet.SupportsCoreSkyNetOutput,
+    targets: TensorTrainingTargets,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    value_output, points_output, policy_output, cleared_columns_output = model_output
-    value_targets, points_targets, policy_targets, cleared_columns_targets = targets
-    assert policy_output.shape == policy_targets.shape, (
-        f"expected policy_output of shape {policy_targets.shape}, got {policy_output.shape}"
+    assert model_output.policy_logits.shape == targets.policy.shape, (
+        f"expected policy_logits of shape {targets.policy.shape}, got {model_output.policy_logits.shape}"
     )
-    assert value_output.shape == value_targets.shape, (
-        f"expected value_output of shape {value_targets.shape}, got {value_output.shape}"
+    assert model_output.value.shape == targets.value.shape, (
+        f"expected value of shape {targets.value.shape}, got {model_output.value.shape}"
     )
     policy_loss = cross_entropy_policy_loss(
-        policy_output,
-        policy_targets,
+        model_output.policy_logits,
+        targets.policy,
     )
     value_loss = mse_value_loss(
-        value_output,
-        value_targets,
+        model_output.value,
+        targets.value,
     )
     return value_loss, policy_loss
 
 
-def policy_value_cleared_columns_losses(
-    model_output: skynet.SkyNetOutput,
-    targets: TrainingTargets,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    value_output, points_output, policy_output, cleared_columns_output = model_output
-    value_targets, points_targets, policy_targets, cleared_columns_targets = targets
-    assert policy_output.shape == policy_targets.shape, (
-        f"expected policy_output of shape {policy_targets.shape}, got {policy_output.shape}"
-    )
-    assert value_output.shape == value_targets.shape, (
-        f"expected value_output of shape {value_targets.shape}, got {value_output.shape}"
-    )
-    policy_loss = cross_entropy_policy_loss(
-        policy_output,
-        policy_targets,
-    )
-    value_loss = mse_value_loss(
-        value_output,
-        value_targets,
-    )
-    # value_loss = l1_value_loss(
-    #     value_output,
-    #     value_targets,
-    # )
-    cleared_columns_loss = mse_cleared_columns_loss(
-        cleared_columns_output,
-        cleared_columns_targets,
-    )
-    return value_loss, policy_loss, cleared_columns_loss
-
-
 def base_loss(
-    model_output: skynet.SkyNetOutput,
-    targets: TrainingTargets,
-    value_scale: float = 1.0,
+    model_output: skynet.SupportsCoreSkyNetOutput,
+    targets: TensorTrainingTargets,
+    value_scale: float = 1 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
     policy_scale: float = 1.0,
-    cleared_columns_scale: float = 0.1,
 ) -> tuple[torch.Tensor, LossDetails]:
-    value_loss, policy_loss, cleared_columns_loss = policy_value_cleared_columns_losses(
-        model_output, targets
-    )
+    value_loss, policy_loss = policy_value_losses(model_output, targets)
     return (
-        value_scale * value_loss
-        + policy_scale * policy_loss
-        + cleared_columns_scale * cleared_columns_loss,
+        value_scale * value_loss + policy_scale * policy_loss,
         {
-            "value_loss": value_loss.item(),
+            "score_differential_value_loss": value_loss.item(),
             "policy_loss": policy_loss.item(),
-            "cleared_columns_loss": cleared_columns_loss.item(),
         },
     )
 
@@ -177,45 +226,28 @@ def base_loss(
 def compute_model_loss_on_game_data(
     model: skynet.SkyNet,
     game_data: play.GameData,
-    loss_function: typing.Callable[[skynet.SkyNetOutput, TrainingTargets], typing.Any],
-) -> tuple[torch.Tensor, LossDetails]:
-    (
-        spatial_inputs,
-        non_spatial_inputs,
-        masks,
-        outcome_targets,
-        points_targets,
-        policy_targets,
-        cleared_columns_targets,
-    ) = game_data_to_training_batch(game_data)
+    loss_function: typing.Callable[
+        [skynet.SupportsCoreSkyNetOutput, TensorTrainingTargets], typing.Any
+    ],
+) -> typing.Any:
+    batch = game_data_to_training_batch(game_data)
     spatial_tensor = torch.tensor(
-        spatial_inputs, dtype=torch.float32, device=model.device
+        batch.spatial_inputs, dtype=torch.float32, device=model.device
     )
     non_spatial_tensor = torch.tensor(
-        non_spatial_inputs, dtype=torch.float32, device=model.device
+        batch.non_spatial_inputs, dtype=torch.float32, device=model.device
     )
-    mask_tensor = torch.tensor(masks, dtype=torch.float32, device=model.device)
-    policy_targets_tensor = torch.tensor(
-        policy_targets, dtype=torch.float32, device=model.device
+    mask_tensor = torch.tensor(
+        batch.action_masks, dtype=torch.float32, device=model.device
     )
-    outcome_targets_tensor = torch.tensor(
-        outcome_targets, dtype=torch.float32, device=model.device
-    )
-    points_targets_tensor = torch.tensor(
-        points_targets, dtype=torch.float32, device=model.device
-    )
-    cleared_columns_targets_tensor = torch.tensor(
-        cleared_columns_targets, dtype=torch.float32, device=model.device
+    tensor_targets = numpy_targets_to_tensors(
+        batch.targets,
+        device=model.device,
     )
     model_output = model(spatial_tensor, non_spatial_tensor, mask_tensor)
     return loss_function(
         model_output,
-        (
-            outcome_targets_tensor,
-            points_targets_tensor,
-            policy_targets_tensor,
-            cleared_columns_targets_tensor,
-        ),
+        tensor_targets,
     )
 
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import abc
 import dataclasses
 import datetime
-import itertools
 import logging
 import multiprocessing as mp
 import pathlib
@@ -29,23 +28,38 @@ class ModelMCTSSelfplayConfig:
 
 # MARK: Types
 
-# Purely to represent what happened in a game.
-GameHistory: typing.TypeAlias = list[
-    tuple[sj.Skyjo, sj.SkyjoAction, np.ndarray[tuple[int], np.float32]]
-    # (game state, action, action probabilities)
-]
+FloatArray: typing.TypeAlias = np.ndarray[tuple[int, ...], np.float32]
+ActionProbabilities: typing.TypeAlias = FloatArray
 
-# Contains the targets for training
-GameData: typing.TypeAlias = list[
-    tuple[
-        sj.Skyjo,  # game state
-        sj.SkyjoAction,  # realized action
-        np.ndarray[tuple[int], np.float32],  # outcome target
-        np.ndarray[tuple[int], np.float32],  # points target
-        np.ndarray[tuple[int], np.float32],  # policy target
-        np.ndarray[tuple[int], np.float32],  # clearing target
-    ]
-]
+
+class GameHistoryEntry(typing.NamedTuple):
+    """One observed decision point from self-play.
+
+    Terminal entries use None for action and action_probabilities. The field
+    order remains tuple-compatible with the previous GameHistory tuple.
+    """
+
+    state: sj.Skyjo
+    action: sj.SkyjoAction | None
+    action_probabilities: ActionProbabilities | None
+
+
+GameHistory: typing.TypeAlias = list[GameHistoryEntry]
+
+
+class GameDataPoint(typing.NamedTuple):
+    """One generated training row.
+
+    Targets are intentionally opaque to gameplay generation. Training utilities
+    decide how to interpret them for a specific model/loss setup.
+    """
+
+    state: sj.Skyjo
+    action: sj.SkyjoAction | None
+    targets: typing.Any
+
+
+GameData: typing.TypeAlias = list[GameDataPoint]
 
 
 @dataclasses.dataclass(slots=True)
@@ -91,71 +105,7 @@ class GameStats:
         return record_dict
 
 
-# MARK: Symmetry
-# NOTE: NOT CURRENTLY NOT USED
-
-
-COLUMN_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.COLUMN_COUNT)))
-ROW_ORDER_PERMUTATIONS = list(itertools.permutations(range(sj.ROW_COUNT)))
-
-
-def get_symmetry_policy(
-    original_policy: np.ndarray[tuple[int], np.float32],
-    new_column_order: tuple[int, ...],
-) -> np.ndarray[tuple[int], np.float32]:
-    """Takes an original policy (sj.MASK_SIZE,) and returns a new policy based
-    on the new_column_order permutation.
-    """
-    new_policy = original_policy.copy()
-    flip_policy = new_policy[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT]
-    flip_grid = flip_policy.reshape(sj.ROW_COUNT, sj.COLUMN_COUNT)
-    permuted_flip_grid = flip_grid[:, new_column_order]
-    new_policy[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT] = (
-        permuted_flip_grid.reshape(-1)
-    )
-    replace_policy = new_policy[sj.MASK_REPLACE : sj.MASK_REPLACE + sj.FINGER_COUNT]
-    replace_grid = replace_policy.reshape(sj.ROW_COUNT, sj.COLUMN_COUNT)
-    permuted_replace_grid = replace_grid[:, new_column_order]
-    new_policy[sj.MASK_REPLACE : sj.MASK_REPLACE + sj.FINGER_COUNT] = (
-        permuted_replace_grid.reshape(-1)
-    )
-    return new_policy
-
-
-def get_skyjo_symmetries(
-    skyjo: sj.Skyjo, policy: np.ndarray[tuple[int], np.float32]
-) -> list[tuple[sj.Skyjo, np.ndarray[tuple[int], np.float32]]]:
-    """Return a list of symmetrically equivalent `Skyjo` states and corresponding policy."""
-    # TODO: Make this work for within column permutations too
-    symmetries = []
-    symmetry_hashes = set()
-    for player_column_orders in itertools.combinations_with_replacement(
-        COLUMN_ORDER_PERMUTATIONS, sj.get_player_count(skyjo)
-    ):
-        new_table = sj.get_board(skyjo).copy()
-        for player_idx, column_order in enumerate(player_column_orders):
-            # Note: new_table[player_idx, :, column_order, :] results in a
-            # shape that is different.
-            # https://stackoverflow.com/questions/55829631/why-using-an-array-as-an-index-changes-the-shape-of-a-multidimensional-ndarray
-            new_table[player_idx] = new_table[player_idx][:, column_order, :]
-        if new_table.tobytes() not in symmetry_hashes:
-            symmetry_hashes.add(new_table.tobytes())
-            new_policy = get_symmetry_policy(policy, player_column_orders[0])
-            symmetries.append(
-                (
-                    (
-                        skyjo[0],
-                        new_table,
-                        skyjo[2],
-                        skyjo[3],
-                        skyjo[4],
-                        skyjo[5],
-                        skyjo[6],
-                    ),
-                    new_policy,
-                )
-            )
-    return symmetries
+GeneratedEpisode: typing.TypeAlias = tuple[GameData, GameStats]
 
 
 # MARK: Helpers
@@ -165,39 +115,44 @@ def simulate_game_end(
     penultimate_state: sj.Skyjo,
     last_action: sj.SkyjoAction,
     simulations: int = 1,
-) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
-    """Returns the outcome of the game"""
+) -> tuple[
+    np.ndarray[tuple[int], np.float32],
+    np.ndarray[tuple[int], np.float32],
+    np.ndarray[tuple[int], np.float32],
+    np.ndarray[tuple[int], np.float32],
+]:
+    """Returns expected outcome, score value, scores, and cleared columns."""
     players = sj.get_player_count(penultimate_state)
-    outcomes, scores, cleared_columns = (
-        np.zeros(players),
-        np.zeros(players),
-        np.zeros(players * sj.COLUMN_COUNT),
+    outcomes, score_differential_values, scores, cleared_columns = (
+        np.zeros(players, dtype=np.float32),
+        np.zeros(players, dtype=np.float32),
+        np.zeros(players, dtype=np.float32),
+        np.zeros(players * sj.COLUMN_COUNT, dtype=np.float32),
     )
 
     for _ in range(simulations):
         game_state = penultimate_state
         final_state = sj.apply_action(game_state, last_action)
         outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
+        score_differential_values += (
+            skynet.skyjo_to_score_differential_state_value(final_state) / simulations
+        )
         scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
         cleared_columns += (
             sj.get_fixed_perspective_cleared_columns(final_state).reshape(-1)
             / simulations
         )
-    return outcomes, scores, cleared_columns
+    return outcomes, score_differential_values, scores, cleared_columns
 
 
 def game_history_to_game_data(
     game_history: GameHistory,
     terminal_rollouts: int = 1,
 ) -> tuple[GameData, GameStats]:
-    """Converts game data to training data.
-
-    Game data is a tuple of skyjo state and mcts action probabilities. Converts this
-    to a list of training data points which contain the current state, and targets
-    for the network to train on.
+    """Convert self-play history into training rows and aggregate game stats.
 
     Args:
-        game_data: A list of tuples containing a skyjo state and mcts action probabilities.
+        game_history: Observed decision points from a completed game.
         terminal_rollouts: The number of terminal rollouts to use to compute the outcome
             state value and fixed perspective score.
 
@@ -206,20 +161,25 @@ def game_history_to_game_data(
     """
     assert len(game_history) >= 20, f"Game history is too short: {len(game_history)}"
     training_data = []
-    penultimate_state, penultimate_action = game_history[-2][0], game_history[-2][1]
+    penultimate_state = game_history[-2].state
+    penultimate_action = game_history[-2].action
+    assert penultimate_action is not None, "expected penultimate action"
     if sj.is_action_random(penultimate_action, penultimate_state):
         (
             outcome_state_value,
+            score_differential_state_value,
             fixed_perspective_score,
             fixed_perspective_cleared_columns,
         ) = simulate_game_end(penultimate_state, penultimate_action, terminal_rollouts)
     else:
-        outcome_state_value = skynet.skyjo_to_state_value(game_history[-1][0])
-        fixed_perspective_score = sj.get_fixed_perspective_round_scores(
-            game_history[-1][0]
+        terminal_state = game_history[-1].state
+        outcome_state_value = skynet.skyjo_to_state_value(terminal_state)
+        score_differential_state_value = (
+            skynet.skyjo_to_score_differential_state_value(terminal_state)
         )
+        fixed_perspective_score = sj.get_fixed_perspective_round_scores(terminal_state)
         fixed_perspective_cleared_columns = sj.get_fixed_perspective_cleared_columns(
-            game_history[-1][0]
+            terminal_state
         ).reshape(-1)
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
@@ -230,23 +190,18 @@ def game_history_to_game_data(
     replace_face_up_count, replace_face_down_count, replace_possibility_count = 0, 0, 0
     for game_state, action, mcts_probs in game_history[:-1]:
         action_mask = sj.actions(game_state).astype(np.float32)
+        assert action is not None, "expected non-terminal action"
+        assert mcts_probs is not None, "expected non-terminal action probabilities"
         training_data.append(
-            (
+            GameDataPoint(
                 game_state,  # game
                 action,  # realized action
-                np.roll(
-                    outcome_state_value, -sj.get_player(game_state)
-                ),  # outcome target
-                np.roll(
-                    fixed_perspective_score,
-                    -sj.get_player(game_state),
-                ),  # points target
-                mcts_probs,  # policy target
-                np.roll(
-                    fixed_perspective_cleared_columns,
-                    -sj.get_player(game_state)
-                    * sj.COLUMN_COUNT,  # need to roll all columns
-                ),  # clearing target
+                {
+                    "value": np.roll(
+                        score_differential_state_value, -sj.get_player(game_state)
+                    ),
+                    "policy": mcts_probs,
+                },
             )
         )
         action_counts[action] += 1
@@ -268,7 +223,9 @@ def game_history_to_game_data(
             else:
                 replace_face_up_count += 1
 
-    cleared_cards = sj.get_table(game_history[-2][0])[:, :, :, sj.FINGER_CLEARED].sum()
+    cleared_cards = (
+        sj.get_table(game_history[-2].state)[:, :, :, sj.FINGER_CLEARED].sum()
+    )
     assert cleared_cards % 3 == 0, (
         f"Cleared cards is not divisible by 3: {cleared_cards}"
     )
@@ -320,10 +277,12 @@ def distributed_play(
             ].get_action_probabilities(game_state)
             action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
             assert sj.actions(game_state)[action]
-            game_history.append((game_state, action, action_probabilities))
+            game_history.append(
+                GameHistoryEntry(game_state, action, action_probabilities)
+            )
             game_state = sj.apply_action(game_state, action)
 
-        game_history.append((game_state, None, None))
+        game_history.append(GameHistoryEntry(game_state, None, None))
         game_histories.append(game_history)
     return game_histories
 
@@ -351,7 +310,7 @@ def play(
         ].get_action_probabilities(game_state)
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append((game_state, action, action_probabilities))
+        game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         game_state = sj.apply_action(game_state, action)
         if debug:
             print(sj.get_action_name(action))
@@ -359,7 +318,7 @@ def play(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_history.append((game_state, None, None))
+    game_history.append(GameHistoryEntry(game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -410,7 +369,7 @@ def model_player_selfplay(
         )
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append((game_state, action, action_probabilities))
+        game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         if sj.is_action_random(action, game_state):
             game_state = sj.apply_action(game_state, action)
             if not sj.get_game_over(game_state):
@@ -428,7 +387,7 @@ def model_player_selfplay(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_history.append((game_state, None, None))
+    game_history.append(GameHistoryEntry(game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -482,7 +441,7 @@ def batched_model_player_selfplay(
 
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append((game_state, action, action_probabilities))
+        game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         if sj.is_action_random(action, game_state):
             game_state = sj.apply_action(game_state, action)
             if not sj.get_game_over(game_state):
@@ -500,7 +459,7 @@ def batched_model_player_selfplay(
             logging.info(f"ACTION: {sj.get_action_name(action)}")
             logging.info(f"{sj.visualize_state(game_state)}")
 
-    game_history.append((game_state, None, None))
+    game_history.append(GameHistoryEntry(game_state, None, None))
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
@@ -542,11 +501,11 @@ class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
         self._stop_event = mp.Event()
 
     @abc.abstractmethod
-    def generate_episode(self) -> GameData:
+    def generate_episode(self) -> GeneratedEpisode:
         pass
 
     @abc.abstractmethod
-    def add_game_data(self, game_data: GameData):
+    def add_game_data(self, game_data: GeneratedEpisode):
         pass
 
     def stop(self):
@@ -566,12 +525,12 @@ class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
     def game_stats(self, game_data: GameData):
         """Computes statistics from episode game data. Can be overridden by subclasses."""
         actions = np.zeros(sj.MASK_SIZE)
-        for _, _, _, _, realized_action in game_data:
-            actions[realized_action] += 1
+        for data_point in game_data:
+            if data_point.action is not None:
+                actions[data_point.action] += 1
         return {
-            "game_length": sj.get_turn(game_data[-1][0]),
-            "outcome": game_data[-1][1],
-            "scores": game_data[-1][2],
+            "game_length": sj.get_turn(game_data[-1].state),
+            "targets": game_data[-1].targets,
             "action_counts": actions,
             "action_frequencies": actions / len(game_data),
         }
@@ -618,7 +577,7 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
         self.outcome_rollouts = outcome_rollouts
         self.play_callable = play_callable
 
-    def generate_episode(self) -> GameData:
+    def generate_episode(self) -> GeneratedEpisode:
         start_state = None
         if self.start_state_generator is not None:
             start_state = self.start_state_generator()
@@ -630,7 +589,7 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
         )
         return game_history_to_game_data(game_history, self.outcome_rollouts)
 
-    def add_game_data(self, game_data: GameData):
+    def add_game_data(self, game_data: GeneratedEpisode):
         self.game_data_queue.put(game_data)
 
 

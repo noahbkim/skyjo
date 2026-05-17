@@ -464,14 +464,19 @@ class PureModelValuePlayer(AbstractPlayer):
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
         self.model.eval()
-        action_values = sj.actions(game_state) * 1e-7
+        action_values = np.full(sj.MASK_SIZE, -np.inf, dtype=np.float32)
         for action in sj.get_actions(game_state):
+            action_values[action] = 0.0
             if sj.get_game_about_to_end(game_state):
                 for _ in range(self.terminal_state_rollouts):
                     next_state = sj.apply_action(game_state, action)
-                    winner = sj.get_winner(next_state)
-                    if winner == 0:
-                        action_values[action] += 1 / self.terminal_state_rollouts
+                    action_values[action] += (
+                        skynet.state_value_for_player(
+                            skynet.skyjo_to_score_differential_state_value(next_state),
+                            sj.get_player(game_state),
+                        )
+                        / self.terminal_state_rollouts
+                    )
 
             elif sj.is_action_random(action, game_state):
                 spatial_inputs = []
@@ -508,7 +513,7 @@ class PureModelValuePlayer(AbstractPlayer):
                 idx = 0
                 for card, card_count in enumerate(sj.get_deck(game_state)):
                     if card_count > 0:
-                        model_value_prediction = model_output[0][idx]
+                        model_value_prediction = model_output.value[idx]
                         if self.model.device != torch.device("cpu"):
                             value_output = model_value_prediction.cpu().detach().numpy()
                         else:

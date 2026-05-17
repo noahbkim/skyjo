@@ -158,22 +158,21 @@ def main(
     if weights is not None:
         model.load_state_dict(load_state_dict(weights, device=device))
 
-    loss_function = lambda model_outputs, targets: train_utils.base_loss(
-        model_outputs,
-        targets,
-        value_scale=value_scale,
-        policy_scale=policy_scale,
-        cleared_columns_scale=cleared_columns_scale,
-    )
-
     batch_count = buffer_size // batch_size + 1
+    optimizer = train.make_optimizer(model, learn_rate)
     train_start = time.perf_counter()
     loss_details = train.train_epoch(
         model,
         training_data_buffer,
         training_batch_size=batch_size,
-        learn_rate=learn_rate,
-        loss_function=loss_function,
+        optimizer=optimizer,
+        loss_function=lambda model_outputs, targets: train_utils.base_loss(
+            model_outputs,
+            targets,
+            value_scale=value_scale,
+            policy_scale=policy_scale,
+            cleared_columns_scale=cleared_columns_scale,
+        ),
     )
     train_seconds = time.perf_counter() - train_start
 

@@ -6,8 +6,7 @@ import numpy as np
 import torch
 
 from . import game as sj
-from . import skynet
-from . import train_utils
+from . import play, skynet, train_utils
 
 # MARK: Game state creation
 
@@ -320,90 +319,70 @@ def almost_surely_winning_position_targets():
     value_target = np.array([1.0, 0.0], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def almost_surely_winning_take_position_targets():
     value_target = np.array([1.0, 0.0], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 11] = 1.0
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def almost_surely_losing_position_targets():
     value_target = np.array([0.0, 1.0], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_DRAW] = 1.0
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def obvious_clear_position_targets():
     value_target = np.array([0.7, 0.3], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def obvious_clear_take_position_targets():
     value_target = np.array([0.7, 0.3], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 8] = 1.0
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def almost_clear_position_targets():
     value_target = np.array([0.55, 0.45], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_DRAW] = 1.0
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def almost_clear_draw_low_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 1] = 1
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def early_flip_position_targets():
     value_target = np.array([0.3, 0.7], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_FLIP + 2 : sj.MASK_FLIP + 12] = 1 / 10
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def negative_clear_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 def negative_clear_take_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 1] = 1
-    points_target = None
-    cleared_columns_target = None
-    return value_target, points_target, policy_target, cleared_columns_target
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
 
 
 # MARK: Evaluation
@@ -464,49 +443,43 @@ VALIDATION_EXAMPLES = [
 
 def validate_model_on_validation_examples(
     model: skynet.SkyNet,
+    value_loss_scale: float = 1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    policy_loss_scale: float = 1.0,
 ):
     game_data = []
     for description, game_state, targets in VALIDATION_EXAMPLES:
         game_data.append(
-            (
+            play.GameDataPoint(
                 game_state,
                 None,
-                targets[0],
-                targets[1],
-                targets[2],
-                None,
+                targets,
             )
         )
     value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
         model, game_data, train_utils.policy_value_losses
     )
     logging.info("[VALIDATION] VALIDATION SET LOSS")
-    logging.info(f"[VALIDATION] value loss: {value_loss.item()}")
-    logging.info(f"[VALIDATION] policy loss: {policy_loss.item()}")
+    logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
+    logging.info(f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}")
 
     logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
     for description, game_state, targets in VALIDATION_EXAMPLES:
         model_prediction = model.predict(game_state)
-        tensor_targets = (
-            torch.tensor(np.expand_dims(targets[0], 0), dtype=torch.float32),
-            torch.tensor(np.expand_dims(targets[1], 0), dtype=torch.float32)
-            if targets[1] is not None
-            else None,
-            torch.tensor(np.expand_dims(targets[2], 0), dtype=torch.float32),
-            torch.tensor(np.expand_dims(targets[3], 0), dtype=torch.float32)
-            if targets[3] is not None
-            else None,
+        tensor_targets = train_utils.TensorTrainingTargets(
+            torch.tensor(np.expand_dims(targets.value, 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(targets.policy, 0), dtype=torch.float32),
         )
         value_loss, policy_loss = train_utils.policy_value_losses(
             model_prediction.to_output(), tensor_targets
         )
         logging.info(f"[VALIDATION] validation example: {description}")
-        logging.info(f"[VALIDATION] value loss: {value_loss.item()}")
-        logging.info(f"[VALIDATION] policy loss: {policy_loss.item()}")
+        logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
+        logging.info(
+            f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}"
+        )
         logging.info(f"[VALIDATION] model prediction:\n{model_prediction}")
-        logging.info(f"[VALIDATION] value target: {targets[0]}")
-        logging.info(f"[VALIDATION] points target: {targets[1]}")
-        logging.info(f"[VALIDATION] policy target:\n{targets[2]}")
+        logging.info(f"[VALIDATION] value target: {targets.value}")
+        logging.info(f"[VALIDATION] policy target:\n{targets.policy}")
 
 
 def validate_model_with_games_data(
@@ -516,32 +489,32 @@ def validate_model_with_games_data(
 ):
     model.eval()
     with torch.no_grad():
-        (
-            spatial_inputs,
-            non_spatial_inputs,
-            masks,
-            value_targets,
-            points_targets,
-            policy_targets,
-        ) = validation_batch
         spatial_inputs_tensor = torch.tensor(
-            spatial_inputs, dtype=torch.float32, device=model.device
+            validation_batch.spatial_inputs, dtype=torch.float32, device=model.device
         )
         non_spatial_inputs_tensor = torch.tensor(
-            non_spatial_inputs, dtype=torch.float32, device=model.device
+            validation_batch.non_spatial_inputs,
+            dtype=torch.float32,
+            device=model.device,
         )
-        masks_tensor = torch.tensor(masks, dtype=torch.float32, device=model.device)
+        masks_tensor = torch.tensor(
+            validation_batch.action_masks, dtype=torch.float32, device=model.device
+        )
         value_targets_tensor = torch.tensor(
-            value_targets, dtype=torch.float32, device=model.device
+            validation_batch.value_targets, dtype=torch.float32, device=model.device
         )
         policy_targets_tensor = torch.tensor(
-            policy_targets, dtype=torch.float32, device=model.device
+            validation_batch.policy_targets, dtype=torch.float32, device=model.device
         )
         model_output = model(
             spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor
         )
         value_loss, policy_loss = train_utils.policy_value_losses(
-            model_output, (value_targets_tensor, None, policy_targets_tensor, None)
+            model_output,
+            train_utils.TensorTrainingTargets(
+                value_targets_tensor,
+                policy_targets_tensor,
+            ),
         )
         total_loss = value_loss_scale * value_loss + policy_loss
         base_policy_entropies = -(
@@ -560,8 +533,10 @@ def validate_model_with_games_data(
 def validate_model(
     model: skynet.SkyNet,
     validation_batch: train_utils.TrainingBatch | None = None,
+    value_loss_scale: float = 1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    policy_loss_scale: float = 1.0,
 ):
-    validate_model_on_validation_examples(model)
+    validate_model_on_validation_examples(model, value_loss_scale, policy_loss_scale)
     if validation_batch is not None:
         validate_model_with_games_data(model, validation_batch)
 

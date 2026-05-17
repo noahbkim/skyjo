@@ -65,7 +65,9 @@ class PredictorInputQueue:
             or not self.free_mask_queue.empty()
         )
 
-    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_free(
+        self,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return (
             self.free_prediction_ids_queue.get(),
             self.free_spatial_input_queue.get(),
@@ -115,7 +117,9 @@ class PredictorInputQueue:
         self.mask_queue.put(mask_tensor)
         self.batch_size_queue.put(batch_size)
 
-    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    def get(
+        self,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
         spatial_input_tensor = self.spatial_input_queue.get()
         non_spatial_input_tensor = self.non_spatial_input_queue.get()
         prediction_ids_tensor = self.prediction_ids_queue.get()
@@ -137,83 +141,62 @@ class PredictorOutputQueue:
         self.free_prediction_ids_queue = mp.Queue()
         self.value_output_queue = mp.Queue()
         self.free_value_output_queue = mp.Queue()
-        self.points_output_queue = mp.Queue()
-        self.free_points_output_queue = mp.Queue()
         self.policy_output_queue = mp.Queue()
         self.free_policy_output_queue = mp.Queue()
-        self.cleared_columns_output_queue = mp.Queue()
-        self.free_cleared_columns_output_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
 
     def empty(self) -> bool:
         return (
             self.prediction_ids_queue.empty()
             and self.value_output_queue.empty()
-            and self.points_output_queue.empty()
             and self.policy_output_queue.empty()
-            and self.cleared_columns_output_queue.empty()
         )
 
     def has_free(self) -> bool:
         return (
             not self.free_prediction_ids_queue.empty()
-            or not self.free_spatial_input_queue.empty()
-            or not self.free_non_spatial_input_queue.empty()
-            or not self.free_cleared_columns_output_queue.empty()
+            or not self.free_value_output_queue.empty()
+            or not self.free_policy_output_queue.empty()
         )
 
-    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return (
             self.free_prediction_ids_queue.get(),
             self.free_value_output_queue.get(),
-            self.free_points_output_queue.get(),
             self.free_policy_output_queue.get(),
-            self.free_cleared_columns_output_queue.get(),
         )
 
     def put_free(
         self,
         prediction_ids_tensor: torch.Tensor,
         value_output_tensor: torch.Tensor,
-        points_output_tensor: torch.Tensor,
         policy_output_tensor: torch.Tensor,
-        cleared_columns_output_tensor: torch.Tensor,
     ) -> None:
         self.free_prediction_ids_queue.put(prediction_ids_tensor)
         self.free_value_output_queue.put(value_output_tensor)
-        self.free_points_output_queue.put(points_output_tensor)
         self.free_policy_output_queue.put(policy_output_tensor)
-        self.free_cleared_columns_output_queue.put(cleared_columns_output_tensor)
 
     def put(
         self,
         prediction_ids_tensor: torch.Tensor,
         value_output_tensor: torch.Tensor,
-        points_output_tensor: torch.Tensor,
         policy_output_tensor: torch.Tensor,
-        cleared_columns_output_tensor: torch.Tensor,
         batch_size: int,
     ) -> None:
         self.prediction_ids_queue.put(prediction_ids_tensor)
         self.value_output_queue.put(value_output_tensor)
-        self.points_output_queue.put(points_output_tensor)
         self.policy_output_queue.put(policy_output_tensor)
-        self.cleared_columns_output_queue.put(cleared_columns_output_tensor)
         self.batch_size_queue.put(batch_size)
 
-    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         prediction_ids_tensor = self.prediction_ids_queue.get()
         value_output_tensor = self.value_output_queue.get()
-        points_output_tensor = self.points_output_queue.get()
         policy_output_tensor = self.policy_output_queue.get()
-        cleared_columns_output_tensor = self.cleared_columns_output_queue.get()
         batch_size = self.batch_size_queue.get()
         return (
             prediction_ids_tensor,
             value_output_tensor,
-            points_output_tensor,
             policy_output_tensor,
-            cleared_columns_output_tensor,
             batch_size,
         )
 
@@ -281,19 +264,28 @@ class UnifiedPredictorInputQueue:
             batch_size,
         )
 
-    def peek(self) -> tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    def peek(
+        self,
+    ) -> tuple[
+        QueueId,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        int,
+    ]:
         return self._queue[0]
 
     def get_batch(
         self,
         max_batch_size: int,
     ) -> tuple[
-        list[tuple[QueueId, torch.Tensor, torch.Tensor, torch.Tensor, int]],
+        list[QueueId],
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
-        int,
+        list[int],
     ]:
         """Gets a batch of inputs from the queue in ready to run state.
 
@@ -467,24 +459,10 @@ class PredictorProcess(mp.Process):
                     torch.zeros(
                         size=(
                             self.input_queues[queue_id].max_batch_size,
-                            *model.points_output_shape,
-                        ),
-                        dtype=torch.float32,
-                    ).share_memory_(),  # points output
-                    torch.zeros(
-                        size=(
-                            self.input_queues[queue_id].max_batch_size,
                             *model.policy_output_shape,
                         ),
                         dtype=torch.float32,
                     ).share_memory_(),  # policy output
-                    torch.zeros(
-                        size=(
-                            self.input_queues[queue_id].max_batch_size,
-                            model.value_output_shape[0] * sj.COLUMN_COUNT,
-                        ),
-                        dtype=torch.float32,
-                    ).share_memory_(),  # cleared columns output
                 )
 
     def _setup_logging(self):
@@ -588,28 +566,11 @@ class PredictorProcess(mp.Process):
 
                     # Model Inference
                     with torch.no_grad():
-                        model_output = model(
+                        value_output, policy_output = model(
                             spatial_input_tensor,
                             non_spatial_input_tensor,
                             mask_tensor,
                         )
-                        if len(model_output) == 3:
-                            value_output, points_output, policy_output = model_output
-                            cleared_columns_output = torch.zeros(
-                                (
-                                    value_output.shape[0],
-                                    model.value_output_shape[0] * sj.COLUMN_COUNT,
-                                ),
-                                dtype=value_output.dtype,
-                                device=value_output.device,
-                            )
-                        else:
-                            (
-                                value_output,
-                                points_output,
-                                policy_output,
-                                cleared_columns_output,
-                            ) = model_output
 
                     # Send outputs back to clients
                     processed_count = 0
@@ -621,9 +582,7 @@ class PredictorProcess(mp.Process):
                         (
                             prediction_ids_tensor,
                             value_tensor,
-                            points_tensor,
                             policy_tensor,
-                            cleared_columns_tensor,
                         ) = self.output_queues[queue_id].get_free()
                         prediction_ids_tensor[:batch_size] = prediction_ids[
                             processed_count : processed_count + batch_size
@@ -631,13 +590,7 @@ class PredictorProcess(mp.Process):
                         value_tensor[:batch_size] = value_output[
                             processed_count : processed_count + batch_size
                         ]
-                        points_tensor[:batch_size] = points_output[
-                            processed_count : processed_count + batch_size
-                        ]
                         policy_tensor[:batch_size] = policy_output[
-                            processed_count : processed_count + batch_size
-                        ]
-                        cleared_columns_tensor[:batch_size] = cleared_columns_output[
                             processed_count : processed_count + batch_size
                         ]
 
@@ -645,9 +598,7 @@ class PredictorProcess(mp.Process):
                         self.output_queues[queue_id].put(
                             prediction_ids_tensor,
                             value_tensor,
-                            points_tensor,
                             policy_tensor,
-                            cleared_columns_tensor,
                             batch_size,
                         )
                         processed_count += batch_size
@@ -737,28 +688,22 @@ class DistributedPredictorClient(AbstractPredictorClient):
 
     def _get_new_output(
         self,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         (
             prediction_ids,
             value_output,
-            points_output,
             policy_output,
-            cleared_columns_output,
             batch_size,
         ) = self.output_queue.get()
         new_output = (
             prediction_ids[:batch_size].clone(),
             value_output[:batch_size].clone(),
-            points_output[:batch_size].clone(),
             policy_output[:batch_size].clone(),
-            cleared_columns_output[:batch_size].clone(),
         )
         self.output_queue.put_free(
             prediction_ids,
             value_output,
-            points_output,
             policy_output,
-            cleared_columns_output,
         )
         # logging.info(
         #     f"Recieved new output, batch_size: {batch_size}, first prediction_id: {new_output[0][0]}, last prediction_id: {new_output[0][-1]}"
@@ -842,11 +787,9 @@ class DistributedPredictorClient(AbstractPredictorClient):
         to_return = (
             self.current_output[0][self.sample_count].item(),
             skynet.SkyNetPrediction.from_skynet_output(
-                (
+                skynet.EquivariantOutput(
                     self.current_output[1][self.sample_count].unsqueeze(0),
                     self.current_output[2][self.sample_count].unsqueeze(0),
-                    self.current_output[3][self.sample_count].unsqueeze(0),
-                    self.current_output[4][self.sample_count].unsqueeze(0),
                 )
             ),
         )
@@ -866,11 +809,9 @@ class DistributedPredictorClient(AbstractPredictorClient):
                 (
                     self.current_output[0][sample_idx].item(),
                     skynet.SkyNetPrediction.from_skynet_output(
-                        (
+                        skynet.EquivariantOutput(
                             self.current_output[1][sample_idx].unsqueeze(0),
                             self.current_output[2][sample_idx].unsqueeze(0),
-                            self.current_output[3][sample_idx].unsqueeze(0),
-                            self.current_output[4][sample_idx].unsqueeze(0),
                         )
                     ),
                 )
@@ -927,20 +868,16 @@ class LocalPredictorClient(AbstractPredictorClient):
 
     def _get_new_output(
         self,
-    ) -> tuple[list[int], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[list[int], torch.Tensor, torch.Tensor]:
         (
             prediction_ids,
             value_output,
-            points_output,
             policy_output,
-            cleared_columns_output,
         ) = self.output_queue.pop(0)
         return (
             prediction_ids,
             value_output,
-            points_output,
             policy_output,
-            cleared_columns_output,
         )
 
     def _get_current_batch(
@@ -998,20 +935,17 @@ class LocalPredictorClient(AbstractPredictorClient):
             dtype=torch.float32,
         )
         with torch.no_grad():
-            value_output, points_output, policy_output, cleared_columns_output = (
-                self.model(spatial_input_tensor, nonspatial_input_tensor, mask_tensor)
+            value_output, policy_output = self.model(
+                spatial_input_tensor, nonspatial_input_tensor, mask_tensor
             )
             if self.device != torch.device("cpu"):
                 value_output = value_output.cpu()
-                points_output = points_output.cpu()
                 policy_output = policy_output.cpu()
         self.output_queue.append(
             (
                 prediction_ids[:batch_size],
                 value_output,
-                points_output,
                 policy_output,
-                cleared_columns_output,
             )
         )
 
@@ -1023,11 +957,9 @@ class LocalPredictorClient(AbstractPredictorClient):
         to_return = (
             self.current_output[0][self.sample_count],
             skynet.SkyNetPrediction.from_skynet_output(
-                (
+                skynet.EquivariantOutput(
                     self.current_output[1][self.sample_count].unsqueeze(0),
                     self.current_output[2][self.sample_count].unsqueeze(0),
-                    self.current_output[3][self.sample_count].unsqueeze(0),
-                    self.current_output[4][self.sample_count].unsqueeze(0),
                 )
             ),
         )
@@ -1047,11 +979,9 @@ class LocalPredictorClient(AbstractPredictorClient):
                 (
                     self.current_output[0][sample_idx],
                     skynet.SkyNetPrediction.from_skynet_output(
-                        (
+                        skynet.EquivariantOutput(
                             self.current_output[1][sample_idx].unsqueeze(0),
                             self.current_output[2][sample_idx].unsqueeze(0),
-                            self.current_output[3][sample_idx].unsqueeze(0),
-                            self.current_output[4][sample_idx].unsqueeze(0),
                         )
                     ),
                 )

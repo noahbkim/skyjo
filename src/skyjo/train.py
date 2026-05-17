@@ -30,42 +30,33 @@ from . import train_utils
 class TrainConfig(config.Config):
     batch_size: int
     epochs: int
-    loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ]
+    loss_function: train_utils.LossFunction
     learn_rate: float
 
 
 def train_step(
     model: skynet.SkyNet,
     batch: train_utils.TrainingBatch,
-    loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ],
-    learn_rate: float = 1e-4,
-) -> None:
+    loss_function: train_utils.LossFunction,
+    optimizer: torch.optim.Optimizer,
+) -> tuple[float, train_utils.LossDetails]:
     """Performs a single training step on the model."""
-    optimizer = torch.optim.Adam(model.parameters(), lr=learn_rate, weight_decay=1e-4)
     model.train()
-    (
-        spatial_inputs_tensor,
-        non_spatial_inputs_tensor,
-        masks_tensor,
-        outcome_targets_tensor,
-        points_targets_tensor,
-        policy_targets_tensor,
-        cleared_column_targets_tensor,
-    ) = skynet.numpy_to_tensors(*batch, device=model.device, dtype=torch.float32)
-    model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
-    loss, loss_detail = loss_function(
-        model_output,
-        (
-            outcome_targets_tensor,
-            points_targets_tensor,
-            policy_targets_tensor,
-            cleared_column_targets_tensor,
-        ),
+    spatial_inputs_tensor = torch.tensor(
+        batch.spatial_inputs, dtype=torch.float32, device=model.device
     )
+    non_spatial_inputs_tensor = torch.tensor(
+        batch.non_spatial_inputs, dtype=torch.float32, device=model.device
+    )
+    masks_tensor = torch.tensor(
+        batch.action_masks, dtype=torch.float32, device=model.device
+    )
+    tensor_targets = train_utils.numpy_targets_to_tensors(
+        batch.targets,
+        device=model.device,
+    )
+    model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
+    loss, loss_detail = loss_function(model_output, tensor_targets)
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
@@ -77,10 +68,8 @@ def train_epoch(
     model: skynet.SkyNet,
     training_data_buffer: buffer.ReplayBuffer,
     training_batch_size: int,
-    learn_rate: float,
-    loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ],
+    optimizer: torch.optim.Optimizer,
+    loss_function: train_utils.LossFunction,
 ):
     """Performs a single training epoch.
 
@@ -89,17 +78,24 @@ def train_epoch(
     Args:
         model (skynet.SkyNet): The model to train.
         training_data_buffer (buffer.ReplayBuffer): The training data buffer to sample batches from.
-        batch_count (int): The number of batches to train on.
         training_batch_size (int): The size of each batch.
-        learn_rate (float): The learning rate to use for training.
+        optimizer (torch.optim.Optimizer): The optimizer to use for training.
         loss_function (typing.Callable): The loss function to use for training.
     """
     training_loss_details = []
     for _ in range(len(training_data_buffer) // training_batch_size + 1):
         batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
-        loss, loss_detail = train_step(model, batch, loss_function, learn_rate)
+        loss, loss_detail = train_step(model, batch, loss_function, optimizer)
         training_loss_details.append(loss_detail)
     return training_loss_details
+
+
+def make_optimizer(
+    model: skynet.SkyNet,
+    learn_rate: float,
+) -> torch.optim.Optimizer:
+    """Creates the optimizer for a model's training run."""
+    return torch.optim.Adam(model.parameters(), lr=learn_rate, weight_decay=1e-4)
 
 
 # MARK: Learning Loops
@@ -113,9 +109,7 @@ class LearnConfig(config.Config):
     training_epochs: int
     training_batch_size: int
     training_learn_rate: float
-    training_loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ]
+    training_loss_function: train_utils.LossFunction
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None
     validation_interval: int | None
     validation_function: typing.Callable[[skynet.SkyNet], None] | None
@@ -134,9 +128,7 @@ def learn(
     training_epochs: int,
     training_batch_size: int,
     training_learn_rate: float,
-    training_loss_function: typing.Callable[
-        [skynet.SkyNetOutput, train_utils.TrainingTargets], torch.Tensor
-    ],
+    training_loss_function: train_utils.LossFunction,
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None,
     validation_interval: int,
     validation_function: typing.Callable[[skynet.SkyNet], None] | None,
@@ -151,6 +143,7 @@ def learn(
 
     model = model_factory.get_latest_model()
     model.set_device(torch_device)
+    optimizer = make_optimizer(model, training_learn_rate)
     games_count = 0
     previous_games_count = 0
     for iteration in range(learn_steps):
@@ -171,6 +164,8 @@ def learn(
                         "[LEARN] Model Faceoff Failed, reverting to previous model"
                     )
                     model = model_factory.get_latest_model()
+                    model.set_device(torch_device)
+                    optimizer = make_optimizer(model, training_learn_rate)
 
             logging.info("[LEARN] Saving model")
             saved_path = model_factory.save_model(model)
@@ -208,7 +203,7 @@ def learn(
                 model,
                 training_data_buffer,
                 training_batch_size=training_batch_size,
-                learn_rate=training_learn_rate,
+                optimizer=optimizer,
                 loss_function=training_loss_function,
             )
             if loss_stats_function is not None:
@@ -649,6 +644,7 @@ def run_single_process_learning(
     training_data_buffer = buffer.ReplayBuffer.from_config(buffer_config)
     start_time = time.time()
     predictor_client = predictor.NaivePredictorClient(model, max_batch_size=512)
+    optimizer = make_optimizer(model, training_config.learn_rate)
 
     if learn_config.validation_function is not None:
         learn_config.validation_function(model)
@@ -685,7 +681,7 @@ def run_single_process_learning(
                 model,
                 training_data_buffer,
                 training_batch_size=training_config.batch_size,
-                learn_rate=training_config.learn_rate,
+                optimizer=optimizer,
                 loss_function=training_config.loss_function,
             )
             training_losses.append(loss)
@@ -737,6 +733,7 @@ def main_train_on_greedy_ev_player_games(
     logging.info(f"Saved model to {model_path}")
 
     training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    optimizer = make_optimizer(model, 1e-3)
     logging.info("Starting Training")
     for _ in range(learn_steps):
         for _ in range(games_per_step):
@@ -756,7 +753,7 @@ def main_train_on_greedy_ev_player_games(
                     model,
                     batch,
                     loss_function=train_utils.base_loss,
-                    learn_rate=1e-3,
+                    optimizer=optimizer,
                 )
                 training_losses.append(loss)
             logging.info(
@@ -785,6 +782,7 @@ def main_overfit_small_training_sample(
     model_path = model.save(models_dir)
     logging.info(f"Saved model to {model_path}")
     training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    optimizer = make_optimizer(model, 1e-3)
     logging.info("Adding fixed training data sample to buffer")
     for game_data in training_sample:
         training_data_buffer.add_game_data(game_data)
@@ -803,7 +801,7 @@ def main_overfit_small_training_sample(
                     model,
                     batch,
                     loss_function=train_utils.base_loss,
-                    learn_rate=1e-3,
+                    optimizer=optimizer,
                 )
                 training_losses.append(loss)
             logging.info(
