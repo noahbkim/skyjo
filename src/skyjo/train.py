@@ -51,7 +51,7 @@ def train_step(
         spatial_inputs_tensor,
         non_spatial_inputs_tensor,
         masks_tensor,
-        outcome_targets_tensor,
+        value_targets_tensor,
         points_targets_tensor,
         policy_targets_tensor,
         cleared_column_targets_tensor,
@@ -60,7 +60,7 @@ def train_step(
     loss, loss_detail = loss_function(
         model_output,
         (
-            outcome_targets_tensor,
+            value_targets_tensor,
             points_targets_tensor,
             policy_targets_tensor,
             cleared_column_targets_tensor,

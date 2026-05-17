@@ -165,25 +165,34 @@ def simulate_game_end(
     penultimate_state: sj.Skyjo,
     last_action: sj.SkyjoAction,
     simulations: int = 1,
-) -> tuple[np.ndarray[tuple[int], np.float32], np.ndarray[tuple[int], np.float32]]:
-    """Returns the outcome of the game"""
+) -> tuple[
+    np.ndarray[tuple[int], np.float32],
+    np.ndarray[tuple[int], np.float32],
+    np.ndarray[tuple[int], np.float32],
+    np.ndarray[tuple[int], np.float32],
+]:
+    """Returns expected outcome, score value, scores, and cleared columns."""
     players = sj.get_player_count(penultimate_state)
-    outcomes, scores, cleared_columns = (
-        np.zeros(players),
-        np.zeros(players),
-        np.zeros(players * sj.COLUMN_COUNT),
+    outcomes, score_differential_values, scores, cleared_columns = (
+        np.zeros(players, dtype=np.float32),
+        np.zeros(players, dtype=np.float32),
+        np.zeros(players, dtype=np.float32),
+        np.zeros(players * sj.COLUMN_COUNT, dtype=np.float32),
     )
 
     for _ in range(simulations):
         game_state = penultimate_state
         final_state = sj.apply_action(game_state, last_action)
         outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
+        score_differential_values += (
+            skynet.skyjo_to_score_differential_state_value(final_state) / simulations
+        )
         scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
         cleared_columns += (
             sj.get_fixed_perspective_cleared_columns(final_state).reshape(-1)
             / simulations
         )
-    return outcomes, scores, cleared_columns
+    return outcomes, score_differential_values, scores, cleared_columns
 
 
 def game_history_to_game_data(
@@ -210,11 +219,15 @@ def game_history_to_game_data(
     if sj.is_action_random(penultimate_action, penultimate_state):
         (
             outcome_state_value,
+            score_differential_state_value,
             fixed_perspective_score,
             fixed_perspective_cleared_columns,
         ) = simulate_game_end(penultimate_state, penultimate_action, terminal_rollouts)
     else:
         outcome_state_value = skynet.skyjo_to_state_value(game_history[-1][0])
+        score_differential_state_value = (
+            skynet.skyjo_to_score_differential_state_value(game_history[-1][0])
+        )
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(
             game_history[-1][0]
         )
@@ -235,8 +248,8 @@ def game_history_to_game_data(
                 game_state,  # game
                 action,  # realized action
                 np.roll(
-                    outcome_state_value, -sj.get_player(game_state)
-                ),  # outcome target
+                    score_differential_state_value, -sj.get_player(game_state)
+                ),  # score-differential value target
                 np.roll(
                     fixed_perspective_score,
                     -sj.get_player(game_state),

@@ -281,7 +281,7 @@ if __name__ == "__main__":
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
             model_outputs,
             targets,
-            value_scale=1.0,
+            value_scale=1 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
         ),
     )
     learn_config = train.LearnConfig(
@@ -312,7 +312,7 @@ if __name__ == "__main__":
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         action_mask_shape=(sj.MASK_SIZE,),
-        outcome_target_shape=(players,),
+        outcome_target_shape=(players,),  # score-differential value target
         points_target_shape=(players,),
         policy_target_shape=(sj.MASK_SIZE,),
         cleared_columns_target_shape=(players * sj.COLUMN_COUNT,),

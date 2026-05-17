@@ -35,8 +35,10 @@ StateValue: typing.TypeAlias = np.ndarray[tuple[int], np.float32]
 IMPORTANT: This is from a fixed perspective and not relative to the current player
     i.e. the first element is always the value of player 0, the second is for player 1, etc.
 
-This can also be used to represent the outcome of the game where all entries are 0 except for the winner.
+This is higher-is-better from the perspective of each player.
 """
+
+SCORE_DIFFERENTIAL_CAP = 156.0
 
 
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
@@ -45,6 +47,25 @@ def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
     outcome = np.zeros((players,), dtype=np.float32)
     outcome[sj.get_fixed_perspective_winner(skyjo)] = 1.0
     return outcome
+
+
+def scores_to_score_differential_value(
+    scores: np.ndarray[tuple[int], np.float32] | np.ndarray[tuple[int], np.int16],
+) -> StateValue:
+    """Convert final scores into higher-is-better score-differential values.
+
+    Skyjo is lower-is-better, so the best score maps to 0 and every worse
+    score maps to a negative margin from the best score.
+    """
+    scores = scores.astype(np.float32)
+    return (scores.min() - scores).astype(np.float32)
+
+
+def skyjo_to_score_differential_state_value(skyjo: sj.Skyjo) -> StateValue:
+    """Get raw score-differential utility from the fixed perspective."""
+    return scores_to_score_differential_value(
+        sj.get_fixed_perspective_round_scores(skyjo)
+    )
 
 
 def state_value_for_player(state_value: StateValue, player: int) -> float:
@@ -289,13 +310,16 @@ class SimplePolicyLogitTail(nn.Module):
         return logits
 
 
-class SimpleValueTail(nn.Module):
-    """Simple value tail to predict win probability of players.
+class SimpleOutcomeProbabilityTail(nn.Module):
+    """Reusable outcome tail to predict winner probabilities over players.
 
-    Tranforms input using an MLP with final sigmoid activation."""
+    This was the original binary outcome value head. It is intentionally kept
+    available for future multi-head experiments, but EquivariantSkyNet now uses
+    BoundedScoreDifferentialTail for its active value output.
+    """
 
     def __init__(self, input_dimensions: int, players: int):
-        super(SimpleValueTail, self).__init__()
+        super(SimpleOutcomeProbabilityTail, self).__init__()
         self.players = players
         self.input_dimensions = input_dimensions
         self.mlp = nn.Sequential(
@@ -312,6 +336,35 @@ class SimpleValueTail(nn.Module):
         Output: (N, P)
         """
         return self.mlp(x)
+
+
+class BoundedScoreDifferentialTail(nn.Module):
+    """Predict raw score-differential utility in the range [-156, 0]."""
+
+    def __init__(
+        self,
+        input_dimensions: int,
+        players: int,
+        score_differential_cap: float = SCORE_DIFFERENTIAL_CAP,
+    ):
+        super(BoundedScoreDifferentialTail, self).__init__()
+        self.players = players
+        self.input_dimensions = input_dimensions
+        self.score_differential_cap = score_differential_cap
+        self.linear = nn.Linear(
+            in_features=self.input_dimensions,
+            out_features=self.players,
+        )
+
+    def forward(self, x):
+        """
+        Input: (N, F)
+        Output: (N, P), where 0 is best and negative values are worse.
+        """
+        return -self.score_differential_cap * torch.sigmoid(self.linear(x))
+
+
+SimpleValueTail = SimpleOutcomeProbabilityTail
 
 
 class EquivariantPolicyLogitTail(nn.Module):
@@ -515,7 +568,9 @@ class SimpleSkyNet(nn.Module):
             with_activations.append(linear_layers[layer])
             with_activations.append(nn.ReLU(inplace=True))
         self.mlp = nn.Sequential(*with_activations, nn.Dropout(self.dropout_rate))
-        self.value_tail = SimpleValueTail(hidden_layers[-1], value_output_shape[0])
+        self.value_tail = SimpleOutcomeProbabilityTail(
+            hidden_layers[-1], value_output_shape[0]
+        )
         self.policy_tail = SimplePolicyLogitTail(
             hidden_layers[-1], policy_output_shape[0]
         )
@@ -824,7 +879,7 @@ class EquivariantSkyNet(nn.Module):
         )
 
         # Tails
-        self.value_tail = SimpleValueTail(
+        self.value_tail = BoundedScoreDifferentialTail(
             input_dimensions=self.global_state_embedding_dimensions,
             players=self.players,
         )

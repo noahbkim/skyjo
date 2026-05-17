@@ -14,7 +14,7 @@ TrainingDataPoint: typing.TypeAlias = tuple[
     np.ndarray[tuple[int], np.float32],  # spatial input
     np.ndarray[tuple[int], np.float32],  # non-spatial input
     np.ndarray[tuple[int], np.float32],  # action mask
-    np.ndarray[tuple[int], np.float32],  # outcome target
+    np.ndarray[tuple[int], np.float32],  # score-differential value target
     np.ndarray[tuple[int], np.float32],  # points target
     np.ndarray[tuple[int], np.float32],  # policy target
     np.ndarray[tuple[int], np.float32],  # cleared columns target
@@ -23,13 +23,13 @@ TrainingBatch: typing.TypeAlias = tuple[
     np.ndarray[tuple[int, int, int, int, int], np.float32],  # spatial input
     np.ndarray[tuple[int, int], np.float32],  # non-spatial input
     np.ndarray[tuple[int, int], np.float32],  # action mask
-    np.ndarray[tuple[int, int], np.float32],  # outcome target
+    np.ndarray[tuple[int, int], np.float32],  # score-differential value target
     np.ndarray[tuple[int, int], np.float32],  # points target
     np.ndarray[tuple[int, int], np.float32],  # policy target
     np.ndarray[tuple[int, int], np.float32],  # cleared columns target
 ]
 TrainingTargets: typing.TypeAlias = tuple[
-    torch.Tensor,  # outcome target
+    torch.Tensor,  # score-differential value target
     torch.Tensor,  # points target
     torch.Tensor,  # policy target
     torch.Tensor,  # cleared columns target
@@ -60,7 +60,7 @@ def game_data_to_training_batch(
         skynet.get_non_spatial_state_numpy(state_tuple[0]) for state_tuple in game_data
     ]
     action_masks = [sj.actions(state_tuple[0]) for state_tuple in game_data]
-    outcome_targets = [state_tuple[2] for state_tuple in game_data]
+    value_targets = [state_tuple[2] for state_tuple in game_data]
     points_targets = [state_tuple[3] for state_tuple in game_data]
     policy_targets = [state_tuple[4] for state_tuple in game_data]
     cleared_columns_targets = [state_tuple[5] for state_tuple in game_data]
@@ -68,7 +68,7 @@ def game_data_to_training_batch(
         np.array(spatial_states, dtype=np.float32),
         np.array(non_spatial_states, dtype=np.float32),
         np.array(action_masks, dtype=np.float32),
-        np.array(outcome_targets, dtype=np.float32),
+        np.array(value_targets, dtype=np.float32),
         np.array(points_targets, dtype=np.float32),
         np.array(policy_targets, dtype=np.float32),
         np.array(cleared_columns_targets, dtype=np.float32),
@@ -155,7 +155,7 @@ def policy_value_cleared_columns_losses(
 def base_loss(
     model_output: skynet.SkyNetOutput,
     targets: TrainingTargets,
-    value_scale: float = 1.0,
+    value_scale: float = 1 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
     policy_scale: float = 1.0,
     cleared_columns_scale: float = 0.1,
 ) -> tuple[torch.Tensor, LossDetails]:
@@ -167,7 +167,7 @@ def base_loss(
         + policy_scale * policy_loss
         + cleared_columns_scale * cleared_columns_loss,
         {
-            "value_loss": value_loss.item(),
+            "score_differential_value_loss": value_loss.item(),
             "policy_loss": policy_loss.item(),
             "cleared_columns_loss": cleared_columns_loss.item(),
         },
@@ -183,7 +183,7 @@ def compute_model_loss_on_game_data(
         spatial_inputs,
         non_spatial_inputs,
         masks,
-        outcome_targets,
+        value_targets,
         points_targets,
         policy_targets,
         cleared_columns_targets,
@@ -198,8 +198,8 @@ def compute_model_loss_on_game_data(
     policy_targets_tensor = torch.tensor(
         policy_targets, dtype=torch.float32, device=model.device
     )
-    outcome_targets_tensor = torch.tensor(
-        outcome_targets, dtype=torch.float32, device=model.device
+    value_targets_tensor = torch.tensor(
+        value_targets, dtype=torch.float32, device=model.device
     )
     points_targets_tensor = torch.tensor(
         points_targets, dtype=torch.float32, device=model.device
@@ -211,7 +211,7 @@ def compute_model_loss_on_game_data(
     return loss_function(
         model_output,
         (
-            outcome_targets_tensor,
+            value_targets_tensor,
             points_targets_tensor,
             policy_targets_tensor,
             cleared_columns_targets_tensor,

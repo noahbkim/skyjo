@@ -154,9 +154,7 @@ class DecisionStateNode:
                     self.model_prediction.value_output,
                     sj.get_player(self.state),
                 )
-            return np.ones(
-                sj.get_player_count(self.state), dtype=np.float32
-            ) / sj.get_player_count(self.state)
+            return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
         return self.state_value_total / self.visit_count
 
     def _select_highest_ucb_child(self) -> MCTSNode:
@@ -310,9 +308,7 @@ class AfterStateNode:
     @property
     def state_value(self) -> skynet.StateValue:
         if not self.is_expanded:
-            return np.ones(
-                sj.get_player_count(self.state), dtype=np.float32
-            ) / sj.get_player_count(self.state)
+            return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
         # If all children discovered and exact probabilities were accounted for
         # we can just return the exact weighted total state value
         if self.all_children_discovered or self.visit_count == 0:
@@ -519,7 +515,9 @@ class TerminalStateNode:
 
     def realize_outcome(self) -> None:
         terminal_state = sj.apply_action(self.pre_terminal_state, self.action)
-        self.outcome_total += skynet.skyjo_to_state_value(terminal_state)
+        self.outcome_total += skynet.skyjo_to_score_differential_state_value(
+            terminal_state
+        )
         self.outcome_count += 1
 
     def realize_outcomes(self, n: int) -> None:
