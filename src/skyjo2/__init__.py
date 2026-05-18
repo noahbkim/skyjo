@@ -47,16 +47,10 @@ class Finger(NamedTuple):
     def is_hidden(self) -> bool:
         return not self.is_revealed
 
-    def with_deal(self, card_index: int, is_revealed: bool = False) -> None:
+    def with_deal(self, card_index: int | None, is_revealed: bool = False) -> None:
         return Finger(card_index, is_revealed=is_revealed)
 
-    def with_revealed(self) -> Finger:
-        assert self.card_index is not None
-        assert not self.is_revealed
-        return Finger(self.card_index, True)
-
-    def with_replaced(self, card_index: int) -> Finger:
-        assert self.card_index is not None
+    def with_card(self, card_index: int) -> Finger:
         return Finger(card_index, True)
 
     def with_cleared(self) -> Finger:
@@ -112,8 +106,8 @@ class Player(NamedTuple):
 
         return all(finger.is_cleared or finger.is_revealed for finger in self.hand)
 
-    def with_deal(self, card_indices: Iterable[int]) -> Player:
-        """Deal a hand to the player."""
+    def with_deal(self, card_index: int) -> Player:
+        """Deal the top left card to the player."""
 
         # Always deal the top left card facing up. The rules do not specify
         # whether players should, at the start of the game, reveal their
@@ -124,52 +118,28 @@ class Player(NamedTuple):
         # allow the player to choose the second card to reveal. Only two
         # positions are commutatively distinct: in the same column and not.
         hand = tuple(
-            finger.with_deal(card_index, is_revealed=i == 0)
-            for i, (finger, card_index) in enumerate(zip(self.hand, card_indices))
+            (
+                finger.with_deal(card_index, is_revealed=True)
+                if i == 0
+                else finger.with_deal(None, is_revealed=False)
+            )
+            for i, finger in enumerate(self.hand)
         )
 
         return Player(score=self.score, hand=hand)
 
-    def with_revealed_card(self, finger_index: int) -> Player:
+    def with_card(self, finger_index: int, card_index: int) -> Player:
         """Reveal a card present on the board."""
 
         assert not self.hand[finger_index].is_cleared
-        assert self.hand[finger_index].is_hidden
 
         hand = (
             *self.hand[:finger_index],
-            self.hand[finger_index].with_revealed(),
+            self.hand[finger_index].with_card(card_index),
             *self.hand[finger_index + 1 :],
         )
 
         # Clear if the revealed card matches its column.
-        card_index = self.hand[finger_index].card_index
-        column_start = (finger_index // HAND_ROWS) * HAND_ROWS
-        column_stop = column_start + HAND_ROWS
-        if all(
-            finger.is_revealed and finger.card_index == card_index
-            for finger in hand[column_start:column_stop]
-        ):
-            hand = (
-                *hand[:column_start],
-                *map(Finger.with_cleared, hand[column_start:column_stop]),
-                *hand[column_stop:],
-            )
-
-        return Player(score=self.score, hand=hand)
-
-    def with_replaced_card(self, finger_index: int, card_index: int) -> Player:
-        """Replace a card present on the board."""
-
-        assert not self.hand[finger_index].is_cleared
-
-        hand = (
-            *self.hand[:finger_index],
-            self.hand[finger_index].with_replaced(card_index),
-            *self.hand[finger_index + 1 :],
-        )
-
-        # Clear if the replaced card matches its column.
         column_start = (finger_index // HAND_ROWS) * HAND_ROWS
         column_stop = column_start + HAND_ROWS
         if all(
@@ -330,7 +300,10 @@ class Game(NamedTuple):
 
         # Exhaust the draw pile before we snapshot it as a `tuple` below.
         discarded_card_index = next(dealer)
-        players = tuple(player.with_deal(dealer) for player in self.players)
+        players = tuple(
+            player.with_deal(card_index)
+            for player, card_index in zip(self.players, dealer)
+        )
 
         return Game(
             turn=self.turn,
@@ -362,7 +335,10 @@ class Game(NamedTuple):
 
         # Exhaust the draw pile before we snapshot it as a `tuple` below.
         discarded_card_index = next(dealer)
-        players = tuple(player.with_deal(dealer) for player in self.players)
+        players = tuple(
+            player.with_deal(card_index)
+            for player, card_index in zip(self.players, dealer)
+        )
 
         return Game(
             turn=self.turn,
@@ -374,14 +350,18 @@ class Game(NamedTuple):
             players=players,
         )
 
-    def with_second_card_revealed(self, finger_index: int) -> Game:
+    def with_second_card_revealed(self, finger_index: int, card_index: int) -> Game:
         """Reveal a second card during initial board setup."""
 
         assert self.state == State.REVEAL_SECOND_CARD
 
+        # Formally draw the card we're revealing.
+        draw_pile = with_draw(self.draw_pile, card_index)
+
         # Reveal the requested card.
+        assert self.players[0].hand[finger_index].is_hidden
         players = (
-            self.players[0].with_revealed_card(finger_index),
+            self.players[0].with_card(finger_index, card_index),
             *self.players[1:],
         )
 
@@ -403,7 +383,7 @@ class Game(NamedTuple):
             turn=turn,
             state=state,
             drawn_card_index=self.drawn_card_index,
-            draw_pile=self.draw_pile,
+            draw_pile=draw_pile,
             discarded_card_index=self.discarded_card_index,
             discard_pile=self.discard_pile,
             players=players,
