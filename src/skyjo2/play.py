@@ -79,10 +79,18 @@ def explore(game: Game) -> Iterator[Action]:
         assert False, f"unknown state {game}"
 
 
-def play(players: Sequence[Player], rng: random.Random = random) -> Iterator[Game]:
+def play(
+    players: Sequence[Player],
+    rng: random.Random = random,
+    *,
+    no_progress_turn_max: int = 20,
+) -> Iterator[Game]:
     """Orchestrate a game between the provided players."""
 
     assert 2 <= len(players) <= 8
+
+    # Keep track of the last time the player revealed or replaced a new card.
+    last_progress_turns = [0] * len(players)
 
     game = Game.new(players=len(players))
     yield game
@@ -91,7 +99,11 @@ def play(players: Sequence[Player], rng: random.Random = random) -> Iterator[Gam
     yield game
 
     while game.state != State.NULL:
-        action = players[game.turn % len(players)].play(game)
+        turn = game.turn
+        player_index = turn % len(players)
+        player_hand_revealed_count = game.player.hand_revealed_count
+
+        action = players[player_index].play(game)
         match game, action:
             case (
                 Game(state=State.REVEAL_SECOND_CARD),
@@ -120,7 +132,21 @@ def play(players: Sequence[Player], rng: random.Random = random) -> Iterator[Gam
                 game = game.with_card_replaced_with_discard(finger_index)
             case _, _:
                 raise Rule(f"Invalid action {action} for game {game}")
+
+        # Check if the player revealed any new cards. Don't forget to account
+        # for the player list rotating as the game state iterates.
+        if game.players[-1].hand_revealed_count > player_hand_revealed_count:
+            last_progress_turns[player_index] = turn
+
         yield game
+
+        # Check if the current player has exceeded the limit for turns without
+        # making progress, and if so, forfeit. Doing so sets the game's state
+        # to `State.NULL`, meaning we don't have to break.
+        turn_per_player = turn // len(players)
+        if last_progress_turns[player_index] - turn_per_player > no_progress_turn_max:
+            game = game.with_forfeit()
+            yield game
 
 
 class RandomPlayer(Player):

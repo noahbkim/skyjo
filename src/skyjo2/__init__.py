@@ -288,6 +288,14 @@ class Game(NamedTuple):
     def winner_index_fixed(self) -> int:
         return (self.winner_index + self.turn) % len(self.players)
 
+    @property
+    def is_finished(self) -> bool:
+        return self.state == State.NULL
+
+    @property
+    def is_forfeit(self) -> bool:
+        return self.is_finished and any(finger.is_hidden for finger in self.player.hand)
+
     @staticmethod
     def new(*, players: int) -> Game:
         """Construct a new game."""
