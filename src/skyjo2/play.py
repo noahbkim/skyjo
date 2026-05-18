@@ -47,18 +47,34 @@ class Player(Protocol):
         """Play an action based on the current state of the game."""
 
 
-def inspect(game: Game) -> tuple[type[Action], ...]:
-    """Get allowed actions for the current game."""
+def explore(game: Game) -> Iterator[Action]:
+    """Yield all actions that may be played for a given game."""
 
     if game.state == State.NULL:
-        return ()
+        return
+
     elif game.state == State.REVEAL_SECOND_CARD:
-        return (RevealSecondCard,)
+        for i, finger in enumerate(game.player.hand):
+            assert not finger.is_cleared
+            if not finger.is_revealed:
+                yield RevealSecondCard(i)
+
     elif game.state == State.DRAW_OR_REPLACE_WITH_DISCARD:
-        return (DrawCard, ReplaceCardWithDiscard)
+        yield DrawCard()
+        for i, finger in enumerate(game.player.hand):
+            if not finger.is_cleared:
+                yield ReplaceCardWithDiscard(i)
+
     elif game.state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
-        return (DiscardDrawAndRevealCard, ReplaceCardWithDraw)
-    assert False
+        for i, finger in enumerate(game.player.hand):
+            if not finger.is_revealed:
+                assert not finger.is_cleared
+                yield DiscardDrawAndRevealCard(i)
+            if not finger.is_cleared:
+                yield ReplaceCardWithDraw(i)
+
+    else:
+        assert False, f"unknown state {game}"
 
 
 def play(players: Sequence[Player], rng: random.Random = random) -> Iterator[Game]:
@@ -103,3 +119,12 @@ def play(players: Sequence[Player], rng: random.Random = random) -> Iterator[Gam
             case _, _:
                 raise Rule(f"Invalid action {action} for game {game}")
         yield game
+
+
+class RandomPlayer(Player):
+    """Proof of concept player that picks a random action."""
+
+    def play(self, game: Game) -> Action:
+        actions = tuple(explore(game))
+        assert len(actions) > 0
+        return random.choice(actions)
