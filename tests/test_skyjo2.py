@@ -17,7 +17,7 @@ class TestGame:
         game = sj.Game.new(players=2)
         assert game == sj.Game(
             turn=0,
-            action=None,
+            state=sj.State.NULL,
             drawn_card_index=None,
             draw_pile=(5, 10, 15, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10),
             discarded_card_index=None,
@@ -69,7 +69,7 @@ class TestGame:
         )
         assert game == sj.Game(
             turn=0,
-            action=None,
+            state=sj.State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,
@@ -133,7 +133,7 @@ class TestGame:
         game = game.with_random_deal(rng=rng)
         assert game == sj.Game(
             turn=0,
-            action=None,
+            state=sj.State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=(5, 9, 11, 8, 9, 8, 9, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=9,
@@ -181,8 +181,8 @@ class TestGame:
         game = game.with_random_deal(rng=rng)
         game = game.with_second_card_revealed(1)
         assert game == sj.Game(
-            turn=0,
-            action=sj.Action.REVEAL_SECOND_CARD,
+            turn=1,
+            state=sj.State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=(5, 9, 11, 8, 9, 8, 9, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=9,
@@ -226,8 +226,8 @@ class TestGame:
         )
         game = game.with_second_card_revealed(sj.HAND_ROWS)
         assert game == sj.Game(
-            turn=0,
-            action=sj.Action.REVEAL_SECOND_CARD,
+            turn=2,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
             draw_pile=(5, 9, 11, 8, 9, 8, 9, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=9,
@@ -277,8 +277,8 @@ class TestGame:
         game = game.with_second_card_revealed(sj.HAND_ROWS)
         game = game.with_random_drawn_card(rng=rng)
         assert game == sj.Game(
-            turn=0,
-            action=sj.Action.DRAW_CARD,
+            turn=2,
+            state=sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW,
             drawn_card_index=6,
             draw_pile=(5, 9, 11, 8, 9, 8, 8, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=9,
@@ -329,8 +329,8 @@ class TestGame:
         game = game.with_random_drawn_card(rng=rng)
         game = game.with_draw_discarded_and_card_revealed(2)
         assert game == sj.Game(
-            turn=0,
-            action=sj.Action.DRAW_CARD,
+            turn=3,
+            state=sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW,
             drawn_card_index=None,
             draw_pile=(5, 9, 11, 8, 9, 8, 8, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=6,
@@ -385,8 +385,8 @@ class TestGame:
         game = game.with_drawn_card(0)  # player 1
         game = game.with_draw_discarded_and_card_revealed(2)  # player 1
         assert game == sj.Game(
-            turn=1,
-            action=sj.Action.DISCARD_DRAW_AND_REVEAL_CARD,
+            turn=3,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
             draw_pile=(
                 5 - 2,  # initial discard, discarded draw
@@ -453,8 +453,8 @@ class TestGame:
         game = game.with_random_drawn_card(rng=rng)
         game = game.with_card_replaced_with_draw(3)
         assert game == sj.Game(
-            turn=1,
-            action=sj.Action.DISCARD_DRAW_AND_REVEAL_CARD,
+            turn=3,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
             draw_pile=(5, 9, 11, 8, 9, 8, 8, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=13,
@@ -509,8 +509,8 @@ class TestGame:
         game = game.with_drawn_card(1)  # player 1
         game = game.with_card_replaced_with_draw(2)  # player 1
         assert game == sj.Game(
-            turn=1,
-            action=sj.Action.DISCARD_DRAW_AND_REVEAL_CARD,
+            turn=3,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
             draw_pile=(
                 5 - 2,  # initial discard, replaced card
@@ -576,8 +576,8 @@ class TestGame:
         game = game.with_second_card_revealed(sj.HAND_ROWS)  # player 2
         game = game.with_card_replaced_with_discard(2)  # player 1
         assert game == sj.Game(
-            turn=1,
-            action=sj.Action.REPLACE_CARD_WITH_DISCARD,
+            turn=3,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
             draw_pile=(5, 9, 11, 8, 9, 8, 9, 7, 9, 7, 8, 10, 8, 9, 8),
             discarded_card_index=6,

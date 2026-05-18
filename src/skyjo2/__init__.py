@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable, Iterator, Sequence
-from enum import IntEnum
+from enum import IntEnum, auto
 from typing import NamedTuple
 
 DECK = {
@@ -28,14 +28,6 @@ CARD_COUNTS = tuple(DECK.values())
 
 HAND_ROWS = 3
 HAND_COLUMNS = 4
-
-
-class Action(IntEnum):
-    REVEAL_SECOND_CARD = 0  # pre-game second card reveal
-    DRAW_CARD = 1
-    DISCARD_DRAW_AND_REVEAL_CARD = 2
-    REPLACE_CARD_WITH_DRAW = 3
-    REPLACE_CARD_WITH_DISCARD = 4
 
 
 class Finger(NamedTuple):
@@ -103,6 +95,24 @@ class Player(NamedTuple):
             for finger in self.hand
             if finger.card_index is not None and finger.is_revealed
         )
+
+    @property
+    def hand_revealed_count(self) -> int:
+        """Get the number of cards revealed but not cleared in the hand."""
+
+        return sum(not finger.is_cleared and finger.is_revealed for finger in self.hand)
+
+    @property
+    def hand_cleared_count(self) -> int:
+        """Get the number of cards revealed but not cleared in the hand."""
+
+        return sum(finger.is_cleared for finger in self.hand)
+
+    @property
+    def is_hand_revealed(self) -> bool:
+        """Whether all cards in the hand are cleared or revealed."""
+
+        return all(finger.is_cleared or finger.is_revealed for finger in self.hand)
 
     def with_deal(self, card_indices: Iterable[int]) -> Player:
         """Deal a hand to the player."""
@@ -195,14 +205,21 @@ def with_discard(pile: Sequence[int], index: int) -> tuple[int, ...]:
     return (*pile[:index], pile[index] + 1, *pile[index + 1 :])
 
 
+class State(IntEnum):
+    NULL = auto()
+    REVEAL_SECOND_CARD = auto()
+    DRAW_OR_REPLACE_WITH_DISCARD = auto()
+    DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW = auto()
+
+
 class Game(NamedTuple):
     """A snapshot of a Skyjo game."""
 
     turn: int
     """The number of turns that have been played, i.e. the turn index."""
 
-    action: int | None
-    """The action taken by the previous player."""
+    state: int | None
+    """The current state of the game."""
 
     drawn_card_index: int | None
     """The card currently drawn from the draw pile, if requested."""
@@ -271,7 +288,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=0,
-            action=None,
+            state=State.NULL,
             drawn_card_index=None,
             draw_pile=tuple(DECK.values()),
             discarded_card_index=None,
@@ -281,7 +298,7 @@ class Game(NamedTuple):
 
     def with_deal(self, card_indices: Iterable[int]) -> Game:
         assert self.turn == 0
-        assert self.action is None
+        assert self.state == State.NULL
         assert self.drawn_card_index is None
         assert self.discarded_card_index is None
 
@@ -301,7 +318,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=self.turn,
-            action=self.action,
+            state=State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=tuple(draw_pile),
             discarded_card_index=discarded_card_index,
@@ -313,7 +330,7 @@ class Game(NamedTuple):
         """Deal players and set an initial discard."""
 
         assert self.turn == 0
-        assert self.action is None
+        assert self.state == State.NULL
         assert self.drawn_card_index is None
         assert self.discarded_card_index is None
 
@@ -333,7 +350,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=self.turn,
-            action=self.action,
+            state=State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=tuple(draw_pile),
             discarded_card_index=discarded_card_index,
@@ -344,7 +361,7 @@ class Game(NamedTuple):
     def with_second_card_revealed(self, finger_index: int) -> Game:
         """Reveal a second card during initial board setup."""
 
-        assert self.action in {None, Action.REVEAL_SECOND_CARD}
+        assert self.state == State.REVEAL_SECOND_CARD
 
         # Reveal the requested card.
         players = (
@@ -355,9 +372,14 @@ class Game(NamedTuple):
         # Rotate players. Left separate from reveal for clarity.
         players = (*players[1:], players[0])
 
+        # Check if we're done revealing cards.
+        state = self.state
+        if self.turn == len(self.players) - 1:
+            state = State.DRAW_OR_REPLACE_WITH_DISCARD
+
         return Game(
-            turn=self.turn,
-            action=Action.REVEAL_SECOND_CARD,
+            turn=self.turn + 1,
+            state=state,
             drawn_card_index=self.drawn_card_index,
             draw_pile=self.draw_pile,
             discarded_card_index=self.discarded_card_index,
@@ -368,7 +390,7 @@ class Game(NamedTuple):
     def with_drawn_card(self, drawn_card_index: int) -> Game:
         """Draw a specific card from the pile but do nothing with it."""
 
-        assert self.action != Action.DRAW_CARD
+        assert self.state == State.DRAW_OR_REPLACE_WITH_DISCARD
         assert self.drawn_card_index is None
         assert sum(self.draw_pile) > 0
 
@@ -376,7 +398,7 @@ class Game(NamedTuple):
         draw_pile = with_draw(self.draw_pile, drawn_card_index)
 
         # Shuffle the discards into the draw pile if there are no more draws.
-        # Always do this at the end of actions, if possible, so we don't have
+        # Always do this at the end of states, if possible, so we don't have
         # to juggle reshuffles before draws.
         discard_pile = self.discard_pile
         if sum(draw_pile) == 0:
@@ -386,7 +408,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=self.turn,
-            action=Action.DRAW_CARD,
+            state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
             discarded_card_index=self.discarded_card_index,
@@ -403,7 +425,7 @@ class Game(NamedTuple):
     def with_draw_discarded_and_card_revealed(self, finger_index: int) -> Game:
         """Discard the drawn card and reveal a card in the current hand."""
 
-        assert self.action == Action.DRAW_CARD
+        assert self.state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
         assert self.drawn_card_index is not None
         assert self.discarded_card_index is not None
 
@@ -430,12 +452,17 @@ class Game(NamedTuple):
             discard_pile = with_discard(discard_pile, card_index)
             discarded_card_index = card_index
 
-        # Rotate players. Left separate from reveal for clarity.
-        players = (*players[1:], players[0])
+        # Check if the current player won. If so, stop the game. Otherwise,
+        # rotate players so the next is in the first slot.
+        if players[0].is_hand_revealed:
+            state = State.NULL
+        else:
+            players = (*players[1:], players[0])
+            state = State.DRAW_OR_REPLACE_WITH_DISCARD
 
         return Game(
             turn=self.turn + 1,
-            action=Action.DISCARD_DRAW_AND_REVEAL_CARD,
+            state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=self.draw_pile,
             discarded_card_index=discarded_card_index,
@@ -446,7 +473,7 @@ class Game(NamedTuple):
     def with_card_replaced_with_draw(self, finger_index: int) -> Game:
         """Replace a card in the current hand with the drawn card."""
 
-        assert self.action == Action.DRAW_CARD
+        assert self.state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
         assert self.drawn_card_index is not None
 
         # Put the current discarded card into the pile.
@@ -472,12 +499,17 @@ class Game(NamedTuple):
             discard_pile = with_discard(discard_pile, card_index)
             discarded_card_index = card_index
 
-        # Rotate players. Left separate from replace for clarity.
-        players = (*players[1:], players[0])
+        # Check if the current player won. If so, stop the game. Otherwise,
+        # rotate players so the next is in the first slot.
+        if players[0].is_hand_revealed:
+            state = State.NULL
+        else:
+            players = (*players[1:], players[0])
+            state = State.DRAW_OR_REPLACE_WITH_DISCARD
 
         return Game(
             turn=self.turn + 1,
-            action=Action.DISCARD_DRAW_AND_REVEAL_CARD,
+            state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=self.draw_pile,
             discarded_card_index=discarded_card_index,
@@ -488,6 +520,7 @@ class Game(NamedTuple):
     def with_card_replaced_with_discard(self, finger_index: int) -> Game:
         """Replace a card in the current hand with the drawn card."""
 
+        assert self.state == State.DRAW_OR_REPLACE_WITH_DISCARD
         assert self.drawn_card_index is None
 
         discard_pile = self.discard_pile
@@ -511,12 +544,17 @@ class Game(NamedTuple):
             discard_pile = with_discard(discard_pile, card_index)
             discarded_card_index = card_index
 
-        # Rotate players. Left separate from replace for clarity.
-        players = (*players[1:], players[0])
+        # Check if the current player won. If so, stop the game. Otherwise,
+        # rotate players so the next is in the first slot.
+        if players[0].is_hand_revealed:
+            state = State.NULL
+        else:
+            players = (*players[1:], players[0])
+            state = State.DRAW_OR_REPLACE_WITH_DISCARD
 
         return Game(
             turn=self.turn + 1,
-            action=Action.REPLACE_CARD_WITH_DISCARD,
+            state=state,
             drawn_card_index=self.drawn_card_index,
             draw_pile=self.draw_pile,
             discarded_card_index=discarded_card_index,
