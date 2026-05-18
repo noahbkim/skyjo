@@ -4,7 +4,7 @@ import random
 from collections.abc import Sequence
 from typing import Iterator, NamedTuple, Protocol
 
-from . import Game, State
+from . import HAND_ROWS, Game, State
 
 
 class RevealSecondCard(NamedTuple):
@@ -54,10 +54,12 @@ def explore(game: Game) -> Iterator[Action]:
         return
 
     elif game.state == State.REVEAL_SECOND_CARD:
-        for i, finger in enumerate(game.player.hand):
-            assert not finger.is_cleared
-            if not finger.is_revealed:
-                yield RevealSecondCard(i)
+        assert game.player.hand[0].is_revealed
+        # Only distinct choices are same column and different column.
+        assert not game.player.hand[1].is_revealed
+        yield RevealSecondCard(1)  # same column
+        assert not game.player.hand[HAND_ROWS].is_revealed
+        yield RevealSecondCard(HAND_ROWS)  # different column
 
     elif game.state == State.DRAW_OR_REPLACE_WITH_DISCARD:
         yield DrawCard()
