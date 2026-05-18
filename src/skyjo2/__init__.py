@@ -372,13 +372,19 @@ class Game(NamedTuple):
         # Rotate players. Left separate from reveal for clarity.
         players = (*players[1:], players[0])
 
-        # Check if we're done revealing cards.
+        # Check if we're done revealing cards. If we are, we need to skip turns
+        # until we've reached the player who revealed the lowest cards.
+        turn = self.turn + 1
         state = self.state
-        if self.turn == len(self.players) - 1:
+        if turn == len(players):
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
+            turn += min(
+                range(len(players)),
+                key=lambda i: players[i].hand_score_revealed,
+            )
 
         return Game(
-            turn=self.turn + 1,
+            turn=turn,
             state=state,
             drawn_card_index=self.drawn_card_index,
             draw_pile=self.draw_pile,
