@@ -75,10 +75,9 @@ class Player(NamedTuple):
     """The player's current hand of cards, column-contiguous."""
 
     @property
-    def hand_score_final(self) -> int:
-        """The total score of the board, assuming all cards revealed."""
+    def hand_score(self) -> int:
+        """The total score of the hand, ignoring revealed."""
 
-        assert all(finger.is_revealed or finger.is_cleared for finger in self.hand)
         return sum(
             CARD_VALUES[finger.card_index]
             for finger in self.hand
@@ -253,28 +252,28 @@ class Game(NamedTuple):
         return self.players[-offset:] + self.players[:-offset]
 
     @property
-    def hand_scores_revealed(self) -> tuple[int, ...]:
-        return tuple(player.hand_score_revealed for player in self.players)
-
-    @property
-    def hand_scores_final(self) -> tuple[int, ...]:
+    def final_scores(self) -> tuple[int, ...]:
         """Get player scores as if the current player ended the round."""
 
         assert self.state == State.NULL
-        scores = [player.hand_score_final for player in self.players]
-        # Penalize the round ender if they didn't have the lowest score.
-        if scores[0] >= min(scores[1:]):
+
+        scores = [player.hand_score for player in self.players]
+        forfeit = any(finger.is_hidden for finger in self.player.hand)
+
+        # Penalize the round ender if they forfeited or didn't have the lowest
+        # hand score across all players.
+        if forfeit or scores[0] > min(scores[1:]):
             scores[0] *= 2
+
         return tuple(scores)
 
     @property
-    def hand_score_differentials_final(self) -> tuple[int, ...]:
+    def final_score_differentials(self) -> tuple[int, ...]:
         """Get player differences to the final, winning score."""
 
-        assert self.state == State.NULL
-        hand_scores_final = self.hand_scores_final  # don't recompute
-        winning_score_final = min(hand_scores_final)
-        return tuple(score - winning_score_final for score in self.hand_scores_final)
+        final_scores = self.final_scores  # don't recompute
+        winner_final_score = min(final_scores)
+        return tuple(score - winner_final_score for score in winner_final_score)
 
     @property
     def winner(self) -> Player:
@@ -282,8 +281,8 @@ class Game(NamedTuple):
 
     @property
     def winner_index(self) -> Player:
-        hand_scores_final = self.hand_scores_final  # don't recompute
-        return min(range(len(self.players)), key=lambda i: hand_scores_final[i])
+        final_scores = self.final_scores  # don't recompute
+        return min(range(len(self.players)), key=lambda i: final_scores[i])
 
     @property
     def winner_index_fixed(self) -> int:
@@ -575,4 +574,17 @@ class Game(NamedTuple):
             discarded_card_index=discarded_card_index,
             discard_pile=discard_pile,
             players=players,
+        )
+
+    def with_forfeit(self) -> Game:
+        """Give up as the current player, forcing a loss."""
+
+        return Game(
+            turn=self.turn,
+            state=State.NULL,
+            drawn_card_index=self.drawn_card_index,
+            draw_pile=self.draw_pile,
+            discarded_card_index=self.discarded_card_index,
+            discard_pile=self.discard_pile,
+            players=self.players,
         )

@@ -438,6 +438,130 @@ class TestGame:
             ),
         )
 
+    def test_with_draw_discarded_and_card_revealed_win(self) -> None:
+        game = sj.Game(
+            turn=100,
+            state=sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW,
+            drawn_card_index=0,
+            draw_pile=(
+                5 - 2,  # initial discard, draw
+                10 - 2,
+                15 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10,
+                10,
+            ),
+            discarded_card_index=0,
+            discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=1, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=12, is_revealed=False),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=12, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=1, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+        game = game.with_draw_discarded_and_card_revealed(11)
+        assert game == sj.Game(
+            turn=101,
+            state=sj.State.NULL,
+            drawn_card_index=None,
+            draw_pile=(
+                5 - 2,  #
+                10 - 2,
+                15 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10,
+                10,
+            ),
+            discarded_card_index=0,
+            discard_pile=(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=1, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=12, is_revealed=True),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=12, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=1, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+        assert game.winner_index == 0
+
     def test_with_card_replaced_with_draw(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
         game = game.with_random_deal(rng=rng)
@@ -562,6 +686,130 @@ class TestGame:
             ),
         )
 
+    def test_with_card_replaced_with_draw_win(self) -> None:
+        game = sj.Game(
+            turn=100,
+            state=sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW,
+            drawn_card_index=0,
+            draw_pile=(
+                5 - 2,  # initial discard, draw
+                10 - 2,
+                15 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10,
+                10,
+            ),
+            discarded_card_index=0,
+            discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=1, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=12, is_revealed=False),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=12, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=1, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+        game = game.with_card_replaced_with_draw(11)
+        assert game == sj.Game(
+            turn=101,
+            state=sj.State.NULL,
+            drawn_card_index=None,
+            draw_pile=(
+                5 - 2,  # initial discard, draw
+                10 - 2,
+                15 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10,
+                10,
+            ),
+            discarded_card_index=12,
+            discard_pile=(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=1, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=0, is_revealed=True),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=12, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=1, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+        assert game.winner_index == 0
+
     def test_with_card_replaced_with_discard(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
         game = game.with_random_deal(rng=rng)
@@ -612,3 +860,199 @@ class TestGame:
                 ),
             ),
         )
+
+    def test_with_card_replaced_with_discard_clear(self, rng: random.Random) -> None:
+        game = sj.Game.new(players=2)
+        game = game.with_deal(
+            (1,)  # discard
+            + ((1, 1, 1) + (2, 2, 2) + (3, 3, 3) + (4, 4, 4))  # player 1
+            + ((5, 5, 5) + (6, 6, 6) + (7, 7, 7) + (8, 8, 8)),  # player 2
+        )
+        game = game.with_second_card_revealed(1)  # player 1
+        game = game.with_second_card_revealed(1)  # player 2
+        game = game.with_drawn_card(1)  # player 1
+        game = game.with_card_replaced_with_draw(2)  # player 1
+        assert game == sj.Game(
+            turn=3,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
+            drawn_card_index=None,
+            draw_pile=(
+                5,  # initial discard
+                10 - 5,
+                15 - 3,
+                10 - 3,
+                10 - 3,
+                10 - 3,
+                10 - 3,
+                10 - 3,
+                10 - 3,
+                10,
+                10,
+                10,
+                10,
+                10,
+                10,
+            ),
+            discarded_card_index=1,
+            discard_pile=(0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=False),
+                        sj.Finger(card_index=6, is_revealed=False),
+                        sj.Finger(card_index=6, is_revealed=False),
+                        sj.Finger(card_index=6, is_revealed=False),
+                        sj.Finger(card_index=7, is_revealed=False),
+                        sj.Finger(card_index=7, is_revealed=False),
+                        sj.Finger(card_index=7, is_revealed=False),
+                        sj.Finger(card_index=8, is_revealed=False),
+                        sj.Finger(card_index=8, is_revealed=False),
+                        sj.Finger(card_index=8, is_revealed=False),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=None, is_revealed=True),
+                        sj.Finger(card_index=None, is_revealed=True),
+                        sj.Finger(card_index=None, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=False),
+                        sj.Finger(card_index=2, is_revealed=False),
+                        sj.Finger(card_index=2, is_revealed=False),
+                        sj.Finger(card_index=3, is_revealed=False),
+                        sj.Finger(card_index=3, is_revealed=False),
+                        sj.Finger(card_index=3, is_revealed=False),
+                        sj.Finger(card_index=4, is_revealed=False),
+                        sj.Finger(card_index=4, is_revealed=False),
+                        sj.Finger(card_index=4, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+
+    def test_with_card_replaced_with_discard_win(self) -> None:
+        game = sj.Game(
+            turn=100,
+            state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
+            drawn_card_index=None,
+            draw_pile=(
+                5 - 1,  # initial discard
+                10 - 2,
+                15 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10,
+                10,
+            ),
+            discarded_card_index=0,
+            discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=1, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=12, is_revealed=False),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=12, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=1, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+        game = game.with_card_replaced_with_discard(11)
+        assert game == sj.Game(
+            turn=101,
+            state=sj.State.NULL,
+            drawn_card_index=None,
+            draw_pile=(
+                5 - 1,  # initial discard
+                10 - 2,
+                15 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10 - 2,
+                10,
+                10,
+            ),
+            discarded_card_index=12,
+            discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            players=(
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=1, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=0, is_revealed=True),
+                    ),
+                ),
+                sj.Player(
+                    score=0,
+                    hand=(
+                        sj.Finger(card_index=12, is_revealed=True),
+                        sj.Finger(card_index=11, is_revealed=True),
+                        sj.Finger(card_index=10, is_revealed=True),
+                        sj.Finger(card_index=9, is_revealed=True),
+                        sj.Finger(card_index=8, is_revealed=True),
+                        sj.Finger(card_index=7, is_revealed=True),
+                        sj.Finger(card_index=6, is_revealed=True),
+                        sj.Finger(card_index=5, is_revealed=True),
+                        sj.Finger(card_index=4, is_revealed=True),
+                        sj.Finger(card_index=3, is_revealed=True),
+                        sj.Finger(card_index=2, is_revealed=True),
+                        sj.Finger(card_index=1, is_revealed=False),
+                    ),
+                ),
+            ),
+        )
+        assert game.winner_index == 0
