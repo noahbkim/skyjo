@@ -122,7 +122,7 @@ class Player(NamedTuple):
         # initial two cards one at a time (requiring two turn cycles) or
         # simultaneously (requiring only one turn cycle). We opt for the
         # former, as it is more fair with regard to available information. To
-        # simulate this efficiently, we deal with top left card face up then
+        # simulate this efficiently, we deal the top-left card face-up then
         # allow the player to choose the second card to reveal. Only two
         # positions are commutatively distinct: in the same column and not.
         hand = tuple(

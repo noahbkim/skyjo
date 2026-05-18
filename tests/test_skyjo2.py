@@ -2,14 +2,7 @@ from __future__ import annotations
 
 import random
 
-import pytest
-
 import skyjo2 as sj
-
-
-@pytest.fixture
-def rng() -> random.Random:
-    return random.Random(0)
 
 
 class TestGame:
