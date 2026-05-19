@@ -20,10 +20,12 @@ FINGER_SIZE = CARD_SIZE + 2  # hidden, cleared
 
 def embed_state(state: sj.State, tensor: torch.Tensor) -> torch.Tensor:
     assert tensor.shape == (STATE_SIZE,)
-    tensor[0] = state == sj.State.NULL
+    tensor[0] = state == sj.State.DEAL_FIRST_CARD
     tensor[1] = state == sj.State.REVEAL_SECOND_CARD
     tensor[2] = state == sj.State.DRAW_OR_REPLACE_WITH_DISCARD
     tensor[3] = state == sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
+    tensor[4] = state == sj.State.ENDED
+    tensor[5] = state == sj.State.FORFEITED
     return tensor
 
 
