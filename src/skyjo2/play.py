@@ -83,7 +83,7 @@ def play(
     players: Sequence[Player],
     rng: random.Random = random,
     *,
-    no_progress_turn_max: int = 20,
+    no_progress_turn_max: int | None = None,
 ) -> Iterator[Game]:
     """Orchestrate a game between the provided players."""
 
@@ -157,11 +157,13 @@ def play(
         # Check if the current player has exceeded the limit for turns without
         # making progress, and if so, forfeit. Doing so sets the game's state
         # to `State.NULL`, meaning we don't have to break.
-        turn_per_player = turn // len(players)
-        if last_progress_turns[player_index] - turn_per_player > no_progress_turn_max:
-            game = game.with_forfeit()
-            yield game
-            break
+        if no_progress_turn_max is not None:
+            turn_per_player = turn // len(players)
+            no_progress_turn_count = last_progress_turns[player_index] - turn_per_player
+            if no_progress_turn_count > no_progress_turn_max:
+                game = game.with_forfeit()
+                yield game
+                break
 
     # Reveal all hidden cards.
     game = game.with_random_hidden_cards_revealed(rng=rng)
@@ -171,7 +173,12 @@ def play(
 class RandomPlayer(Player):
     """Proof of concept player that picks a random action."""
 
+    rng: random.Random
+
+    def __init__(self, rng: random.Random = random) -> None:
+        self.rng = rng
+
     def play(self, game: Game) -> Action:
         actions = tuple(explore(game))
         assert len(actions) > 0
-        return random.choice(actions)
+        return self.rng.choice(actions)
