@@ -109,27 +109,41 @@ def play(
                 Game(state=State.REVEAL_SECOND_CARD),
                 RevealSecondCard(finger_index),
             ):
-                game = game.with_second_card_revealed(finger_index)
+                game = game.with_random_second_card_revealed(
+                    finger_index,
+                    rng=rng,
+                )
             case (
                 Game(state=State.DRAW_OR_REPLACE_WITH_DISCARD),
                 DrawCard(),
             ):
-                game = game.with_random_drawn_card(rng=rng)
+                game = game.with_random_drawn_card(
+                    rng=rng,
+                )
             case (
                 Game(state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
                 DiscardDrawAndRevealCard(finger_index),
             ):
-                game = game.with_draw_discarded_and_card_revealed(finger_index)
+                game = game.with_draw_discarded_and_random_card_revealed(
+                    finger_index,
+                    rng=rng,
+                )
             case (
                 Game(state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
                 ReplaceCardWithDraw(finger_index),
             ):
-                game = game.with_card_replaced_with_draw(finger_index)
+                game = game.with_random_card_replaced_with_draw(
+                    finger_index,
+                    rng=rng,
+                )
             case (
                 Game(state=State.DRAW_OR_REPLACE_WITH_DISCARD),
                 ReplaceCardWithDiscard(finger_index),
             ):
-                game = game.with_card_replaced_with_discard(finger_index)
+                game = game.with_random_card_replaced_with_discard(
+                    finger_index,
+                    rng=rng,
+                )
             case _, _:
                 raise Rule(f"Invalid action {action} for game {game}")
 
