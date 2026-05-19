@@ -179,7 +179,7 @@ class Player(NamedTuple):
 # MARK: Game
 
 
-def _pick_random_index(pile: Sequence[int], rng: random.Random = random) -> int:
+def _pick_random_index(pile: Sequence[int], rng: random.Random) -> int:
     needle = rng.randint(0, sum(pile) - 1)
     for index, haystack in enumerate(pile):
         if needle < haystack:
@@ -391,7 +391,7 @@ class Game(NamedTuple):
             players=players,
         )
 
-    def with_random_first_cards_dealt(self, rng: random.Random = random) -> Game:
+    def with_random_first_cards_dealt(self, rng: random.Random) -> Game:
         """Deal players and set an initial discard."""
 
         turn = self.turn
@@ -495,7 +495,7 @@ class Game(NamedTuple):
     def with_random_second_card_revealed(
         self,
         finger_index: int,
-        rng: random.Random = random,
+        rng: random.Random,
     ) -> Game:
         """Pick a random card from the draw pile to reveal."""
 
@@ -540,7 +540,7 @@ class Game(NamedTuple):
             players=players,
         )
 
-    def with_random_drawn_card(self, rng: random.Random = random) -> Game:
+    def with_random_drawn_card(self, rng: random.Random) -> Game:
         """Draw a random card from the pile but do nothing with it."""
 
         drawn_card_index = _pick_random_index(self.draw_pile, rng=rng)
@@ -621,7 +621,7 @@ class Game(NamedTuple):
     def with_draw_discarded_and_random_card_revealed(
         self,
         finger_index: int,
-        rng: random.Random = random,
+        rng: random.Random,
     ) -> Game:
         """Pick a random card from the draw pile to reveal."""
 
@@ -712,7 +712,7 @@ class Game(NamedTuple):
     def with_random_card_replaced_with_draw(
         self,
         finger_index: int,
-        rng: random.Random = random,
+        rng: random.Random,
     ) -> Game:
         """Randomly pick if the replaced card is hidden."""
 
@@ -799,7 +799,7 @@ class Game(NamedTuple):
     def with_random_card_replaced_with_discard(
         self,
         finger_index: int,
-        rng: random.Random = random,
+        rng: random.Random,
     ) -> Game:
         """Randomly pick if the replaced card is hidden."""
 
@@ -865,7 +865,7 @@ class Game(NamedTuple):
             players=players,
         )
 
-    def with_random_hidden_cards_revealed(self, rng: random.Random = random) -> Game:
+    def with_random_hidden_cards_revealed(self, rng: random.Random) -> Game:
         """Draw hidden cards randomly."""
 
         turn = self.turn
