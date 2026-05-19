@@ -95,7 +95,7 @@ def play(
     game = Game.new(players=len(players))
     yield game
 
-    game = game.with_random_deal(rng=rng)
+    game = game.with_random_first_cards_dealt(rng=rng)
     yield game
 
     while game.state != State.NULL:

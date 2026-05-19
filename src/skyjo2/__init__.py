@@ -29,6 +29,8 @@ CARD_COUNTS = tuple(DECK.values())
 HAND_ROWS = 3
 HAND_COLUMNS = 4
 
+# MARK: Finger
+
 
 class Finger(NamedTuple):
     """The state of an individual card on a player's board."""
@@ -47,16 +49,16 @@ class Finger(NamedTuple):
     def is_hidden(self) -> bool:
         return not self.is_revealed
 
-    def with_deal(self, card_index: int | None, is_revealed: bool = False) -> None:
-        return Finger(card_index, is_revealed=is_revealed)
-
-    def with_card(self, card_index: int) -> Finger:
-        return Finger(card_index, True)
+    def with_card(self, card_index: int | None) -> Finger:
+        return Finger(card_index, card_index is not None)
 
     def with_cleared(self) -> Finger:
         assert self.card_index is not None
         assert self.is_revealed
         return Finger(None, True)
+
+
+# MARK: Player
 
 
 class Player(NamedTuple):
@@ -89,6 +91,12 @@ class Player(NamedTuple):
         )
 
     @property
+    def hand_hidden_count(self) -> int:
+        """Get the number of cards revealed but not cleared in the hand."""
+
+        return sum(not finger.is_cleared and finger.is_hidden for finger in self.hand)
+
+    @property
     def hand_revealed_count(self) -> int:
         """Get the number of cards revealed but not cleared in the hand."""
 
@@ -106,7 +114,7 @@ class Player(NamedTuple):
 
         return all(finger.is_cleared or finger.is_revealed for finger in self.hand)
 
-    def with_deal(self, card_index: int) -> Player:
+    def with_first_card_dealt(self, card_index: int) -> Player:
         """Deal the top left card to the player."""
 
         # Always deal the top left card facing up. The rules do not specify
@@ -118,11 +126,7 @@ class Player(NamedTuple):
         # allow the player to choose the second card to reveal. Only two
         # positions are commutatively distinct: in the same column and not.
         hand = tuple(
-            (
-                finger.with_deal(card_index, is_revealed=True)
-                if i == 0
-                else finger.with_deal(None, is_revealed=False)
-            )
+            finger.with_card(card_index) if i == 0 else finger.with_card(None)
             for i, finger in enumerate(self.hand)
         )
 
@@ -153,6 +157,25 @@ class Player(NamedTuple):
             )
 
         return Player(score=self.score, hand=hand)
+
+    def with_hidden_cards_revealed(
+        self,
+        revealed_card_indices: Iterable[int],
+    ) -> Player:
+        """Replace remaining hidden cards."""
+
+        revealed_card_indices = iter(revealed_card_indices)
+        hand = tuple(
+            finger
+            if not finger.is_hidden
+            else finger.with_card(next(revealed_card_indices))
+            for finger in self.hand
+        )
+
+        return Player(score=self.score, hand=hand)
+
+
+# MARK: Game
 
 
 def _pick_random_index(pile: Sequence[int], rng: random.Random = random) -> int:
@@ -241,6 +264,18 @@ class Game(NamedTuple):
         return self.players[-offset:] + self.players[:-offset]
 
     @property
+    def player_hand_hidden_counts(self) -> tuple[int]:
+        return tuple(player.hand_hidden_count for player in self.players)
+
+    @property
+    def player_hand_revealed_counts(self) -> tuple[int]:
+        return tuple(player.hand_revealed_count for player in self.players)
+
+    @property
+    def player_hand_cleared_counts(self) -> tuple[int]:
+        return tuple(player.hand_cleared_count for player in self.players)
+
+    @property
     def final_scores(self) -> tuple[int, ...]:
         """Get player scores as if the current player ended the round."""
 
@@ -285,6 +320,8 @@ class Game(NamedTuple):
     def is_forfeit(self) -> bool:
         return self.is_finished and any(finger.is_hidden for finger in self.player.hand)
 
+    # MARK: Construct
+
     @staticmethod
     def new(*, players: int) -> Game:
         """Construct a new game."""
@@ -301,7 +338,9 @@ class Game(NamedTuple):
             players=(player,) * players,
         )
 
-    def with_deal(self, card_indices: Iterable[int]) -> Game:
+    # MARK: Deal
+
+    def with_first_cards_dealt(self, card_indices: Iterable[int]) -> Game:
         """Deal a set series of cards to the discard slot and players."""
 
         turn = self.turn
@@ -332,7 +371,8 @@ class Game(NamedTuple):
         # Exhaust the draw pile before we snapshot it as a `tuple` below.
         discarded_card_index = next(dealer)
         players = tuple(
-            player.with_deal(card_index) for player, card_index in zip(players, dealer)
+            player.with_first_card_dealt(card_index)
+            for player, card_index in zip(players, dealer)
         )
 
         return Game(
@@ -345,7 +385,7 @@ class Game(NamedTuple):
             players=players,
         )
 
-    def with_random_deal(self, rng: random.Random = random) -> Game:
+    def with_random_first_cards_dealt(self, rng: random.Random = random) -> Game:
         """Deal players and set an initial discard."""
 
         turn = self.turn
@@ -376,7 +416,8 @@ class Game(NamedTuple):
         # Exhaust the draw pile before we snapshot it as a `tuple` below.
         discarded_card_index = next(dealer)
         players = tuple(
-            player.with_deal(card_index) for player, card_index in zip(players, dealer)
+            player.with_first_card_dealt(card_index)
+            for player, card_index in zip(players, dealer)
         )
 
         return Game(
@@ -388,6 +429,8 @@ class Game(NamedTuple):
             discard_pile=discard_pile,
             players=players,
         )
+
+    # MARK: Second card
 
     def with_second_card_revealed(
         self,
@@ -455,6 +498,8 @@ class Game(NamedTuple):
             _pick_random_index(self.draw_pile, rng=rng),
         )
 
+    # MARK: Draw
+
     def with_drawn_card(self, drawn_card_index: int) -> Game:
         """Draw a specific card from the pile but do nothing with it."""
 
@@ -494,6 +539,8 @@ class Game(NamedTuple):
 
         drawn_card_index = _pick_random_index(self.draw_pile, rng=rng)
         return self.with_drawn_card(drawn_card_index)
+
+    # MARK: Discard draw and reveal
 
     def with_draw_discarded_and_card_revealed(
         self,
@@ -576,6 +623,8 @@ class Game(NamedTuple):
             finger_index,
             _pick_random_index(self.draw_pile, rng=rng),
         )
+
+    # MARK: Replace with draw
 
     def with_card_replaced_with_draw(
         self,
@@ -668,6 +717,8 @@ class Game(NamedTuple):
             else None,
         )
 
+    # MARK: Replace with discard
+
     def with_card_replaced_with_discard(
         self,
         finger_index: int,
@@ -753,6 +804,8 @@ class Game(NamedTuple):
             else None,
         )
 
+    # MARK: Forfeit
+
     def with_forfeit(self) -> Game:
         """Give up as the current player, forcing a loss."""
 
@@ -764,4 +817,84 @@ class Game(NamedTuple):
             discarded_card_index=self.discarded_card_index,
             discard_pile=self.discard_pile,
             players=self.players,
+        )
+
+    # MARK: Reveal remaining
+
+    def with_hidden_cards_revealed(self, revealed_card_indices: Iterable[int]) -> Game:
+        """Draw hidden cards in player hands at the end of the game."""
+
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
+        del self
+
+        assert state == State.NULL
+        assert drawn_card_index is None
+        assert players[0].hand_hidden_count == 0
+
+        mutable_draw_pile = list(draw_pile)
+        del draw_pile
+
+        def deal_revealed_card_index_from_draw_pile() -> Iterator[int]:
+            for revealed_card_index in revealed_card_indices:
+                assert mutable_draw_pile[revealed_card_index] > 0
+                mutable_draw_pile[revealed_card_index] -= 1
+                yield revealed_card_index
+
+        dealer = deal_revealed_card_index_from_draw_pile()
+
+        players = tuple(player.with_hidden_cards_revealed(dealer) for player in players)
+
+        return Game(
+            turn=turn,
+            state=state,
+            drawn_card_index=drawn_card_index,
+            draw_pile=tuple(mutable_draw_pile),
+            discarded_card_index=discarded_card_index,
+            discard_pile=discard_pile,
+            players=players,
+        )
+
+    def with_random_hidden_cards_revealed(self, rng: random.Random = random) -> Game:
+        """Draw hidden cards randomly."""
+
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
+        del self
+
+        assert state == State.NULL
+        assert drawn_card_index is None
+        assert players[0].hand_hidden_count == 0
+
+        mutable_draw_pile = list(draw_pile)
+        del draw_pile
+
+        def deal_revealed_card_index_from_draw_pile() -> Iterator[int]:
+            while True:
+                revealed_card_index = _pick_random_index(mutable_draw_pile, rng=rng)
+                mutable_draw_pile[revealed_card_index] -= 1
+                yield revealed_card_index
+
+        dealer = deal_revealed_card_index_from_draw_pile()
+
+        players = tuple(player.with_hidden_cards_revealed(dealer) for player in players)
+
+        return Game(
+            turn=turn,
+            state=state,
+            drawn_card_index=drawn_card_index,
+            draw_pile=tuple(mutable_draw_pile),
+            discarded_card_index=discarded_card_index,
+            discard_pile=discard_pile,
+            players=players,
         )
