@@ -74,6 +74,7 @@ class Player(NamedTuple):
     def hand_score(self) -> int:
         """The total score of the hand, ignoring revealed."""
 
+        assert self.is_hand_revealed
         return sum(
             CARD_VALUES[finger.card_index]
             for finger in self.hand
