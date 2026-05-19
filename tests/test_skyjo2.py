@@ -10,7 +10,7 @@ class TestGame:
         game = sj.Game.new(players=2)
         assert game == sj.Game(
             turn=0,
-            state=sj.State.NULL,
+            state=sj.State.DEAL_FIRST_CARD,
             drawn_card_index=None,
             draw_pile=(5, 10, 15, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10),
             discarded_card_index=None,
@@ -494,7 +494,7 @@ class TestGame:
         game = game.with_draw_discarded_and_card_revealed(11, 12)
         assert game == sj.Game(
             turn=101,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 2,
@@ -737,7 +737,7 @@ class TestGame:
         game = game.with_card_replaced_with_draw(11, 12)
         assert game == sj.Game(
             turn=101,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 2,
@@ -978,7 +978,7 @@ class TestGame:
         game = game.with_card_replaced_with_discard(11, 12)
         assert game == sj.Game(
             turn=101,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,
@@ -1040,7 +1040,7 @@ class TestGame:
     def test_with_hidden_cards_revealed_tie(self) -> None:
         game = sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1101,7 +1101,7 @@ class TestGame:
         game = game.with_hidden_cards_revealed((11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1))
         assert game == sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1167,7 +1167,7 @@ class TestGame:
     def test_with_hidden_cards_revealed_lose(self) -> None:
         game = sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1228,7 +1228,7 @@ class TestGame:
         game = game.with_hidden_cards_revealed((2,) * 11)
         assert game == sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1294,7 +1294,7 @@ class TestGame:
     def test_with_hidden_cards_revealed_win(self) -> None:
         game = sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1355,7 +1355,7 @@ class TestGame:
         game = game.with_hidden_cards_revealed((14,) * 5 + (13,) * 6)
         assert game == sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1421,7 +1421,7 @@ class TestGame:
     def test_with_random_hidden_cards_revealed(self, rng: random.Random) -> None:
         game = sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1482,7 +1482,7 @@ class TestGame:
         game = game.with_random_hidden_cards_revealed(rng=rng)
         assert game == sj.Game(
             turn=100,
-            state=sj.State.NULL,
+            state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(4, 8, 14, 9, 9, 8, 9, 8, 7, 9, 8, 8, 7, 10, 7),
             discarded_card_index=0,

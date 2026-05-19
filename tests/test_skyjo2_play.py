@@ -37,55 +37,56 @@ def test_play_two(rng: random.Random) -> None:
     # 2 (reveal)
     # 2 players * 9 cards * 2 actions (draws + replaces)
     # 2 actions (winning draw + replace)
-    assert len(replay) == 42
+    # 1 (reveal hidden cards)
+    assert len(replay) == 43
     result = replay[-1]
     assert result == sj.Game(
         turn=22,
-        state=sj.State.NULL,
+        state=sj.State.ENDED,
         drawn_card_index=None,
         draw_pile=(4, 7, 11, 7, 7, 8, 8, 5, 6, 5, 7, 10, 7, 8, 6),
-        discarded_card_index=3,
-        discard_pile=(0, 0, 3, 0, 1, 1, 1, 2, 2, 3, 1, 0, 2, 1, 2),
+        discarded_card_index=2,
+        discard_pile=(0, 2, 1, 2, 0, 1, 1, 2, 3, 3, 1, 0, 1, 0, 2),
         players=(
             sj.Player(
                 score=0,
                 hand=(
-                    sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=1, is_revealed=True),
-                    sj.Finger(card_index=5, is_revealed=True),
-                    sj.Finger(card_index=4, is_revealed=True),
-                    sj.Finger(card_index=10, is_revealed=True),
-                    sj.Finger(card_index=3, is_revealed=True),
-                    sj.Finger(card_index=7, is_revealed=True),
-                    sj.Finger(card_index=14, is_revealed=True),
-                    sj.Finger(card_index=4, is_revealed=True),
                     sj.Finger(card_index=13, is_revealed=True),
-                    sj.Finger(card_index=0, is_revealed=True),
                     sj.Finger(card_index=12, is_revealed=True),
+                    sj.Finger(card_index=9, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=9, is_revealed=True),
+                    sj.Finger(card_index=5, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=0, is_revealed=True),
                 ),
             ),
             sj.Player(
                 score=0,
                 hand=(
-                    sj.Finger(card_index=7, is_revealed=True),
-                    sj.Finger(card_index=3, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=6, is_revealed=True),
-                    sj.Finger(card_index=9, is_revealed=True),
-                    sj.Finger(card_index=14, is_revealed=True),
-                    sj.Finger(card_index=8, is_revealed=True),
                     sj.Finger(card_index=7, is_revealed=True),
-                    sj.Finger(card_index=8, is_revealed=True),
-                    sj.Finger(card_index=1, is_revealed=True),
-                    sj.Finger(card_index=9, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
                     sj.Finger(card_index=2, is_revealed=True),
-                    sj.Finger(card_index=1, is_revealed=False),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=3, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=13, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
                 ),
             ),
         ),
     )
-    assert result.players[0].hand_score == 59
-    assert result.players[1].hand_score == 51
-    assert result.final_scores == (59 * 2, 51)
+    assert result.players[0].hand_score == 57
+    assert result.players[1].hand_score == 71
+    assert result.final_scores == (57, 71)
 
 
 def test_play_three(rng: random.Random) -> None:
@@ -95,73 +96,74 @@ def test_play_three(rng: random.Random) -> None:
     # 3 (reveal)
     # 3 players * 9 cards * 2 actions (draws + replaces)
     # 2 actions (winning draw + replace)
-    assert len(replay) == 61
+    # 1 (reveal hidden cards)
+    assert len(replay) == 62
     result = replay[-1]
     assert result == sj.Game(
         turn=32,
-        state=sj.State.NULL,
+        state=sj.State.ENDED,
         drawn_card_index=None,
         draw_pile=(3, 6, 10, 6, 4, 7, 6, 5, 6, 4, 6, 6, 5, 8, 3),
-        discarded_card_index=3,
-        discard_pile=(0, 0, 3, 1, 2, 1, 1, 4, 3, 4, 2, 0, 2, 1, 4),
+        discarded_card_index=2,
+        discard_pile=(0, 2, 2, 3, 1, 2, 2, 2, 3, 3, 0, 2, 1, 0, 5),
         players=(
             sj.Player(
                 score=0,
                 hand=(
-                    sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=1, is_revealed=True),
-                    sj.Finger(card_index=4, is_revealed=True),
-                    sj.Finger(card_index=9, is_revealed=True),
                     sj.Finger(card_index=12, is_revealed=True),
-                    sj.Finger(card_index=14, is_revealed=True),
-                    sj.Finger(card_index=0, is_revealed=True),
-                    sj.Finger(card_index=5, is_revealed=True),
-                    sj.Finger(card_index=6, is_revealed=True),
-                    sj.Finger(card_index=3, is_revealed=True),
-                    sj.Finger(card_index=4, is_revealed=True),
-                    sj.Finger(card_index=10, is_revealed=True),
-                ),
-            ),
-            sj.Player(
-                score=0,
-                hand=(
                     sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=5, is_revealed=True),
                     sj.Finger(card_index=3, is_revealed=True),
-                    sj.Finger(card_index=1, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
                     sj.Finger(card_index=0, is_revealed=True),
                     sj.Finger(card_index=6, is_revealed=True),
-                    sj.Finger(card_index=12, is_revealed=True),
-                    sj.Finger(card_index=11, is_revealed=True),
                     sj.Finger(card_index=4, is_revealed=True),
-                    sj.Finger(card_index=14, is_revealed=True),
-                    sj.Finger(card_index=11, is_revealed=True),
-                    sj.Finger(card_index=2, is_revealed=True),
-                    sj.Finger(card_index=1, is_revealed=False),
                 ),
             ),
             sj.Player(
                 score=0,
                 hand=(
-                    sj.Finger(card_index=5, is_revealed=True),
                     sj.Finger(card_index=6, is_revealed=True),
-                    sj.Finger(card_index=13, is_revealed=True),
-                    sj.Finger(card_index=2, is_revealed=True),
-                    sj.Finger(card_index=12, is_revealed=True),
-                    sj.Finger(card_index=11, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=9, is_revealed=True),
-                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=9, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=13, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
+                    sj.Finger(card_index=9, is_revealed=True),
                     sj.Finger(card_index=1, is_revealed=True),
+                    sj.Finger(card_index=11, is_revealed=True),
+                ),
+            ),
+            sj.Player(
+                score=0,
+                hand=(
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=13, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=0, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
                     sj.Finger(card_index=4, is_revealed=True),
                     sj.Finger(card_index=11, is_revealed=True),
-                    sj.Finger(card_index=8, is_revealed=False),
+                    sj.Finger(card_index=10, is_revealed=True),
                 ),
             ),
         ),
     )
-    assert result.players[0].hand_score == 54
-    assert result.players[1].hand_score == 48
-    assert result.players[2].hand_score == 72
-    assert result.final_scores == (54 * 2, 48, 72)
+    assert result.players[0].hand_score == 39
+    assert result.players[1].hand_score == 69
+    assert result.players[2].hand_score == 86
+    assert result.final_scores == (39, 69, 86)
 
 
 def test_play_forfeit(rng: random.Random) -> None:
@@ -178,50 +180,53 @@ def test_play_forfeit(rng: random.Random) -> None:
     # 1 player * 5 cards * 2 actions (draws + replaces)
     # 1 player * 5 actions (replace with discard)
     # 1 forefit
-    assert len(replay) == 20
+    # 1 (reveal hidden cards)
+    assert len(replay) == 21
     result = replay[-1]
     assert result == sj.Game(
         turn=13,
-        state=sj.State.NULL,
+        state=sj.State.FORFEITED,
         drawn_card_index=None,
         draw_pile=(5, 8, 12, 8, 8, 8, 8, 7, 8, 6, 7, 10, 8, 9, 8),
         discarded_card_index=2,
-        discard_pile=(0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0),
+        discard_pile=(0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1, 0, 1),
         players=(
             sj.Player(
                 score=0,
                 hand=(
-                    sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=1, is_revealed=True),
+                    sj.Finger(card_index=13, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
                     sj.Finger(card_index=8, is_revealed=True),
-                    sj.Finger(card_index=13, is_revealed=False),
-                    sj.Finger(card_index=12, is_revealed=False),
-                    sj.Finger(card_index=10, is_revealed=False),
-                    sj.Finger(card_index=7, is_revealed=False),
-                    sj.Finger(card_index=12, is_revealed=False),
-                    sj.Finger(card_index=9, is_revealed=False),
-                    sj.Finger(card_index=5, is_revealed=False),
-                    sj.Finger(card_index=14, is_revealed=False),
-                    sj.Finger(card_index=3, is_revealed=False),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=9, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=1, is_revealed=True),
                 ),
             ),
             sj.Player(
                 score=0,
                 hand=(
-                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=6, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
+                    sj.Finger(card_index=5, is_revealed=True),
+                    sj.Finger(card_index=3, is_revealed=True),
                     sj.Finger(card_index=3, is_revealed=True),
                     sj.Finger(card_index=5, is_revealed=True),
                     sj.Finger(card_index=6, is_revealed=True),
                     sj.Finger(card_index=4, is_revealed=True),
                     sj.Finger(card_index=9, is_revealed=True),
                     sj.Finger(card_index=10, is_revealed=True),
-                    sj.Finger(card_index=2, is_revealed=False),
-                    sj.Finger(card_index=9, is_revealed=False),
-                    sj.Finger(card_index=14, is_revealed=False),
-                    sj.Finger(card_index=8, is_revealed=False),
-                    sj.Finger(card_index=1, is_revealed=False),
                 ),
             ),
         ),
     )
-    assert result.is_forfeit
+    assert result.players[0].hand_score == 52
+    assert result.players[1].hand_score == 59
+    assert result.final_scores == (52 * 2, 59)

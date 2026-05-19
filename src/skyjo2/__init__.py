@@ -217,10 +217,12 @@ def _with_shuffle(
 
 
 class State(IntEnum):
-    NULL = auto()
+    DEAL_FIRST_CARD = auto()
     REVEAL_SECOND_CARD = auto()
     DRAW_OR_REPLACE_WITH_DISCARD = auto()
     DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW = auto()
+    ENDED = auto()
+    FORFEITED = auto()
 
 
 class Game(NamedTuple):
@@ -280,14 +282,13 @@ class Game(NamedTuple):
     def final_scores(self) -> tuple[int, ...]:
         """Get player scores as if the current player ended the round."""
 
-        assert self.state == State.NULL
+        assert self.state in {State.ENDED, State.FORFEITED}
 
         scores = [player.hand_score for player in self.players]
-        forfeit = any(finger.is_hidden for finger in self.player.hand)
 
         # Penalize the round ender if they forfeited or didn't have the lowest
         # hand score across all players.
-        if forfeit or scores[0] > min(scores[1:]):
+        if self.state == State.FORFEITED or scores[0] > min(scores[1:]):
             scores[0] *= 2
 
         return tuple(scores)
@@ -314,12 +315,16 @@ class Game(NamedTuple):
         return (self.winner_index + self.turn) % len(self.players)
 
     @property
-    def is_finished(self) -> bool:
-        return self.state == State.NULL
+    def is_ended(self) -> bool:
+        return self.state == State.ENDED
 
     @property
-    def is_forfeit(self) -> bool:
-        return self.is_finished and any(finger.is_hidden for finger in self.player.hand)
+    def is_forfeited(self) -> bool:
+        return self.state == State.FORFEITED
+
+    @property
+    def is_ended_or_forfeited(self) -> bool:
+        return self.state in {State.ENDED, State.FORFEITED}
 
     # MARK: Construct
 
@@ -331,7 +336,7 @@ class Game(NamedTuple):
         player = Player(score=0, hand=(finger,) * HAND_ROWS * HAND_COLUMNS)
         return Game(
             turn=0,
-            state=State.NULL,
+            state=State.DEAL_FIRST_CARD,
             drawn_card_index=None,
             draw_pile=tuple(DECK.values()),
             discarded_card_index=None,
@@ -354,7 +359,7 @@ class Game(NamedTuple):
         del self
 
         assert turn == 0
-        assert state == State.NULL
+        assert state == State.DEAL_FIRST_CARD
         assert drawn_card_index is None
         assert discarded_card_index is None
 
@@ -399,7 +404,7 @@ class Game(NamedTuple):
         del self
 
         assert turn == 0
-        assert state == State.NULL
+        assert state == State.DEAL_FIRST_CARD
         assert drawn_card_index is None
         assert discarded_card_index is None
 
@@ -598,7 +603,7 @@ class Game(NamedTuple):
         # Check if the current player won. If so, stop the game. Otherwise,
         # rotate players so the next is in the first slot.
         if players[0].is_hand_revealed:
-            state = State.NULL
+            state = State.ENDED
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
@@ -689,7 +694,7 @@ class Game(NamedTuple):
         # Check if the current player won. If so, stop the game. Otherwise,
         # rotate players so the next is in the first slot.
         if players[0].is_hand_revealed:
-            state = State.NULL
+            state = State.ENDED
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
@@ -776,7 +781,7 @@ class Game(NamedTuple):
         # Check if the current player won. If so, stop the game. Otherwise,
         # rotate players so the next is in the first slot.
         if players[0].is_hand_revealed:
-            state = State.NULL
+            state = State.ENDED
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
@@ -812,7 +817,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=self.turn,
-            state=State.NULL,
+            state=State.FORFEITED,
             drawn_card_index=self.drawn_card_index,
             draw_pile=self.draw_pile,
             discarded_card_index=self.discarded_card_index,
@@ -834,9 +839,8 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert state == State.NULL
+        assert state in {State.ENDED, State.FORFEITED}
         assert drawn_card_index is None
-        assert players[0].hand_hidden_count == 0
 
         mutable_draw_pile = list(draw_pile)
         del draw_pile
@@ -873,9 +877,8 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert state == State.NULL
+        assert state in {State.ENDED, State.FORFEITED}
         assert drawn_card_index is None
-        assert players[0].hand_hidden_count == 0
 
         mutable_draw_pile = list(draw_pile)
         del draw_pile

@@ -50,7 +50,7 @@ class Player(Protocol):
 def explore(game: Game) -> Iterator[Action]:
     """Yield all actions that may be played for a given game."""
 
-    if game.state == State.NULL:
+    if game.state == State.DEAL_FIRST_CARD:
         return
 
     elif game.state == State.REVEAL_SECOND_CARD:
@@ -98,7 +98,7 @@ def play(
     game = game.with_random_first_cards_dealt(rng=rng)
     yield game
 
-    while game.state != State.NULL:
+    while not game.is_ended_or_forfeited:
         turn = game.turn
         player_index = turn % len(players)
         player_hand_revealed_count = game.player.hand_revealed_count
@@ -161,6 +161,11 @@ def play(
         if last_progress_turns[player_index] - turn_per_player > no_progress_turn_max:
             game = game.with_forfeit()
             yield game
+            break
+
+    # Reveal all hidden cards.
+    game = game.with_random_hidden_cards_revealed(rng=rng)
+    yield game
 
 
 class RandomPlayer(Player):
