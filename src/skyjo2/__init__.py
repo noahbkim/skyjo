@@ -302,15 +302,15 @@ class Game(NamedTuple):
         )
 
     def with_deal(self, card_indices: Iterable[int]) -> Game:
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        """Deal a set series of cards to the discard slot and players."""
+
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert turn == 0
@@ -348,15 +348,13 @@ class Game(NamedTuple):
     def with_random_deal(self, rng: random.Random = random) -> Game:
         """Deal players and set an initial discard."""
 
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert turn == 0
@@ -398,15 +396,13 @@ class Game(NamedTuple):
     ) -> Game:
         """Reveal a second card during initial board setup."""
 
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert state == State.REVEAL_SECOND_CARD
@@ -429,10 +425,13 @@ class Game(NamedTuple):
         turn += 1
         if turn == len(players):
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += min(
+            lowest_hand_player_index = min(
                 range(len(players)),
                 key=lambda i: players[i].hand_score_revealed,
             )
+            for _ in range(lowest_hand_player_index):
+                turn += 1
+                players = (*players[1:], players[0])
 
         return Game(
             turn=turn,
@@ -459,19 +458,17 @@ class Game(NamedTuple):
     def with_drawn_card(self, drawn_card_index: int) -> Game:
         """Draw a specific card from the pile but do nothing with it."""
 
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        turn = self.turn
+        state = self.state
+        old_drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert state == State.DRAW_OR_REPLACE_WITH_DISCARD
-        assert drawn_card_index is None
+        assert old_drawn_card_index is None
         assert sum(draw_pile) > 0
 
         # Remove the drawn card from the draw pile.
@@ -505,21 +502,29 @@ class Game(NamedTuple):
     ) -> Game:
         """Discard the drawn card and reveal a card in the current hand."""
 
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
         assert drawn_card_index is not None
         assert discarded_card_index is not None
         assert players[0].hand[finger_index].is_hidden
+
+        # Formally draw the revealed card.
+        draw_pile = _with_draw(draw_pile, revealed_card_index)
+
+        # Reveal the requested card.
+        finger_card_index = revealed_card_index
+        players = (
+            players[0].with_card(finger_index, finger_card_index),
+            *players[1:],
+        )
 
         # Put the current discarded card into the pile.
         discard_pile = _with_discard(discard_pile, discarded_card_index)
@@ -528,24 +533,14 @@ class Game(NamedTuple):
         discarded_card_index = drawn_card_index
         drawn_card_index = None
 
-        # Formally draw the revealed card.
-        draw_pile = _with_draw(draw_pile, revealed_card_index)
-
-        # Reveal the requested card.
-        card_index = players[0].hand[finger_index].card_index
-        players = (
-            players[0].with_card(finger_index, revealed_card_index),
-            *players[1:],
-        )
-
         # If the card got cleared, we need to replace the current discarded
         # card and update the discard pile. This is a little wasteful but we'll
         # wait to profile before we inline it since it's rare.
         if players[0].hand[finger_index].is_cleared:
             discard_pile = _with_discard(discard_pile, discarded_card_index)
-            discard_pile = _with_discard(discard_pile, card_index)
-            discard_pile = _with_discard(discard_pile, card_index)
-            discarded_card_index = card_index
+            discard_pile = _with_discard(discard_pile, finger_card_index)
+            discard_pile = _with_discard(discard_pile, finger_card_index)
+            discarded_card_index = finger_card_index
 
         # Shuffle the discards into the draw pile if there are no more draws.
         # Always do this at the end of states, if possible, so we don't have
@@ -589,51 +584,52 @@ class Game(NamedTuple):
     ) -> Game:
         """Replace a card in the current hand with the drawn card."""
 
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
         assert drawn_card_index is not None
 
-        # Put the current discarded card into the pile.
-        discard_pile = _with_discard(discard_pile, discarded_card_index)
-
-        # Move the replaced card to be the new discarded card. If the card was
-        # hidden, it needs to be formally drawn.
+        # Get the card being replaced. If it's hidden, we'll need to formally
+        # draw the preordained revealed card.
         finger = players[0].hand[finger_index]
-        discarded_card_index = finger.card_index
-        if discarded_card_index is None:
+        old_finger_card_index = finger.card_index
+        if old_finger_card_index is None:
             assert finger.is_hidden
             assert revealed_card_index is not None
             draw_pile = _with_draw(draw_pile, revealed_card_index)
-            discarded_card_index = revealed_card_index
+            old_finger_card_index = revealed_card_index
         else:
             assert revealed_card_index is None
 
-        # Replace the card in the player's hand.
-        card_index = drawn_card_index
+        # Replace the card in the player's hand with the drawn card.
+        finger_card_index = drawn_card_index
         drawn_card_index = None
         players = (
-            players[0].with_card(finger_index, card_index),
+            players[0].with_card(finger_index, finger_card_index),
             *players[1:],
         )
+
+        # Put the current discarded card into the pile.
+        discard_pile = _with_discard(discard_pile, discarded_card_index)
+
+        # Move the card that was previously in hand to the discard.
+        discarded_card_index = old_finger_card_index
 
         # If the card got cleared, we need to replace the current discarded
         # card and update the discard pile. This is a little wasteful but we'll
         # wait to profile before we inline it since it's rare.
         if players[0].hand[finger_index].is_cleared:
             discard_pile = _with_discard(discard_pile, discarded_card_index)
-            discard_pile = _with_discard(discard_pile, card_index)
-            discard_pile = _with_discard(discard_pile, card_index)
-            discarded_card_index = card_index
+            discard_pile = _with_discard(discard_pile, finger_card_index)
+            discard_pile = _with_discard(discard_pile, finger_card_index)
+            discarded_card_index = finger_card_index
 
         # Shuffle the discards into the draw pile if there are no more draws.
         # Always do this at the end of states, if possible, so we don't have
@@ -679,37 +675,35 @@ class Game(NamedTuple):
     ) -> Game:
         """Replace a card in the current hand with the drawn card."""
 
-        (
-            turn,
-            state,
-            drawn_card_index,
-            draw_pile,
-            discarded_card_index,
-            discard_pile,
-            players,
-        ) = self
+        turn = self.turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
         del self
 
         assert state == State.DRAW_OR_REPLACE_WITH_DISCARD
         assert drawn_card_index is None
 
-        # Put the current discarded card into the pile.
         # Move the replaced card to be the new discarded card. If the card was
         # hidden, it needs to be formally drawn.
         finger = players[0].hand[finger_index]
-        discarded_card_index = finger.card_index
-        if discarded_card_index is None:
+        old_finger_card_index = finger.card_index
+        if old_finger_card_index is None:
             assert finger.is_hidden
             assert revealed_card_index is not None
             draw_pile = _with_draw(draw_pile, revealed_card_index)
-            discarded_card_index = revealed_card_index
+            old_finger_card_index = revealed_card_index
         else:
             assert revealed_card_index is None
 
-        # Replace the card in the player's hand.
-        card_index = discarded_card_index
+        # Replace the card in the player's hand with the current discard.
+        finger_card_index = discarded_card_index
+        discarded_card_index = old_finger_card_index
         players = (
-            players[0].with_card(finger_index, card_index),
+            players[0].with_card(finger_index, finger_card_index),
             *players[1:],
         )
 
@@ -718,9 +712,9 @@ class Game(NamedTuple):
         # wait to profile before we inline it since it's rare.
         if players[0].hand[finger_index].is_cleared:
             discard_pile = _with_discard(discard_pile, discarded_card_index)
-            discard_pile = _with_discard(discard_pile, card_index)
-            discard_pile = _with_discard(discard_pile, card_index)
-            discarded_card_index = card_index
+            discard_pile = _with_discard(discard_pile, finger_card_index)
+            discard_pile = _with_discard(discard_pile, finger_card_index)
+            discarded_card_index = finger_card_index
 
         # Shuffle the discards into the draw pile if there are no more draws.
         # Always do this at the end of states, if possible, so we don't have
