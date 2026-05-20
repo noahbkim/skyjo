@@ -250,16 +250,21 @@ class Game(NamedTuple):
     """The complete array of player slots."""
 
     @property
-    def player(self) -> Player:
-        return self.players[0]
-
-    @property
     def player_index(self) -> int:
         return 0
 
     @property
     def player_index_fixed(self) -> int:
         return self.turn % len(self.players)
+
+    @property
+    def player_indices_fixed(self) -> tuple[int, ...]:
+        n = len(self.players)
+        return tuple((self.turn + i) % n for i in range(n))
+
+    @property
+    def player(self) -> Player:
+        return self.players[0]
 
     @property
     def players_fixed(self) -> tuple[Player]:
@@ -607,9 +612,10 @@ class Game(NamedTuple):
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
+            turn += 1
 
         return Game(
-            turn=turn + 1,
+            turn=turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -698,9 +704,10 @@ class Game(NamedTuple):
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
+            turn += 1
 
         return Game(
-            turn=turn + 1,
+            turn=turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -785,9 +792,10 @@ class Game(NamedTuple):
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
+            turn += 1
 
         return Game(
-            turn=turn + 1,
+            turn=turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
