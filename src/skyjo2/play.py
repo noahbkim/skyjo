@@ -89,8 +89,10 @@ def play(
 
     assert 2 <= len(players) <= 8
 
-    # Keep track of the last time the player revealed or replaced a new card.
-    last_progress_turns = [0] * len(players)
+    # Keep track of completed turns in the main round and the last turn on
+    # which each player revealed or replaced a new card.
+    player_round_turn_counts = [0] * len(players)
+    last_progress_round_turn_counts = [0] * len(players)
 
     game = Game.new(players=len(players))
     yield game
@@ -101,6 +103,18 @@ def play(
     while not game.is_ended_or_forfeited:
         turn = game.turn
         player_index = turn % len(players)
+
+        if (
+            no_progress_turn_max is not None
+            and game.state != State.REVEAL_SECOND_CARD
+            and player_round_turn_counts[player_index]
+            - last_progress_round_turn_counts[player_index]
+            > no_progress_turn_max
+        ):
+            game = game.with_forfeit()
+            yield game
+            break
+
         player_hand_revealed_count = game.player.hand_revealed_count
 
         action = players[player_index].play(game)
@@ -147,23 +161,18 @@ def play(
             case _, _:
                 raise Rule(f"Invalid action {action} for game {game}")
 
-        # Check if the player revealed any new cards. Don't forget to account
-        # for the player list rotating as the game state iterates.
-        if game.players[-1].hand_revealed_count > player_hand_revealed_count:
-            last_progress_turns[player_index] = turn
+        turn_completed = game.turn > turn
+        if turn_completed and turn >= len(players):
+            player_round_turn_counts[player_index] += 1
+            acting_player = (
+                game.player if game.is_ended_or_forfeited else game.players[-1]
+            )
+            if acting_player.hand_revealed_count > player_hand_revealed_count:
+                last_progress_round_turn_counts[player_index] = (
+                    player_round_turn_counts[player_index]
+                )
 
         yield game
-
-        # Check if the current player has exceeded the limit for turns without
-        # making progress, and if so, forfeit. Doing so sets the game's state
-        # to `State.NULL`, meaning we don't have to break.
-        if no_progress_turn_max is not None:
-            turn_per_player = turn // len(players)
-            no_progress_turn_count = last_progress_turns[player_index] - turn_per_player
-            if no_progress_turn_count > no_progress_turn_max:
-                game = game.with_forfeit()
-                yield game
-                break
 
     # Reveal all hidden cards.
     game = game.with_random_hidden_cards_revealed(rng=rng)
