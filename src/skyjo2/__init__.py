@@ -293,7 +293,7 @@ class Game(NamedTuple):
 
         # Penalize the round ender if they forfeited or didn't have the lowest
         # hand score across all players.
-        if self.state == State.FORFEITED or scores[0] > min(scores[1:]):
+        if self.state == State.FORFEITED or scores[0] >= min(scores[1:]):
             scores[0] *= 2
 
         return tuple(scores)
@@ -304,7 +304,7 @@ class Game(NamedTuple):
 
         final_scores = self.final_scores  # don't recompute
         winner_final_score = min(final_scores)
-        return tuple(score - winner_final_score for score in winner_final_score)
+        return tuple(score - winner_final_score for score in final_scores)
 
     @property
     def winner(self) -> Player:
