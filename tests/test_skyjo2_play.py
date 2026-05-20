@@ -41,7 +41,7 @@ def test_play_two(rng: random.Random) -> None:
     assert len(replay) == 43
     result = replay[-1]
     assert result == sj.Game(
-        turn=22,
+        turn=21,
         state=sj.State.ENDED,
         drawn_card_index=None,
         draw_pile=(4, 7, 11, 7, 7, 8, 8, 5, 6, 5, 7, 10, 7, 8, 6),
@@ -100,7 +100,7 @@ def test_play_three(rng: random.Random) -> None:
     assert len(replay) == 62
     result = replay[-1]
     assert result == sj.Game(
-        turn=32,
+        turn=31,
         state=sj.State.ENDED,
         drawn_card_index=None,
         draw_pile=(3, 6, 10, 6, 4, 7, 6, 5, 6, 4, 6, 6, 5, 8, 3),

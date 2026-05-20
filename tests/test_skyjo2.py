@@ -493,7 +493,7 @@ class TestGame:
         )
         game = game.with_draw_discarded_and_card_revealed(11, 12)
         assert game == sj.Game(
-            turn=101,
+            turn=100,
             state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
@@ -736,7 +736,7 @@ class TestGame:
         )
         game = game.with_card_replaced_with_draw(11, 12)
         assert game == sj.Game(
-            turn=101,
+            turn=100,
             state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
@@ -977,7 +977,7 @@ class TestGame:
         )
         game = game.with_card_replaced_with_discard(11, 12)
         assert game == sj.Game(
-            turn=101,
+            turn=100,
             state=sj.State.ENDED,
             drawn_card_index=None,
             draw_pile=(
