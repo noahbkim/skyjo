@@ -13,14 +13,14 @@ def _lrjust(left: object, right: object, width: int) -> str:
     return f"{left}{space}{right}"
 
 
-def render_card(card_index: int | None) -> str:
-    return "-" if card_index is None else CARD_VALUES[card_index]
+def render_card(card_index: int) -> str:
+    return str(CARD_VALUES[card_index])
 
 
 def render_finger(finger: Finger) -> str:
     if finger.is_hidden:
         return "[]"
-    if finger.is_cleared is None:
+    if finger.is_cleared:
         return "  "
     return str(CARD_VALUES[finger.card_index]).rjust(2)
 
@@ -32,9 +32,12 @@ def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
         column_max = shutil.get_terminal_size((0, 0)).columns
 
     yield (
-        f"turn: {game.turn}"
-        f"  draw: {render_card(game.drawn_card_index)}"
-        f"  discard: {render_card(game.discarded_card_index)}"
+        f"turn: {game.turn}  discard: {render_card(game.discarded_card_index)}"
+        + (
+            f"  draw: {render_card(game.drawn_card_index)}"
+            if game.drawn_card_index is not None
+            else ""
+        )
     )
 
     yield ""

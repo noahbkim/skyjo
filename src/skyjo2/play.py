@@ -168,17 +168,3 @@ def play(
     # Reveal all hidden cards.
     game = game.with_random_hidden_cards_revealed(rng=rng)
     yield game
-
-
-class RandomPlayer(Player):
-    """Proof of concept player that picks a random action."""
-
-    rng: random.Random
-
-    def __init__(self, rng: random.Random = random) -> None:
-        self.rng = rng
-
-    def play(self, game: Game) -> Action:
-        actions = tuple(explore(game))
-        assert len(actions) > 0
-        return self.rng.choice(actions)
