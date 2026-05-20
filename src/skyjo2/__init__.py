@@ -607,12 +607,12 @@ class Game(NamedTuple):
 
         # Check if the current player won. If so, stop the game. Otherwise,
         # rotate players so the next is in the first slot.
+        turn += 1
         if players[0].is_hand_revealed:
             state = State.ENDED
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += 1
 
         return Game(
             turn=turn,
@@ -699,12 +699,12 @@ class Game(NamedTuple):
 
         # Check if the current player won. If so, stop the game. Otherwise,
         # rotate players so the next is in the first slot.
+        turn += 1
         if players[0].is_hand_revealed:
             state = State.ENDED
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += 1
 
         return Game(
             turn=turn,
@@ -787,12 +787,12 @@ class Game(NamedTuple):
 
         # Check if the current player won. If so, stop the game. Otherwise,
         # rotate players so the next is in the first slot.
+        turn += 1
         if players[0].is_hand_revealed:
             state = State.ENDED
         else:
             players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += 1
 
         return Game(
             turn=turn,

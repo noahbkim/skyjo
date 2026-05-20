@@ -89,10 +89,11 @@ def play(
 
     assert 2 <= len(players) <= 8
 
-    # Keep track of completed turns in the main round and the last turn on
-    # which each player revealed or replaced a new card.
-    player_round_turn_counts = [0] * len(players)
-    last_progress_round_turn_counts = [0] * len(players)
+    # Keep track of the raw turn index on which each player last revealed or
+    # replaced a new card. This mirrors the current `skyjo.game` approach,
+    # where no-progress is measured in "times this player has come around
+    # again" via integer division by player count.
+    last_progress_turns = [0] * len(players)
 
     game = Game.new(players=len(players))
     yield game
@@ -103,17 +104,6 @@ def play(
     while not game.is_ended_or_forfeited:
         turn = game.turn
         player_index = turn % len(players)
-
-        if (
-            no_progress_turn_max is not None
-            and game.state != State.REVEAL_SECOND_CARD
-            and player_round_turn_counts[player_index]
-            - last_progress_round_turn_counts[player_index]
-            > no_progress_turn_max
-        ):
-            game = game.with_forfeit()
-            yield game
-            break
 
         player_hand_revealed_count = game.player.hand_revealed_count
 
@@ -163,14 +153,17 @@ def play(
 
         turn_completed = game.turn > turn
         if turn_completed and turn >= len(players):
-            player_round_turn_counts[player_index] += 1
             acting_player = (
                 game.player if game.is_ended_or_forfeited else game.players[-1]
             )
             if acting_player.hand_revealed_count > player_hand_revealed_count:
-                last_progress_round_turn_counts[player_index] = (
-                    player_round_turn_counts[player_index]
-                )
+                last_progress_turns[player_index] = turn
+            elif (
+                no_progress_turn_max is not None
+                and (turn - last_progress_turns[player_index]) // len(players)
+                > no_progress_turn_max
+            ):
+                game = game.with_forfeit()
 
         yield game
 
