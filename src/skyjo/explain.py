@@ -443,7 +443,7 @@ VALIDATION_EXAMPLES = [
 
 def validate_model_on_validation_examples(
     model: skynet.SkyNet,
-    value_loss_scale: float = 1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
 ):
     game_data = []
@@ -485,7 +485,7 @@ def validate_model_on_validation_examples(
 def validate_model_with_games_data(
     model: skynet.SkyNet,
     validation_batch: train_utils.TrainingBatch,
-    value_loss_scale: float = 3.0,
+    value_loss_scale: float = 1.0,
 ):
     model.eval()
     with torch.no_grad():
@@ -533,12 +533,12 @@ def validate_model_with_games_data(
 def validate_model(
     model: skynet.SkyNet,
     validation_batch: train_utils.TrainingBatch | None = None,
-    value_loss_scale: float = 1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
 ):
     validate_model_on_validation_examples(model, value_loss_scale, policy_loss_scale)
     if validation_batch is not None:
-        validate_model_with_games_data(model, validation_batch)
+        validate_model_with_games_data(model, validation_batch, value_loss_scale)
 
 
 if __name__ == "__main__":

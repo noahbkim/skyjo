@@ -19,6 +19,7 @@ PolicyTarget: typing.TypeAlias = FloatArray
 TargetArrays: typing.TypeAlias = dict[str, FloatArray]
 VALUE_TARGET_NAME: typing.Final[str] = "value"
 POLICY_TARGET_NAME: typing.Final[str] = "policy"
+ROUND_SCORE_TARGET_NAME: typing.Final[str] = skynet.ROUND_SCORE_TARGET_NAME
 CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = (
     VALUE_TARGET_NAME,
     POLICY_TARGET_NAME,
@@ -33,6 +34,21 @@ class NumpyTrainingTargets(typing.NamedTuple):
 class TensorTrainingTargets(typing.NamedTuple):
     value: torch.Tensor
     policy: torch.Tensor
+    target_tensors: dict[str, torch.Tensor] | None = None
+
+    @property
+    def targets(self) -> dict[str, torch.Tensor]:
+        if self.target_tensors is not None:
+            return self.target_tensors
+        return {
+            VALUE_TARGET_NAME: self.value,
+            POLICY_TARGET_NAME: self.policy,
+        }
+
+    def __getitem__(self, key: typing.Any) -> torch.Tensor:
+        if isinstance(key, str):
+            return self.targets[key]
+        return tuple.__getitem__(self, key)
 
 
 TrainingTargets: typing.TypeAlias = TensorTrainingTargets
@@ -126,10 +142,18 @@ def numpy_targets_to_tensors(
     *,
     device: torch.device,
 ) -> TensorTrainingTargets:
-    normalized_targets = as_numpy_training_targets(targets)
+    if isinstance(targets, collections.abc.Mapping):
+        target_arrays = dict(targets)
+    else:
+        target_arrays = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
+    target_tensors = {
+        name: torch.tensor(target, dtype=torch.float32, device=device)
+        for name, target in target_arrays.items()
+    }
     return TensorTrainingTargets(
-        torch.tensor(normalized_targets.value, dtype=torch.float32, device=device),
-        torch.tensor(normalized_targets.policy, dtype=torch.float32, device=device),
+        target_tensors[VALUE_TARGET_NAME],
+        target_tensors[POLICY_TARGET_NAME],
+        target_tensors,
     )
 
 
@@ -210,17 +234,46 @@ def policy_value_losses(
 def base_loss(
     model_output: skynet.SupportsCoreSkyNetOutput,
     targets: TensorTrainingTargets,
-    value_scale: float = 1 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    value_scale: float = 1.0,
     policy_scale: float = 1.0,
 ) -> tuple[torch.Tensor, LossDetails]:
     value_loss, policy_loss = policy_value_losses(model_output, targets)
     return (
         value_scale * value_loss + policy_scale * policy_loss,
         {
-            "score_differential_value_loss": value_loss.item(),
+            "outcome_value_loss": value_loss.item(),
             "policy_loss": policy_loss.item(),
         },
     )
+
+
+def outcome_policy_round_score_loss(
+    model_output: skynet.SupportsCoreSkyNetOutput,
+    targets: TensorTrainingTargets,
+    value_scale: float = 1.0,
+    policy_scale: float = 1.0,
+    round_score_scale: float = 0.1,
+) -> tuple[torch.Tensor, LossDetails]:
+    base, details = base_loss(
+        model_output,
+        targets,
+        value_scale=value_scale,
+        policy_scale=policy_scale,
+    )
+    auxiliary_outputs = getattr(model_output, "auxiliary_outputs", None)
+    assert auxiliary_outputs is not None, "expected model output with auxiliary_outputs"
+    assert ROUND_SCORE_TARGET_NAME in auxiliary_outputs, (
+        f"expected auxiliary output {ROUND_SCORE_TARGET_NAME}"
+    )
+    round_score_prediction = auxiliary_outputs[ROUND_SCORE_TARGET_NAME]
+    round_score_target = targets[ROUND_SCORE_TARGET_NAME]
+    assert round_score_prediction.shape == round_score_target.shape, (
+        f"expected {ROUND_SCORE_TARGET_NAME} of shape {round_score_target.shape}, "
+        f"got {round_score_prediction.shape}"
+    )
+    round_score_loss = mse_value_loss(round_score_prediction, round_score_target)
+    details[f"{ROUND_SCORE_TARGET_NAME}_loss"] = round_score_loss.item()
+    return base + round_score_scale * round_score_loss, details
 
 
 def compute_model_loss_on_game_data(

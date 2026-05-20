@@ -472,7 +472,7 @@ class PureModelValuePlayer(AbstractPlayer):
                     next_state = sj.apply_action(game_state, action)
                     action_values[action] += (
                         skynet.state_value_for_player(
-                            skynet.skyjo_to_score_differential_state_value(next_state),
+                            skynet.skyjo_to_state_value(next_state),
                             sj.get_player(game_state),
                         )
                         / self.terminal_state_rollouts

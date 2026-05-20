@@ -39,6 +39,10 @@ This is higher-is-better from the perspective of each player.
 """
 
 SCORE_DIFFERENTIAL_CAP = 156.0
+ROUND_SCORE_MIN = -48.0
+ROUND_SCORE_MAX = 288.0
+ROUND_SCORE_RANGE = ROUND_SCORE_MAX - ROUND_SCORE_MIN
+ROUND_SCORE_TARGET_NAME = "round_score"
 
 
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
@@ -66,6 +70,20 @@ def skyjo_to_score_differential_state_value(skyjo: sj.Skyjo) -> StateValue:
     return scores_to_score_differential_value(
         sj.get_fixed_perspective_round_scores(skyjo)
     )
+
+
+def normalize_round_scores(
+    scores: np.ndarray[tuple[int], np.float32] | np.ndarray[tuple[int], np.int16],
+) -> StateValue:
+    """Normalize Skyjo round scores to [0, 1] using the configured score bounds."""
+    return ((scores.astype(np.float32) - ROUND_SCORE_MIN) / ROUND_SCORE_RANGE).astype(
+        np.float32
+    )
+
+
+def skyjo_to_normalized_round_score_state_value(skyjo: sj.Skyjo) -> StateValue:
+    """Get normalized round scores from the fixed perspective."""
+    return normalize_round_scores(sj.get_fixed_perspective_round_scores(skyjo))
 
 
 def state_value_for_player(state_value: StateValue, player: int) -> float:
@@ -114,7 +132,15 @@ class EquivariantOutput(typing.NamedTuple):
     policy_logits: torch.Tensor
 
 
-SkyNetOutput: typing.TypeAlias = EquivariantOutput
+class EquivariantAuxOutput(typing.NamedTuple):
+    """Core output plus opt-in auxiliary predictions for training experiments."""
+
+    value: torch.Tensor
+    policy_logits: torch.Tensor
+    auxiliary_outputs: dict[str, torch.Tensor]
+
+
+SkyNetOutput: typing.TypeAlias = EquivariantOutput | EquivariantAuxOutput
 
 
 class SkyNetNumpyOutput(typing.NamedTuple):
@@ -304,9 +330,7 @@ class SimplePolicyLogitTail(nn.Module):
 class SimpleOutcomeProbabilityTail(nn.Module):
     """Reusable outcome tail to predict winner probabilities over players.
 
-    This was the original binary outcome value head. It is intentionally kept
-    available for future multi-head experiments, but EquivariantSkyNet now uses
-    BoundedScoreDifferentialTail for its active value output.
+    EquivariantSkyNet uses this as its baseline value head.
     """
 
     def __init__(self, input_dimensions: int, players: int):
@@ -353,6 +377,26 @@ class BoundedScoreDifferentialTail(nn.Module):
         Output: (N, P), where 0 is best and negative values are worse.
         """
         return -self.score_differential_cap * torch.sigmoid(self.linear(x))
+
+
+class NormalizedRoundScoreTail(nn.Module):
+    """Predict normalized final round scores for each player."""
+
+    def __init__(self, input_dimensions: int, players: int):
+        super(NormalizedRoundScoreTail, self).__init__()
+        self.players = players
+        self.input_dimensions = input_dimensions
+        self.linear = nn.Linear(
+            in_features=self.input_dimensions,
+            out_features=self.players,
+        )
+
+    def forward(self, x):
+        """
+        Input: (N, F)
+        Output: (N, P), normalized to [0, 1].
+        """
+        return torch.sigmoid(self.linear(x))
 
 
 SimpleValueTail = SimpleOutcomeProbabilityTail
@@ -871,7 +915,7 @@ class EquivariantSkyNet(nn.Module):
         )
 
         # Tails
-        self.value_tail = BoundedScoreDifferentialTail(
+        self.value_tail = SimpleOutcomeProbabilityTail(
             input_dimensions=self.global_state_embedding_dimensions,
             players=self.players,
         )
@@ -900,6 +944,24 @@ class EquivariantSkyNet(nn.Module):
         non_spatial_tensor: torch.Tensor,
         mask: torch.Tensor,
     ) -> SkyNetOutput:
+        features = self._forward_features(spatial_tensor, non_spatial_tensor)
+        value_out = self.value_tail(features.global_state_embedding)
+        policy_out = self._forward_policy(features, mask)
+        return EquivariantOutput(
+            value_out,
+            policy_out,
+        )
+
+    @dataclasses.dataclass(slots=True)
+    class Features:
+        global_state_embedding: torch.Tensor
+        active_player_card_embeddings: torch.Tensor
+
+    def _forward_features(
+        self,
+        spatial_tensor: torch.Tensor,
+        non_spatial_tensor: torch.Tensor,
+    ) -> Features:
         card_embeddings = self.card_embedder(spatial_tensor)
         non_spatial_embeddings = self.non_spatial_embedder(non_spatial_tensor)
         card_embeddings = einops.rearrange(
@@ -983,20 +1045,26 @@ class EquivariantSkyNet(nn.Module):
                 dim=1,
             )
         )
-        value_out = self.value_tail(global_state_embedding)
-        policy_out = self.policy_tail(
-            einops.rearrange(
-                attended_cards,
-                "(b p w) h f -> b p (h w) f",
-                p=self.players,
-                w=self.columns,
-            )[:, 0, :].contiguous(),
-            global_state_embedding,
-            mask,
+        active_player_card_embeddings = einops.rearrange(
+            attended_cards,
+            "(b p w) h f -> b p (h w) f",
+            p=self.players,
+            w=self.columns,
+        )[:, 0, :].contiguous()
+        return EquivariantSkyNet.Features(
+            global_state_embedding=global_state_embedding,
+            active_player_card_embeddings=active_player_card_embeddings,
         )
-        return EquivariantOutput(
-            value_out,
-            policy_out,
+
+    def _forward_policy(
+        self,
+        features: Features,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.policy_tail(
+            features.active_player_card_embeddings,
+            features.global_state_embedding,
+            mask,
         )
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
@@ -1019,7 +1087,59 @@ class EquivariantSkyNet(nn.Module):
         return SkyNetPrediction.from_skynet_output(output)
 
 
-SkyNet: typing.TypeAlias = SimpleSkyNet | EquivariantSkyNet
+class EquivariantSkyNetWithRoundScoreAux(EquivariantSkyNet):
+    """EquivariantSkyNet with an auxiliary normalized round-score head."""
+
+    def __init__(
+        self,
+        spatial_input_shape: tuple[int, ...],
+        non_spatial_input_shape: tuple[int],
+        value_output_shape: tuple[int],
+        policy_output_shape: tuple[int],
+        device: torch.device,
+        embedding_dimensions: int = 16,
+        global_state_embedding_dimensions: int = 32,
+        num_heads: int = 4,
+    ):
+        super(EquivariantSkyNetWithRoundScoreAux, self).__init__(
+            spatial_input_shape=spatial_input_shape,
+            non_spatial_input_shape=non_spatial_input_shape,
+            value_output_shape=value_output_shape,
+            policy_output_shape=policy_output_shape,
+            device=device,
+            embedding_dimensions=embedding_dimensions,
+            global_state_embedding_dimensions=global_state_embedding_dimensions,
+            num_heads=num_heads,
+        )
+        self.round_score_tail = NormalizedRoundScoreTail(
+            input_dimensions=self.global_state_embedding_dimensions,
+            players=self.players,
+        )
+        self.set_device(device)
+
+    def forward(
+        self,
+        spatial_tensor: torch.Tensor,
+        non_spatial_tensor: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> SkyNetOutput:
+        features = self._forward_features(spatial_tensor, non_spatial_tensor)
+        value_out = self.value_tail(features.global_state_embedding)
+        policy_out = self._forward_policy(features, mask)
+        return EquivariantAuxOutput(
+            value=value_out,
+            policy_logits=policy_out,
+            auxiliary_outputs={
+                ROUND_SCORE_TARGET_NAME: self.round_score_tail(
+                    features.global_state_embedding
+                ),
+            },
+        )
+
+
+SkyNet: typing.TypeAlias = (
+    SimpleSkyNet | EquivariantSkyNet | EquivariantSkyNetWithRoundScoreAux
+)
 
 if __name__ == "__main__":
     # np.random.seed(0)

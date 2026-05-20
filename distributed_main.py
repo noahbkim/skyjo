@@ -28,6 +28,7 @@ StartStateGenerator: typing.TypeAlias = typing.Callable[[], sj.Skyjo | None]
 
 
 def play_games_locally(
+    model_callable: typing.Callable[..., skynet.SkyNet],
     model_state_dict: dict[str, torch.Tensor],
     model_kwargs: dict[str, typing.Any],
     model_player_config: player.ModelPlayerConfig,
@@ -50,7 +51,7 @@ def play_games_locally(
     non_spatial_input_shape = (sj.GAME_SIZE,)
     value_output_shape = (players,)
     policy_output_shape = (sj.MASK_SIZE,)
-    model = skynet.EquivariantSkyNet(
+    model = model_callable(
         spatial_input_shape=spatial_input_shape,
         non_spatial_input_shape=non_spatial_input_shape,
         value_output_shape=value_output_shape,
@@ -104,6 +105,7 @@ def run_apply_async_local_selfplay_learning(
     training_config: train.TrainConfig,
     training_data_buffer_config: buffer.Config,
     model_player_config: player.ModelPlayerConfig,
+    model_callable: typing.Callable[..., skynet.SkyNet],
     model_kwargs: dict[str, typing.Any],
     games_per_task: int = 1,
     start_state_generator: StartStateGenerator | None = None,
@@ -132,6 +134,7 @@ def run_apply_async_local_selfplay_learning(
                 pool.apply_async(
                     play_games_locally,
                     (
+                        model_callable,
                         model_state_dict,
                         model_kwargs,
                         model_player_config,
@@ -277,7 +280,7 @@ if __name__ == "__main__":
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
             model_outputs,
             targets,
-            value_scale=1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+            value_scale=1.0,
         ),
     )
     learn_config = train.LearnConfig(
@@ -287,7 +290,7 @@ if __name__ == "__main__":
         loss_stats_function=train_utils.loss_details_summary,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
-            model,
+            model, value_loss_scale=1.0
         ),
         update_model_interval=1,
         model_faceoff_function=None,
@@ -321,6 +324,7 @@ if __name__ == "__main__":
         training_config=training_config,
         training_data_buffer_config=training_data_buffer_config,
         model_player_config=model_player_config,
+        model_callable=skynet.EquivariantSkyNet,
         model_kwargs=model_kwargs,
         games_per_task=games_per_task,
         start_state_generator=start_state_generator,

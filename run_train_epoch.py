@@ -171,7 +171,6 @@ def main(
             targets,
             value_scale=value_scale,
             policy_scale=policy_scale,
-            cleared_columns_scale=cleared_columns_scale,
         ),
     )
     train_seconds = time.perf_counter() - train_start

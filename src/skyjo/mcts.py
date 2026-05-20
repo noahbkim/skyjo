@@ -447,9 +447,7 @@ class TerminalStateNode:
     def realize_outcome(self) -> None:
         terminal_state = sj.apply_action(self.pre_terminal_state, self.action)
 
-        self.outcome_total += skynet.skyjo_to_score_differential_state_value(
-            terminal_state
-        )
+        self.outcome_total += skynet.skyjo_to_state_value(terminal_state)
         self.outcome_count += 1
 
     def realize_outcomes(self, n: int) -> None:
