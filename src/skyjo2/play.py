@@ -98,7 +98,7 @@ def play(
     game = game.with_random_first_cards_dealt(rng=rng)
     yield game
 
-    while not game.is_ended_or_forfeited:
+    while not game.is_ended:
         turn = game.turn
         player_index = turn % len(players)
         player_hand_revealed_count = game.player.hand_revealed_count
@@ -157,14 +157,14 @@ def play(
         # Check if the current player has exceeded the limit for turns without
         # making progress, and if so, forfeit. Doing so sets the game's state
         # to `State.NULL`, meaning we don't have to break.
-        if no_progress_turn_max is not None:
+        if not game.is_ending and no_progress_turn_max is not None:
             turn_per_player = turn // len(players)
             no_progress_turn_count = last_progress_turns[player_index] - turn_per_player
             if no_progress_turn_count > no_progress_turn_max:
                 game = game.with_forfeit()
                 yield game
-                break
 
-    # Reveal all hidden cards.
-    game = game.with_random_hidden_cards_revealed(rng=rng)
-    yield game
+    # Reveal hidden cards if there are any.
+    if not all(player.is_hand_revealed for player in game.players):
+        game = game.with_random_hidden_cards_revealed(rng=rng)
+        yield game

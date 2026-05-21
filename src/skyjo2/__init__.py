@@ -899,7 +899,7 @@ class Game(NamedTuple):
         return Game(
             turn=turn,
             end_turn=end_turn,
-            state=turn,
+            state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
             discarded_card_index=discarded_card_index,
