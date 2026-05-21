@@ -221,8 +221,8 @@ class State(IntEnum):
     REVEAL_SECOND_CARD = auto()
     DRAW_OR_REPLACE_WITH_DISCARD = auto()
     DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW = auto()
-    ENDED = auto()
-    FORFEITED = auto()
+    ENDED_BY_REVEAL = auto()
+    ENDED_BY_FORFEIT = auto()
 
 
 class Game(NamedTuple):
@@ -230,6 +230,9 @@ class Game(NamedTuple):
 
     turn: int
     """The number of turns that have been played, i.e. the turn index."""
+
+    end_turn: int | None
+    """The first turn a player revealed all cards or forfeited."""
 
     state: State
     """The current state of the game."""
@@ -287,13 +290,13 @@ class Game(NamedTuple):
     def final_scores(self) -> tuple[int, ...]:
         """Get player scores as if the current player ended the round."""
 
-        assert self.state in {State.ENDED, State.FORFEITED}
+        assert self.state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
 
         scores = [player.hand_score for player in self.players]
 
         # Penalize the round ender if they forfeited or didn't have the lowest
         # hand score across all players.
-        if self.state == State.FORFEITED or scores[0] >= min(scores[1:]):
+        if self.state == State.ENDED_BY_FORFEIT or scores[0] >= min(scores[1:]):
             scores[0] *= 2
 
         return tuple(scores)
@@ -320,16 +323,20 @@ class Game(NamedTuple):
         return (self.winner_index + self.turn) % len(self.players)
 
     @property
+    def is_ending(self) -> bool:
+        return self.end_turn is not None
+
+    @property
     def is_ended(self) -> bool:
-        return self.state == State.ENDED
+        return self.state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
 
     @property
-    def is_forfeited(self) -> bool:
-        return self.state == State.FORFEITED
+    def is_ended_by_forfeit(self) -> bool:
+        return self.state == State.ENDED_BY_FORFEIT
 
     @property
-    def is_ended_or_forfeited(self) -> bool:
-        return self.state in {State.ENDED, State.FORFEITED}
+    def is_ended_by_reveal(self) -> bool:
+        return self.state == State.ENDED_BY_REVEAL
 
     # MARK: Construct
 
@@ -341,6 +348,7 @@ class Game(NamedTuple):
         player = Player(score=0, hand=(finger,) * HAND_ROWS * HAND_COLUMNS)
         return Game(
             turn=0,
+            end_turn=None,
             state=State.DEAL_FIRST_CARD,
             drawn_card_index=None,
             draw_pile=tuple(DECK.values()),
@@ -355,6 +363,7 @@ class Game(NamedTuple):
         """Deal a set series of cards to the discard slot and players."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -364,6 +373,7 @@ class Game(NamedTuple):
         del self
 
         assert turn == 0
+        assert end_turn is None
         assert state == State.DEAL_FIRST_CARD
         assert drawn_card_index is None
         assert discarded_card_index is None
@@ -388,6 +398,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=tuple(mutable_draw_pile),
@@ -400,6 +411,7 @@ class Game(NamedTuple):
         """Deal players and set an initial discard."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -409,6 +421,7 @@ class Game(NamedTuple):
         del self
 
         assert turn == 0
+        assert end_turn is None
         assert state == State.DEAL_FIRST_CARD
         assert drawn_card_index is None
         assert discarded_card_index is None
@@ -433,6 +446,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=State.REVEAL_SECOND_CARD,
             drawn_card_index=None,
             draw_pile=tuple(mutable_draw_pile),
@@ -451,6 +465,7 @@ class Game(NamedTuple):
         """Reveal a second card during initial board setup."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -459,6 +474,7 @@ class Game(NamedTuple):
         players = self.players
         del self
 
+        assert end_turn is None
         assert state == State.REVEAL_SECOND_CARD
 
         # Formally draw the card we're revealing.
@@ -489,6 +505,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -515,6 +532,7 @@ class Game(NamedTuple):
         """Draw a specific card from the pile but do nothing with it."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         old_drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -537,6 +555,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -561,6 +580,7 @@ class Game(NamedTuple):
         """Discard the drawn card and reveal a card in the current hand."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -605,17 +625,27 @@ class Game(NamedTuple):
         # to juggle reshuffles before draws.
         draw_pile, discard_pile = _with_shuffle(draw_pile, discard_pile)
 
-        # Check if the current player won. If so, stop the game. Otherwise,
-        # rotate players so the next is in the first slot.
-        if players[0].is_hand_revealed:
-            state = State.ENDED
+        # If we're not in the endgame and the current player has revealed all
+        # their cards, start the endgame by setting `end_turn`.
+        if end_turn is None and players[0].is_hand_revealed:
+            end_turn = turn
+
+        # Rotate the players and increment the turn.
+        players = (*players[1:], players[0])
+        turn += 1
+
+        # If we're on the final turn, transition states.
+        if end_turn is not None and turn == end_turn + len(players):
+            if players[0].is_hand_revealed:
+                state = State.ENDED_BY_REVEAL
+            else:
+                state = State.ENDED_BY_FORFEIT
         else:
-            players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += 1
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -646,6 +676,7 @@ class Game(NamedTuple):
         """Replace a card in the current hand with the drawn card."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -697,17 +728,27 @@ class Game(NamedTuple):
         # to juggle reshuffles before draws.
         draw_pile, discard_pile = _with_shuffle(draw_pile, discard_pile)
 
-        # Check if the current player won. If so, stop the game. Otherwise,
-        # rotate players so the next is in the first slot.
-        if players[0].is_hand_revealed:
-            state = State.ENDED
+        # If we're not in the endgame and the current player has revealed all
+        # their cards, start the endgame by setting `end_turn`.
+        if end_turn is None and players[0].is_hand_revealed:
+            end_turn = turn
+
+        # Rotate the players and increment the turn.
+        players = (*players[1:], players[0])
+        turn += 1
+
+        # If we're on the final turn, transition states.
+        if end_turn is not None and turn == end_turn + len(players):
+            if players[0].is_hand_revealed:
+                state = State.ENDED_BY_REVEAL
+            else:
+                state = State.ENDED_BY_FORFEIT
         else:
-            players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += 1
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -740,6 +781,7 @@ class Game(NamedTuple):
         """Replace a card in the current hand with the drawn card."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -785,17 +827,27 @@ class Game(NamedTuple):
         # to juggle reshuffles before draws.
         draw_pile, discard_pile = _with_shuffle(draw_pile, discard_pile)
 
-        # Check if the current player won. If so, stop the game. Otherwise,
-        # rotate players so the next is in the first slot.
-        if players[0].is_hand_revealed:
-            state = State.ENDED
+        # If we're not in the endgame and the current player has revealed all
+        # their cards, start the endgame by setting `end_turn`.
+        if end_turn is None and players[0].is_hand_revealed:
+            end_turn = turn
+
+        # Rotate the players and increment the turn.
+        players = (*players[1:], players[0])
+        turn += 1
+
+        # If we're on the final turn, transition states.
+        if end_turn is not None and turn == end_turn + len(players):
+            if players[0].is_hand_revealed:
+                state = State.ENDED_BY_REVEAL
+            else:
+                state = State.ENDED_BY_FORFEIT
         else:
-            players = (*players[1:], players[0])
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            turn += 1
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=draw_pile,
@@ -823,22 +875,8 @@ class Game(NamedTuple):
     def with_forfeit(self) -> Game:
         """Give up as the current player, forcing a loss."""
 
-        return Game(
-            turn=self.turn,
-            state=State.FORFEITED,
-            drawn_card_index=self.drawn_card_index,
-            draw_pile=self.draw_pile,
-            discarded_card_index=self.discarded_card_index,
-            discard_pile=self.discard_pile,
-            players=self.players,
-        )
-
-    # MARK: Reveal remaining
-
-    def with_hidden_cards_revealed(self, revealed_card_indices: Iterable[int]) -> Game:
-        """Draw hidden cards in player hands at the end of the game."""
-
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -847,7 +885,44 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert state in {State.ENDED, State.FORFEITED}
+        assert state == State.DRAW_OR_REPLACE_WITH_DISCARD
+        assert drawn_card_index is None
+        assert end_turn is None
+
+        # Set the end turn to begin the endgame.
+        end_turn = turn
+
+        # Rotate the players and increment the turn.
+        players = (*players[1:], players[0])
+        turn += 1
+
+        return Game(
+            turn=turn,
+            end_turn=end_turn,
+            state=turn,
+            drawn_card_index=drawn_card_index,
+            draw_pile=draw_pile,
+            discarded_card_index=discarded_card_index,
+            discard_pile=discard_pile,
+            players=players,
+        )
+
+    # MARK: Reveal remaining
+
+    def with_hidden_cards_revealed(self, revealed_card_indices: Iterable[int]) -> Game:
+        """Draw hidden cards in player hands at the end of the game."""
+
+        turn = self.turn
+        end_turn = self.end_turn
+        state = self.state
+        drawn_card_index = self.drawn_card_index
+        draw_pile = self.draw_pile
+        discarded_card_index = self.discarded_card_index
+        discard_pile = self.discard_pile
+        players = self.players
+        del self
+
+        assert state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
         assert drawn_card_index is None
 
         mutable_draw_pile = list(draw_pile)
@@ -865,6 +940,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=tuple(mutable_draw_pile),
@@ -877,6 +953,7 @@ class Game(NamedTuple):
         """Draw hidden cards randomly."""
 
         turn = self.turn
+        end_turn = self.end_turn
         state = self.state
         drawn_card_index = self.drawn_card_index
         draw_pile = self.draw_pile
@@ -885,7 +962,7 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert state in {State.ENDED, State.FORFEITED}
+        assert state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
         assert drawn_card_index is None
 
         mutable_draw_pile = list(draw_pile)
@@ -903,6 +980,7 @@ class Game(NamedTuple):
 
         return Game(
             turn=turn,
+            end_turn=end_turn,
             state=state,
             drawn_card_index=drawn_card_index,
             draw_pile=tuple(mutable_draw_pile),
