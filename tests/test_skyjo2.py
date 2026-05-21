@@ -56,7 +56,7 @@ class TestGame:
 
     def test_with_deal(self) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_first_cards_dealt((0, 1, 2))
+        game = game.with_discard_and_first_cards_dealt((0, 1, 2))
         assert game == sj.Game(
             turn=0,
             end_turn=None,
@@ -121,7 +121,7 @@ class TestGame:
 
     def test_with_random_deal(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_random_first_cards_dealt(rng=rng)
+        game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         assert game == sj.Game(
             turn=0,
             end_turn=None,
@@ -170,7 +170,7 @@ class TestGame:
 
     def test_with_second_card_revealed(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_random_first_cards_dealt(rng=rng)
+        game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         game = game.with_random_second_card_revealed(1, rng=rng)
         assert game == sj.Game(
             turn=1,
@@ -266,7 +266,7 @@ class TestGame:
 
     def test_with_random_drawn_card(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_random_first_cards_dealt(rng=rng)
+        game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         game = game.with_random_second_card_revealed(1, rng=rng)
         game = game.with_random_second_card_revealed(sj.HAND_ROWS, rng=rng)
         game = game.with_random_drawn_card(rng=rng)
@@ -318,7 +318,7 @@ class TestGame:
 
     def test_with_draw_discarded_and_card_revealed(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_random_first_cards_dealt(rng=rng)
+        game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         game = game.with_random_second_card_revealed(1, rng=rng)
         game = game.with_random_second_card_revealed(sj.HAND_ROWS, rng=rng)
         game = game.with_random_drawn_card(rng=rng)
@@ -371,7 +371,7 @@ class TestGame:
 
     def test_with_draw_discarded_and_card_revealed_clear(self) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_first_cards_dealt((0, 1, 2))
+        game = game.with_discard_and_first_cards_dealt((0, 1, 2))
         game = game.with_second_card_revealed(1, 1)  # player 1
         game = game.with_second_card_revealed(1, 2)  # player 2
         game = game.with_drawn_card(0)  # player 1
@@ -629,7 +629,7 @@ class TestGame:
 
     def test_with_card_replaced_with_draw(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_random_first_cards_dealt(rng=rng)
+        game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         game = game.with_random_second_card_revealed(1, rng=rng)
         game = game.with_random_second_card_revealed(sj.HAND_ROWS, rng=rng)
         game = game.with_random_drawn_card(rng=rng)
@@ -682,7 +682,7 @@ class TestGame:
 
     def test_with_card_replaced_with_draw_clear(self) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_first_cards_dealt((0, 1, 2))
+        game = game.with_discard_and_first_cards_dealt((0, 1, 2))
         game = game.with_second_card_revealed(1, 1)  # player 1
         game = game.with_second_card_revealed(1, 2)  # player 2
         game = game.with_drawn_card(1)  # player 1
@@ -940,7 +940,7 @@ class TestGame:
 
     def test_with_card_replaced_with_discard(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_random_first_cards_dealt(rng=rng)
+        game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         game = game.with_random_second_card_revealed(1, rng=rng)
         game = game.with_random_second_card_revealed(sj.HAND_ROWS, rng=rng)
         game = game.with_random_card_replaced_with_discard(1, rng=rng)
@@ -992,7 +992,7 @@ class TestGame:
 
     def test_with_card_replaced_with_discard_clear(self, rng: random.Random) -> None:
         game = sj.Game.new(players=2)
-        game = game.with_first_cards_dealt((1, 1, 2))
+        game = game.with_discard_and_first_cards_dealt((1, 1, 2))
         game = game.with_second_card_revealed(1, 1)  # player 1
         game = game.with_second_card_revealed(1, 2)  # player 2
         game = game.with_card_replaced_with_discard(2, 0)  # player 1
