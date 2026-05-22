@@ -359,7 +359,7 @@ class Game(NamedTuple):
 
     # MARK: Deal
 
-    def with_first_cards_dealt(self, card_indices: Iterable[int]) -> Game:
+    def with_discard_and_first_cards_dealt(self, card_indices: Iterable[int]) -> Game:
         """Deal a set series of cards to the discard slot and players."""
 
         turn = self.turn
@@ -393,7 +393,7 @@ class Game(NamedTuple):
         discarded_card_index = next(dealer)
         players = tuple(
             player.with_first_card_dealt(card_index)
-            for player, card_index in zip(players, dealer)
+            for player, card_index in zip(players, dealer, strict=True)
         )
 
         return Game(
@@ -407,7 +407,7 @@ class Game(NamedTuple):
             players=players,
         )
 
-    def with_random_first_cards_dealt(self, rng: random.Random) -> Game:
+    def with_random_discard_and_first_cards_dealt(self, rng: random.Random) -> Game:
         """Deal players and set an initial discard."""
 
         turn = self.turn
@@ -712,6 +712,7 @@ class Game(NamedTuple):
         discard_pile = _with_discard(discard_pile, discarded_card_index)
 
         # Move the card that was previously in hand to the discard.
+        assert old_finger_card_index is not None
         discarded_card_index = old_finger_card_index
 
         # If the card got cleared, we need to replace the current discarded

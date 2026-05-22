@@ -32,7 +32,12 @@ def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
         column_max = shutil.get_terminal_size((0, 0)).columns
 
     yield (
-        f"turn: {game.turn}  discard: {render_card(game.discarded_card_index)}"
+        f"turn: {game.turn}"
+        + (
+            f"  discard: {render_card(game.discarded_card_index)}"
+            if game.discarded_card_index is not None
+            else ""
+        )
         + (
             f"  draw: {render_card(game.drawn_card_index)}"
             if game.drawn_card_index is not None
