@@ -30,18 +30,20 @@ class StallPlayer(sj_play.Player):
         assert False, f"unknown state {game}"
 
 
-def test_play_two(rng: random.Random) -> None:
-    replay = list(sj_play.play((DrawPlayer(), DrawPlayer()), rng=rng))
+def test_play_round_two(rng: random.Random) -> None:
+    players = (DrawPlayer(), DrawPlayer())
+    replay = list(sj_play.play(players, rng=rng, round_max=1))
     # 1 (new)
     # 1 (deal)
-    # 2 (reveal)
+    # 2 (reveal second)
     # 2 players * 10 cards * 2 actions (draws + replaces)
-    assert len(replay) == 44
+    # 1 (reveal hidden)
+    assert len(replay) == 45
     result = replay[-1]
     assert result == sj.Game(
         turn=22,
         end_turn=20,
-        state=sj.State.ENDED_BY_REVEAL,
+        state=sj.State.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(4, 7, 11, 7, 7, 8, 7, 5, 6, 5, 7, 10, 7, 8, 6),
         discarded_card_index=6,
@@ -49,7 +51,7 @@ def test_play_two(rng: random.Random) -> None:
         players=(
             sj.Player(
                 index=0,
-                score=0,
+                score=59,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=6, is_revealed=True),
@@ -67,7 +69,7 @@ def test_play_two(rng: random.Random) -> None:
             ),
             sj.Player(
                 index=1,
-                score=0,
+                score=69,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
                     sj.Finger(card_index=13, is_revealed=True),
@@ -85,23 +87,22 @@ def test_play_two(rng: random.Random) -> None:
             ),
         ),
     )
-    assert result.players[0].hand_score == 59
-    assert result.players[1].hand_score == 69
-    assert result.final_scores == (59, 69)
 
 
-def test_play_three(rng: random.Random) -> None:
-    replay = list(sj_play.play((DrawPlayer(), DrawPlayer(), DrawPlayer()), rng=rng))
+def test_play_round_three(rng: random.Random) -> None:
+    players = (DrawPlayer(), DrawPlayer(), DrawPlayer())
+    replay = list(sj_play.play(players, rng=rng, round_max=1))
     # 1 (new)
     # 1 (deal)
-    # 3 (reveal)
+    # 3 (reveal second)
     # 3 players * 10 cards * 2 actions (draws + replaces)
-    assert len(replay) == 65
+    # 1 (reveal hidden)
+    assert len(replay) == 66
     result = replay[-1]
     assert result == sj.Game(
         turn=33,
         end_turn=30,
-        state=sj.State.ENDED_BY_REVEAL,
+        state=sj.State.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(3, 6, 8, 6, 4, 7, 6, 5, 6, 4, 6, 6, 5, 8, 3),
         discarded_card_index=2,
@@ -109,7 +110,7 @@ def test_play_three(rng: random.Random) -> None:
         players=(
             sj.Player(
                 index=0,
-                score=0,
+                score=49,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=13, is_revealed=True),
@@ -127,7 +128,7 @@ def test_play_three(rng: random.Random) -> None:
             ),
             sj.Player(
                 index=1,
-                score=0,
+                score=66,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
                     sj.Finger(card_index=12, is_revealed=True),
@@ -145,7 +146,7 @@ def test_play_three(rng: random.Random) -> None:
             ),
             sj.Player(
                 index=2,
-                score=0,
+                score=71,
                 hand=(
                     sj.Finger(card_index=6, is_revealed=True),
                     sj.Finger(card_index=10, is_revealed=True),
@@ -163,20 +164,11 @@ def test_play_three(rng: random.Random) -> None:
             ),
         ),
     )
-    assert result.players[0].hand_score == 49
-    assert result.players[1].hand_score == 66
-    assert result.players[2].hand_score == 71
-    assert result.final_scores == (49, 66, 71)
 
 
-def test_play_forfeit(rng: random.Random) -> None:
-    replay = list(
-        sj_play.play(
-            (DrawPlayer(), StallPlayer()),
-            rng=rng,
-            no_progress_turn_max=5,
-        )
-    )
+def test_play_round_forfeit(rng: random.Random) -> None:
+    players = (DrawPlayer(), StallPlayer())
+    replay = list(sj_play.play(players, rng=rng, no_progress_turn_max=5, round_max=1))
     # 1 (new)
     # 1 (deal)
     # 2 (reveal)
@@ -189,7 +181,7 @@ def test_play_forfeit(rng: random.Random) -> None:
     assert replay[-2] == sj.Game(
         turn=15,
         end_turn=13,
-        state=sj.State.ENDED_BY_FORFEIT,
+        state=sj.State.REVEAL_HIDDEN_CARDS,
         drawn_card_index=None,
         draw_pile=(5, 9, 13, 8, 9, 9, 9, 7, 9, 8, 8, 10, 8, 9, 9),
         discarded_card_index=2,
@@ -237,7 +229,7 @@ def test_play_forfeit(rng: random.Random) -> None:
     assert result == sj.Game(
         turn=15,
         end_turn=13,
-        state=sj.State.ENDED_BY_FORFEIT,
+        state=sj.State.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(5, 8, 12, 7, 8, 8, 8, 7, 8, 6, 7, 10, 8, 9, 7),
         discarded_card_index=2,
@@ -245,7 +237,7 @@ def test_play_forfeit(rng: random.Random) -> None:
         players=(
             sj.Player(
                 index=1,
-                score=0,
+                score=100,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
                     sj.Finger(card_index=13, is_revealed=True),
@@ -263,7 +255,7 @@ def test_play_forfeit(rng: random.Random) -> None:
             ),
             sj.Player(
                 index=0,
-                score=0,
+                score=69,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
                     sj.Finger(card_index=6, is_revealed=True),
@@ -281,6 +273,81 @@ def test_play_forfeit(rng: random.Random) -> None:
             ),
         ),
     )
-    assert result.players[0].hand_score == 50
-    assert result.players[1].hand_score == 69
-    assert result.final_scores == (50 * 2, 69)  # forefit is always *2, even if lowest
+
+
+def test_play_game_three(rng: random.Random) -> None:
+    players = (DrawPlayer(), DrawPlayer(), DrawPlayer())
+    replay = list(sj_play.play(players, rng=rng))
+    # 1 (new)
+    # ----------- x2 after this point for 2 rounds
+    # 1 (deal)
+    # 3 (reveal second)
+    # 3 players * 10 cards * 2 actions (draws + replaces)
+    # 1 (reveal hidden)
+    assert len(replay) == 1 + 65 * 2
+    result = replay[-1]
+    assert result == sj.Game(
+        turn=33,
+        end_turn=30,
+        state=sj.State.DEAL_FIRST_CARDS,
+        drawn_card_index=None,
+        draw_pile=(1, 2, 0, 2, 0, 1, 1, 1, 1, 1, 1, 0, 2, 3, 0),
+        discarded_card_index=4,
+        discard_pile=(1, 4, 5, 4, 3, 6, 4, 4, 4, 6, 3, 5, 2, 3, 6),
+        players=(
+            sj.Player(
+                index=1,
+                score=236,
+                hand=(
+                    sj.Finger(card_index=11, is_revealed=True),
+                    sj.Finger(card_index=13, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=12, is_revealed=True),
+                    sj.Finger(card_index=13, is_revealed=True),
+                    sj.Finger(card_index=7, is_revealed=True),
+                    sj.Finger(card_index=0, is_revealed=True),
+                ),
+            ),
+            sj.Player(
+                index=2,
+                score=108,
+                hand=(
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=6, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=4, is_revealed=True),
+                    sj.Finger(card_index=3, is_revealed=True),
+                    sj.Finger(card_index=14, is_revealed=True),
+                    sj.Finger(card_index=5, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                    sj.Finger(card_index=3, is_revealed=True),
+                ),
+            ),
+            sj.Player(
+                index=0,
+                score=97,
+                hand=(
+                    sj.Finger(card_index=11, is_revealed=True),
+                    sj.Finger(card_index=6, is_revealed=True),
+                    sj.Finger(card_index=5, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=2, is_revealed=True),
+                    sj.Finger(card_index=1, is_revealed=True),
+                    sj.Finger(card_index=1, is_revealed=True),
+                    sj.Finger(card_index=11, is_revealed=True),
+                    sj.Finger(card_index=6, is_revealed=True),
+                    sj.Finger(card_index=8, is_revealed=True),
+                    sj.Finger(card_index=3, is_revealed=True),
+                    sj.Finger(card_index=10, is_revealed=True),
+                ),
+            ),
+        ),
+    )

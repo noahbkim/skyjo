@@ -187,6 +187,11 @@ class Player(NamedTuple):
 
         return Player(index=self.index, score=self.score, hand=hand)
 
+    def with_score(self, score: int) -> Player:
+        """Update the player's score."""
+
+        return Player(index=self.index, score=score, hand=self.hand)
+
 
 # MARK: Game
 
@@ -229,12 +234,11 @@ def _with_shuffle(
 
 
 class State(IntEnum):
-    DEAL_FIRST_CARD = auto()
+    DEAL_FIRST_CARDS = auto()
     REVEAL_SECOND_CARD = auto()
     DRAW_OR_REPLACE_WITH_DISCARD = auto()
     DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW = auto()
-    ENDED_BY_REVEAL = auto()
-    ENDED_BY_FORFEIT = auto()
+    REVEAL_HIDDEN_CARDS = auto()
 
 
 class Game(NamedTuple):
@@ -285,52 +289,8 @@ class Game(NamedTuple):
         return tuple(player.hand_cleared_count for player in self.players)
 
     @property
-    def final_scores(self) -> tuple[int, ...]:
-        """Get player scores as if the current player ended the round."""
-
-        assert self.state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
-
-        scores = [player.hand_score for player in self.players]
-
-        # Penalize the round ender if they forfeited or didn't have the lowest
-        # hand score across all players.
-        if self.state == State.ENDED_BY_FORFEIT or scores[0] >= min(scores[1:]):
-            scores[0] *= 2
-
-        return tuple(scores)
-
-    @property
-    def final_score_differentials(self) -> tuple[int, ...]:
-        """Get player differences to the final, winning score."""
-
-        final_scores = self.final_scores  # don't recompute
-        winner_final_score = min(final_scores)
-        return tuple(score - winner_final_score for score in final_scores)
-
-    @property
-    def winner(self) -> Player:
-        return self.players[self.winner_index]
-
-    @property
-    def winner_index(self) -> Player:
-        final_scores = self.final_scores  # don't recompute
-        return min(range(len(self.players)), key=lambda i: final_scores[i])
-
-    @property
     def is_ending(self) -> bool:
         return self.end_turn is not None
-
-    @property
-    def is_ended(self) -> bool:
-        return self.state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
-
-    @property
-    def is_ended_by_forfeit(self) -> bool:
-        return self.state == State.ENDED_BY_FORFEIT
-
-    @property
-    def is_ended_by_reveal(self) -> bool:
-        return self.state == State.ENDED_BY_REVEAL
 
     # MARK: Construct
 
@@ -343,7 +303,7 @@ class Game(NamedTuple):
         return Game(
             turn=0,
             end_turn=None,
-            state=State.DEAL_FIRST_CARD,
+            state=State.DEAL_FIRST_CARDS,
             drawn_card_index=None,
             draw_pile=tuple(DECK.values()),
             discarded_card_index=None,
@@ -366,13 +326,15 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert turn == 0
-        assert end_turn is None
-        assert state == State.DEAL_FIRST_CARD
-        assert drawn_card_index is None
-        assert discarded_card_index is None
+        assert state == State.DEAL_FIRST_CARDS
 
-        mutable_draw_pile = list(draw_pile)
+        turn = 0
+        end_turn = None
+        state = State.REVEAL_SECOND_CARD
+        drawn_card_index = None
+        discarded_card_index = None
+
+        mutable_draw_pile = list(DECK.values())
         del draw_pile
 
         def deal_card_index_from_draw_pile() -> Iterator[int]:
@@ -390,12 +352,14 @@ class Game(NamedTuple):
             for player, card_index in zip(players, dealer, strict=True)
         )
 
+        draw_pile = tuple(mutable_draw_pile)
+
         return Game(
             turn=turn,
             end_turn=end_turn,
-            state=State.REVEAL_SECOND_CARD,
-            drawn_card_index=None,
-            draw_pile=tuple(mutable_draw_pile),
+            state=state,
+            drawn_card_index=drawn_card_index,
+            draw_pile=draw_pile,
             discarded_card_index=discarded_card_index,
             discard_pile=discard_pile,
             players=players,
@@ -414,11 +378,13 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert turn == 0
-        assert end_turn is None
-        assert state == State.DEAL_FIRST_CARD
-        assert drawn_card_index is None
-        assert discarded_card_index is None
+        assert state == State.DEAL_FIRST_CARDS
+
+        turn = 0
+        end_turn = None
+        state = State.REVEAL_SECOND_CARD
+        drawn_card_index = None
+        discarded_card_index = None
 
         mutable_draw_pile = list(draw_pile)
         del draw_pile
@@ -438,12 +404,14 @@ class Game(NamedTuple):
             for player, card_index in zip(players, dealer)
         )
 
+        draw_pile = tuple(mutable_draw_pile)
+
         return Game(
             turn=turn,
             end_turn=end_turn,
-            state=State.REVEAL_SECOND_CARD,
-            drawn_card_index=None,
-            draw_pile=tuple(mutable_draw_pile),
+            state=state,
+            drawn_card_index=drawn_card_index,
+            draw_pile=draw_pile,
             discarded_card_index=discarded_card_index,
             discard_pile=discard_pile,
             players=players,
@@ -628,10 +596,7 @@ class Game(NamedTuple):
 
         # If we're on the final turn, transition states.
         if end_turn is not None and turn == end_turn + len(players):
-            if players[0].is_hand_revealed:
-                state = State.ENDED_BY_REVEAL
-            else:
-                state = State.ENDED_BY_FORFEIT
+            state = State.REVEAL_HIDDEN_CARDS
         else:
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
 
@@ -732,10 +697,7 @@ class Game(NamedTuple):
 
         # If we're on the final turn, transition states.
         if end_turn is not None and turn == end_turn + len(players):
-            if players[0].is_hand_revealed:
-                state = State.ENDED_BY_REVEAL
-            else:
-                state = State.ENDED_BY_FORFEIT
+            state = State.REVEAL_HIDDEN_CARDS
         else:
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
 
@@ -831,10 +793,7 @@ class Game(NamedTuple):
 
         # If we're on the final turn, transition states.
         if end_turn is not None and turn == end_turn + len(players):
-            if players[0].is_hand_revealed:
-                state = State.ENDED_BY_REVEAL
-            else:
-                state = State.ENDED_BY_FORFEIT
+            state = State.REVEAL_HIDDEN_CARDS
         else:
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
 
@@ -915,7 +874,7 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
+        assert state == State.REVEAL_HIDDEN_CARDS
         assert drawn_card_index is None
 
         mutable_draw_pile = list(draw_pile)
@@ -929,7 +888,19 @@ class Game(NamedTuple):
 
         dealer = deal_revealed_card_index_from_draw_pile()
 
+        is_forfeit = not players[0].is_hand_revealed
         players = tuple(player.with_hidden_cards_revealed(dealer) for player in players)
+
+        scores = [player.hand_score for player in players]
+        if is_forfeit or scores[0] >= min(scores[1:]):
+            scores[0] *= 2
+
+        players = tuple(
+            player.with_score(player.score + score)
+            for player, score in zip(players, scores)
+        )
+
+        state = State.DEAL_FIRST_CARDS
 
         return Game(
             turn=turn,
@@ -955,7 +926,7 @@ class Game(NamedTuple):
         players = self.players
         del self
 
-        assert state in {State.ENDED_BY_FORFEIT, State.ENDED_BY_REVEAL}
+        assert state == State.REVEAL_HIDDEN_CARDS
         assert drawn_card_index is None
 
         mutable_draw_pile = list(draw_pile)
@@ -969,7 +940,19 @@ class Game(NamedTuple):
 
         dealer = deal_revealed_card_index_from_draw_pile()
 
+        is_forfeit = not players[0].is_hand_revealed
         players = tuple(player.with_hidden_cards_revealed(dealer) for player in players)
+
+        scores = [player.hand_score for player in players]
+        if is_forfeit or scores[0] >= min(scores[1:]):
+            scores[0] *= 2
+
+        players = tuple(
+            player.with_score(player.score + score)
+            for player, score in zip(players, scores)
+        )
+
+        state = State.DEAL_FIRST_CARDS
 
         return Game(
             turn=turn,

@@ -192,7 +192,7 @@ def main() -> None:
     print(f"players: {len(players)}")
     print()
     for game in skyjo2.play.play(tuple(map(NarratedPlayer, players)), rng=rng):
-        if game.state == skyjo2.State.DEAL_FIRST_CARD:
+        if game.state == skyjo2.State.DEAL_FIRST_CARDS:
             print("# all players were dealt their first card")
             print()
             continue

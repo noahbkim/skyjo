@@ -21,12 +21,11 @@ FINGER_SIZE = CARD_SIZE + 2  # hidden, cleared
 
 def get_state_embedding(state: State, tensor: torch.Tensor) -> torch.Tensor:
     assert tensor.shape == (STATE_SIZE,)
-    tensor[0] = state == State.DEAL_FIRST_CARD
+    tensor[0] = state == State.DEAL_FIRST_CARDS
     tensor[1] = state == State.REVEAL_SECOND_CARD
     tensor[2] = state == State.DRAW_OR_REPLACE_WITH_DISCARD
     tensor[3] = state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
-    tensor[4] = state == State.ENDED_BY_REVEAL
-    tensor[5] = state == State.ENDED_BY_FORFEIT
+    tensor[4] = state == State.REVEAL_HIDDEN_CARDS
     return tensor
 
 

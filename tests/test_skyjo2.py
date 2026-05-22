@@ -11,7 +11,7 @@ class TestGame:
         assert game == sj.Game(
             turn=0,
             end_turn=None,
-            state=sj.State.DEAL_FIRST_CARD,
+            state=sj.State.DEAL_FIRST_CARDS,
             drawn_card_index=None,
             draw_pile=(5, 10, 15, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10),
             discarded_card_index=None,
@@ -518,7 +518,7 @@ class TestGame:
         assert game == sj.Game(
             turn=101,
             end_turn=99,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 3,
@@ -823,7 +823,7 @@ class TestGame:
         assert game == sj.Game(
             turn=101,
             end_turn=99,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 3,
@@ -1124,7 +1124,7 @@ class TestGame:
         assert game == sj.Game(
             turn=101,
             end_turn=99,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,
@@ -1189,7 +1189,7 @@ class TestGame:
         game = sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1253,7 +1253,7 @@ class TestGame:
         assert game == sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.DEAL_FIRST_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1277,7 +1277,7 @@ class TestGame:
             players=(
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=108,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
                         sj.Finger(card_index=2, is_revealed=True),
@@ -1295,7 +1295,7 @@ class TestGame:
                 ),
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=54,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
                         sj.Finger(card_index=11, is_revealed=True),
@@ -1313,16 +1313,12 @@ class TestGame:
                 ),
             ),
         )
-        assert game.final_scores == (54 * 2, 54)
-        assert game.players[0].hand_score == 54
-        assert game.players[1].hand_score == 54
-        assert game.winner_index == 1
 
     def test_with_hidden_cards_revealed_lose(self) -> None:
         game = sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1386,7 +1382,7 @@ class TestGame:
         assert game == sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.DEAL_FIRST_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1410,7 +1406,7 @@ class TestGame:
             players=(
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=108,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
                         sj.Finger(card_index=2, is_revealed=True),
@@ -1446,16 +1442,12 @@ class TestGame:
                 ),
             ),
         )
-        assert game.final_scores == (108, 0)
-        assert game.players[0].hand_score == 54
-        assert game.players[1].hand_score == 0
-        assert game.winner_index == 1
 
     def test_with_hidden_cards_revealed_win(self) -> None:
         game = sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1519,7 +1511,7 @@ class TestGame:
         assert game == sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.DEAL_FIRST_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1543,7 +1535,7 @@ class TestGame:
             players=(
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=54,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
                         sj.Finger(card_index=2, is_revealed=True),
@@ -1561,7 +1553,7 @@ class TestGame:
                 ),
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=138,
                     hand=(
                         sj.Finger(card_index=14, is_revealed=True),
                         sj.Finger(card_index=14, is_revealed=True),
@@ -1579,16 +1571,12 @@ class TestGame:
                 ),
             ),
         )
-        assert game.final_scores == (54, 138)
-        assert game.players[0].hand_score == 54
-        assert game.players[1].hand_score == 138
-        assert game.winner_index == 0
 
     def test_with_random_hidden_cards_revealed(self, rng: random.Random) -> None:
         game = sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.REVEAL_HIDDEN_CARDS,
             drawn_card_index=None,
             draw_pile=(
                 5 - 1,  # initial discard
@@ -1652,7 +1640,7 @@ class TestGame:
         assert game == sj.Game(
             turn=100,
             end_turn=None,
-            state=sj.State.ENDED_BY_REVEAL,
+            state=sj.State.DEAL_FIRST_CARDS,
             drawn_card_index=None,
             draw_pile=(4, 8, 14, 9, 9, 8, 9, 8, 7, 9, 8, 8, 7, 10, 7),
             discarded_card_index=0,
@@ -1660,7 +1648,7 @@ class TestGame:
             players=(
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=54,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
                         sj.Finger(card_index=2, is_revealed=True),
@@ -1678,7 +1666,7 @@ class TestGame:
                 ),
                 sj.Player(
                     index=0,
-                    score=0,
+                    score=92,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
                         sj.Finger(card_index=10, is_revealed=True),
@@ -1696,7 +1684,3 @@ class TestGame:
                 ),
             ),
         )
-        assert game.final_scores == (54, 92)
-        assert game.players[0].hand_score == 54
-        assert game.players[1].hand_score == 92
-        assert game.winner_index == 0
