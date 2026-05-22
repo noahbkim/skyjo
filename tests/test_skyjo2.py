@@ -18,6 +18,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=None, is_revealed=True),
@@ -35,6 +36,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=None, is_revealed=True),
@@ -83,6 +85,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -100,6 +103,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=2, is_revealed=True),
@@ -132,6 +136,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=10, is_revealed=True),
@@ -149,6 +154,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -182,6 +188,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -199,6 +206,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=10, is_revealed=True),
@@ -228,6 +236,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=10, is_revealed=True),
@@ -245,6 +254,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -281,6 +291,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -298,6 +309,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=10, is_revealed=True),
@@ -325,7 +337,7 @@ class TestGame:
         game = game.with_drawn_card(0)  # player 1
         game = game.with_draw_discarded_and_card_revealed(2, 1)  # player 1
         assert game == sj.Game(
-            turn=4,
+            turn=3,
             end_turn=None,
             state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
@@ -334,6 +346,7 @@ class TestGame:
             discard_pile=(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -351,6 +364,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=2, is_revealed=True),
@@ -397,6 +411,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -414,6 +429,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -460,6 +476,7 @@ class TestGame:
             discard_pile=(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -477,6 +494,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -523,6 +541,7 @@ class TestGame:
             discard_pile=(2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -540,6 +559,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -576,6 +596,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -593,6 +614,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=10, is_revealed=True),
@@ -620,7 +642,7 @@ class TestGame:
         game = game.with_drawn_card(1)  # player 1
         game = game.with_card_replaced_with_draw(2, 0)  # player 1
         assert game == sj.Game(
-            turn=4,
+            turn=3,
             end_turn=None,
             state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
@@ -629,6 +651,7 @@ class TestGame:
             discard_pile=(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -646,6 +669,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=2, is_revealed=True),
@@ -692,6 +716,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -709,6 +734,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -755,6 +781,7 @@ class TestGame:
             discard_pile=(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -772,6 +799,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -818,6 +846,7 @@ class TestGame:
             discard_pile=(2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -835,6 +864,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -870,6 +900,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -887,6 +918,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=10, is_revealed=True),
@@ -913,7 +945,7 @@ class TestGame:
         game = game.with_second_card_revealed(1, 2)  # player 2
         game = game.with_card_replaced_with_discard(2, 0)  # player 1
         assert game == sj.Game(
-            turn=4,
+            turn=3,
             end_turn=None,
             state=sj.State.DRAW_OR_REPLACE_WITH_DISCARD,
             drawn_card_index=None,
@@ -922,6 +954,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -939,6 +972,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=1,
                     score=0,
                     hand=(
                         sj.Finger(card_index=2, is_revealed=True),
@@ -985,6 +1019,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1002,6 +1037,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -1047,6 +1083,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -1064,6 +1101,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1109,6 +1147,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1126,6 +1165,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -1172,6 +1212,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1189,6 +1230,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -1234,6 +1276,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1251,6 +1294,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -1301,6 +1345,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1318,6 +1363,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=2, is_revealed=True),
@@ -1363,6 +1409,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1380,6 +1427,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=2, is_revealed=True),
@@ -1430,6 +1478,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1447,6 +1496,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=14, is_revealed=True),
@@ -1492,6 +1542,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1509,6 +1560,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=14, is_revealed=True),
@@ -1559,6 +1611,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1576,6 +1629,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),
@@ -1605,6 +1659,7 @@ class TestGame:
             discard_pile=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             players=(
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=1, is_revealed=True),
@@ -1622,6 +1677,7 @@ class TestGame:
                     ),
                 ),
                 sj.Player(
+                    index=0,
                     score=0,
                     hand=(
                         sj.Finger(card_index=12, is_revealed=True),

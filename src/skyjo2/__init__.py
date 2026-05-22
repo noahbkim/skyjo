@@ -73,6 +73,9 @@ class Finger(NamedTuple):
 class Player(NamedTuple):
     """A snapshot of a Skyjo player during a round."""
 
+    index: int
+    """The index of the player in the original starting order."""
+
     score: int
     """The player's cross-game score, not including hand values."""
 
@@ -140,7 +143,7 @@ class Player(NamedTuple):
             for i, finger in enumerate(self.hand)
         )
 
-        return Player(score=self.score, hand=hand)
+        return Player(index=self.index, score=self.score, hand=hand)
 
     def with_card(self, finger_index: int, card_index: int) -> Player:
         """Reveal a card present on the board."""
@@ -166,7 +169,7 @@ class Player(NamedTuple):
                 *hand[column_stop:],
             )
 
-        return Player(score=self.score, hand=hand)
+        return Player(index=self.index, score=self.score, hand=hand)
 
     def with_hidden_cards_revealed(
         self,
@@ -182,7 +185,7 @@ class Player(NamedTuple):
             for finger in self.hand
         )
 
-        return Player(score=self.score, hand=hand)
+        return Player(index=self.index, score=self.score, hand=hand)
 
 
 # MARK: Game
@@ -262,26 +265,12 @@ class Game(NamedTuple):
     """The complete array of player slots."""
 
     @property
-    def player_index(self) -> int:
-        return 0
-
-    @property
-    def player_index_fixed(self) -> int:
-        return self.turn % len(self.players)
-
-    @property
-    def player_indices_fixed(self) -> tuple[int, ...]:
-        n = len(self.players)
-        return tuple((self.turn + i) % n for i in range(n))
-
-    @property
     def player(self) -> Player:
         return self.players[0]
 
     @property
-    def players_fixed(self) -> tuple[Player]:
-        offset = self.player_index_fixed
-        return self.players[-offset:] + self.players[:-offset]
+    def player_index(self) -> int:
+        return 0
 
     @property
     def player_hand_hidden_counts(self) -> tuple[int]:
@@ -328,10 +317,6 @@ class Game(NamedTuple):
         return min(range(len(self.players)), key=lambda i: final_scores[i])
 
     @property
-    def winner_index_fixed(self) -> int:
-        return (self.winner_index + self.turn) % len(self.players)
-
-    @property
     def is_ending(self) -> bool:
         return self.end_turn is not None
 
@@ -354,7 +339,7 @@ class Game(NamedTuple):
         """Construct a new game."""
 
         finger = Finger(card_index=None, is_revealed=True)
-        player = Player(score=0, hand=(finger,) * HAND_ROWS * HAND_COLUMNS)
+        hand = (finger,) * HAND_ROWS * HAND_COLUMNS
         return Game(
             turn=0,
             end_turn=None,
@@ -363,7 +348,7 @@ class Game(NamedTuple):
             draw_pile=tuple(DECK.values()),
             discarded_card_index=None,
             discard_pile=(0,) * len(DECK),
-            players=(player,) * players,
+            players=tuple(Player(index=i, score=0, hand=hand) for i in range(players)),
         )
 
     # MARK: Deal
@@ -504,13 +489,11 @@ class Game(NamedTuple):
         turn += 1
         if turn == len(players):
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            lowest_hand_player_index = max(
+            highest_index = max(
                 range(len(players)),
                 key=lambda i: players[i].hand_score_revealed,
             )
-            for _ in range(lowest_hand_player_index):
-                turn += 1
-                players = (*players[1:], players[0])
+            players = (*players[highest_index:], *players[:highest_index])
 
         return Game(
             turn=turn,

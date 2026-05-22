@@ -48,6 +48,7 @@ def test_play_two(rng: random.Random) -> None:
         discard_pile=(0, 2, 2, 2, 0, 1, 1, 2, 3, 3, 1, 0, 1, 0, 2),
         players=(
             sj.Player(
+                index=0,
                 score=0,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
@@ -65,6 +66,7 @@ def test_play_two(rng: random.Random) -> None:
                 ),
             ),
             sj.Player(
+                index=1,
                 score=0,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
@@ -106,6 +108,7 @@ def test_play_three(rng: random.Random) -> None:
         discard_pile=(0, 2, 3, 3, 1, 2, 2, 2, 3, 3, 1, 2, 1, 0, 5),
         players=(
             sj.Player(
+                index=0,
                 score=0,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
@@ -123,6 +126,7 @@ def test_play_three(rng: random.Random) -> None:
                 ),
             ),
             sj.Player(
+                index=1,
                 score=0,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
@@ -140,6 +144,7 @@ def test_play_three(rng: random.Random) -> None:
                 ),
             ),
             sj.Player(
+                index=2,
                 score=0,
                 hand=(
                     sj.Finger(card_index=6, is_revealed=True),
@@ -191,6 +196,7 @@ def test_play_forfeit(rng: random.Random) -> None:
         discard_pile=(0, 0, 0, 0, 1, 0, 0, 2, 0, 2, 1, 0, 0, 0, 1),
         players=(
             sj.Player(
+                index=1,
                 score=0,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
@@ -208,6 +214,7 @@ def test_play_forfeit(rng: random.Random) -> None:
                 ),
             ),
             sj.Player(
+                index=0,
                 score=0,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
@@ -237,6 +244,7 @@ def test_play_forfeit(rng: random.Random) -> None:
         discard_pile=(0, 0, 0, 0, 1, 0, 0, 2, 0, 2, 1, 0, 0, 0, 1),
         players=(
             sj.Player(
+                index=1,
                 score=0,
                 hand=(
                     sj.Finger(card_index=1, is_revealed=True),
@@ -254,6 +262,7 @@ def test_play_forfeit(rng: random.Random) -> None:
                 ),
             ),
             sj.Player(
+                index=0,
                 score=0,
                 hand=(
                     sj.Finger(card_index=10, is_revealed=True),
