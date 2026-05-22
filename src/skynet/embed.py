@@ -5,13 +5,13 @@ from typing import NamedTuple
 
 import torch
 
-import skyjo2 as sj
+from skyjo2 import DECK, HAND_COLUMNS, HAND_ROWS, Finger, Game, State
 
 DTYPE = torch.float32
 
 TURN_SIZE = 1
-STATE_SIZE = len(sj.State)
-CARD_SIZE = len(sj.DECK)
+STATE_SIZE = len(State)
+CARD_SIZE = len(DECK)
 DRAWN_CARD_SIZE = CARD_SIZE
 DRAW_PILE_SIZE = CARD_SIZE
 DISCARDED_CARD_SIZE = CARD_SIZE
@@ -19,14 +19,14 @@ DISCARD_PILE_SIZE = CARD_SIZE
 FINGER_SIZE = CARD_SIZE + 2  # hidden, cleared
 
 
-def get_state_embedding(state: sj.State, tensor: torch.Tensor) -> torch.Tensor:
+def get_state_embedding(state: State, tensor: torch.Tensor) -> torch.Tensor:
     assert tensor.shape == (STATE_SIZE,)
-    tensor[0] = state == sj.State.DEAL_FIRST_CARD
-    tensor[1] = state == sj.State.REVEAL_SECOND_CARD
-    tensor[2] = state == sj.State.DRAW_OR_REPLACE_WITH_DISCARD
-    tensor[3] = state == sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
-    tensor[4] = state == sj.State.ENDED
-    tensor[5] = state == sj.State.FORFEITED
+    tensor[0] = state == State.DEAL_FIRST_CARD
+    tensor[1] = state == State.REVEAL_SECOND_CARD
+    tensor[2] = state == State.DRAW_OR_REPLACE_WITH_DISCARD
+    tensor[3] = state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
+    tensor[4] = state == State.ENDED_BY_REVEAL
+    tensor[5] = state == State.ENDED_BY_FORFEIT
     return tensor
 
 
@@ -48,7 +48,7 @@ def get_pile_embedding(
     return tensor
 
 
-def get_finger_embedding(finger: sj.Finger, tensor: torch.Tensor) -> torch.Tensor:
+def get_finger_embedding(finger: Finger, tensor: torch.Tensor) -> torch.Tensor:
     assert tensor.shape == (FINGER_SIZE,)
     tensor[:] = False
     if finger.is_hidden:
@@ -61,7 +61,7 @@ def get_finger_embedding(finger: sj.Finger, tensor: torch.Tensor) -> torch.Tenso
     return tensor
 
 
-def get_game_non_spatial_shape(game: sj.Game) -> tuple[int, ...]:
+def get_game_non_spatial_shape(game: Game) -> tuple[int, ...]:
     SCORES_SIZE = len(game.players)
     return (
         TURN_SIZE
@@ -75,7 +75,7 @@ def get_game_non_spatial_shape(game: sj.Game) -> tuple[int, ...]:
 
 
 def get_game_non_spatial_embedding(
-    game: sj.Game,
+    game: Game,
     tensor: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if tensor is None:
@@ -110,13 +110,13 @@ def get_game_non_spatial_embedding(
     return tensor
 
 
-def get_game_spatial_shape(game: sj.Game) -> tuple[int, ...]:
+def get_game_spatial_shape(game: Game) -> tuple[int, ...]:
     PLAYERS_SIZE = len(game.players)
-    return (PLAYERS_SIZE, sj.HAND_ROWS, sj.HAND_COLUMNS, FINGER_SIZE)
+    return (PLAYERS_SIZE, HAND_ROWS, HAND_COLUMNS, FINGER_SIZE)
 
 
 def get_game_spatial_embedding(
-    game: sj.Game,
+    game: Game,
     tensor: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if tensor is None:
@@ -126,7 +126,7 @@ def get_game_spatial_embedding(
 
     for i, player in enumerate(game.players):
         for j, finger in enumerate(player.hand):
-            row, column = divmod(j, sj.HAND_COLUMNS)
+            row, column = divmod(j, HAND_COLUMNS)
             get_finger_embedding(finger, tensor[i, row, column, :])
 
     return tensor
@@ -137,7 +137,7 @@ class GameShape(NamedTuple):
     spatial: tuple[int, ...]
 
 
-def get_game_shape(game: sj.Game) -> tuple[tuple[int, ...], tuple[int, ...]]:
+def get_game_shape(game: Game) -> tuple[tuple[int, ...], tuple[int, ...]]:
     return GameShape(
         non_spatial=get_game_non_spatial_shape(game),
         spatial=get_game_spatial_shape(game),
@@ -150,7 +150,7 @@ class GameEmbedding(NamedTuple):
 
 
 def get_game_embedding(
-    game: sj.Game,
+    game: Game,
     non_spatial_tensor: torch.Tensor | None = None,
     spatial_tensor: torch.Tensor | None = None,
 ) -> GameEmbedding:

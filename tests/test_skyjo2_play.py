@@ -9,22 +9,22 @@ import skyjo2.play as sj_play
 class DrawPlayer(sj_play.Player):
     def play(self, game: sj.Game) -> sj_play.Action:
         if game.state == sj.State.REVEAL_SECOND_CARD:
-            return sj_play.RevealSecondCard(1)  # same column
+            return (sj_play.ActionKind.REVEAL_SECOND_CARD, 1)  # same column
         elif game.state == sj.State.DRAW_OR_REPLACE_WITH_DISCARD:
-            return sj_play.DrawCard()
+            return (sj_play.ActionKind.DRAW_CARD,)
         elif game.state == sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
             for i, finger in enumerate(game.player.hand):
                 if finger.is_hidden:
-                    return sj_play.ReplaceCardWithDraw(i)
+                    return (sj_play.ActionKind.REPLACE_WITH_DRAW, i)
         assert False, f"unknown state {game}"
 
 
 class StallPlayer(sj_play.Player):
     def play(self, game: sj.Game) -> sj_play.Action:
         if game.state == sj.State.REVEAL_SECOND_CARD:
-            return sj_play.RevealSecondCard(1)  # same column
+            return (sj_play.ActionKind.REVEAL_SECOND_CARD, 1)  # same column
         elif game.state == sj.State.DRAW_OR_REPLACE_WITH_DISCARD:
-            return sj_play.ReplaceCardWithDiscard(2)
+            return (sj_play.ActionKind.REPLACE_WITH_DISCARD, 2)
         elif game.state == sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
             assert False, f"unexpected state {game}"
         assert False, f"unknown state {game}"

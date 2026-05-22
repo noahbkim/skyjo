@@ -2,37 +2,26 @@ from __future__ import annotations
 
 import random
 from collections.abc import Sequence
-from typing import Iterator, NamedTuple, Protocol
+from enum import IntEnum, auto
+from typing import Iterator, Protocol
 
 from . import HAND_ROWS, Game, State
 
 
-class RevealSecondCard(NamedTuple):
-    finger_index: int
-
-
-class DrawCard(NamedTuple):
-    pass
-
-
-class DiscardDrawAndRevealCard(NamedTuple):
-    finger_index: int
-
-
-class ReplaceCardWithDraw(NamedTuple):
-    finger_index: int
-
-
-class ReplaceCardWithDiscard(NamedTuple):
-    finger_index: int
+class ActionKind(IntEnum):
+    REVEAL_SECOND_CARD = auto()
+    DRAW_CARD = auto()
+    DISCARD_DRAW_AND_REVEAL_CARD = auto()
+    REPLACE_WITH_DRAW = auto()
+    REPLACE_WITH_DISCARD = auto()
 
 
 type Action = (
-    RevealSecondCard
-    | DrawCard
-    | DiscardDrawAndRevealCard
-    | ReplaceCardWithDraw
-    | ReplaceCardWithDiscard
+    tuple[ActionKind.REVEAL_SECOND_CARD, int]
+    | tuple[ActionKind.DRAW_CARD]
+    | tuple[ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, int]
+    | tuple[ActionKind.REPLACE_WITH_DRAW, int]
+    | tuple[ActionKind.REPLACE_WITH_DISCARD, int]
 )
 
 
@@ -57,23 +46,23 @@ def explore(game: Game) -> Iterator[Action]:
         assert game.player.hand[0].is_revealed
         # Only distinct choices are same column and different column.
         assert not game.player.hand[1].is_revealed
-        yield RevealSecondCard(1)  # same column
+        yield (ActionKind.REVEAL_SECOND_CARD, 1)  # same column
         assert not game.player.hand[HAND_ROWS].is_revealed
-        yield RevealSecondCard(HAND_ROWS)  # different column
+        yield (ActionKind.REVEAL_SECOND_CARD, HAND_ROWS)  # different column
 
     elif game.state == State.DRAW_OR_REPLACE_WITH_DISCARD:
-        yield DrawCard()
+        yield (ActionKind.DRAW_CARD)
         for i, finger in enumerate(game.player.hand):
             if not finger.is_cleared:
-                yield ReplaceCardWithDiscard(i)
+                yield (ActionKind.REPLACE_WITH_DISCARD, i)
 
     elif game.state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
         for i, finger in enumerate(game.player.hand):
             if not finger.is_revealed:
                 assert not finger.is_cleared
-                yield DiscardDrawAndRevealCard(i)
+                yield (ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, i)
             if not finger.is_cleared:
-                yield ReplaceCardWithDraw(i)
+                yield (ActionKind.REPLACE_WITH_DRAW, i)
 
     else:
         assert False, f"unknown state {game}"
@@ -107,7 +96,7 @@ def play(
         match game, action:
             case (
                 Game(state=State.REVEAL_SECOND_CARD),
-                RevealSecondCard(finger_index),
+                (ActionKind.REVEAL_SECOND_CARD, finger_index),
             ):
                 game = game.with_random_second_card_revealed(
                     finger_index,
@@ -115,14 +104,14 @@ def play(
                 )
             case (
                 Game(state=State.DRAW_OR_REPLACE_WITH_DISCARD),
-                DrawCard(),
+                (ActionKind.DRAW_CARD,),
             ):
                 game = game.with_random_drawn_card(
                     rng=rng,
                 )
             case (
                 Game(state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
-                DiscardDrawAndRevealCard(finger_index),
+                (ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, finger_index),
             ):
                 game = game.with_draw_discarded_and_random_card_revealed(
                     finger_index,
@@ -130,7 +119,7 @@ def play(
                 )
             case (
                 Game(state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
-                ReplaceCardWithDraw(finger_index),
+                (ActionKind.REPLACE_WITH_DRAW, finger_index),
             ):
                 game = game.with_random_card_replaced_with_draw(
                     finger_index,
@@ -138,7 +127,7 @@ def play(
                 )
             case (
                 Game(state=State.DRAW_OR_REPLACE_WITH_DISCARD),
-                ReplaceCardWithDiscard(finger_index),
+                (ActionKind.REPLACE_WITH_DISCARD, finger_index),
             ):
                 game = game.with_random_card_replaced_with_discard(
                     finger_index,
