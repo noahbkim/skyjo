@@ -95,7 +95,7 @@ def play(
     game = Game.new(players=len(players))
     yield game
 
-    game = game.with_random_first_cards_dealt(rng=rng)
+    game = game.with_random_discard_and_first_cards_dealt(rng=rng)
     yield game
 
     while not game.is_ended:
