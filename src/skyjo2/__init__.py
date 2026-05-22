@@ -1,3 +1,12 @@
+"""A framework for simulating games of Skyjo.
+
+From https://magilano.com/en:
+
+> Skyjo is a fast and exciting card game where players compete to
+> achieve the lowest score by flipping, trading, and gathering cards
+> over several rounds.
+"""
+
 from __future__ import annotations
 
 import random
@@ -39,7 +48,7 @@ class Finger(NamedTuple):
     """The card at this position, if present, by index."""
 
     is_revealed: bool
-    """Whether the card is hidden."""
+    """Whether the card is face up (revealed) or face down (hidden)."""
 
     @property
     def is_cleared(self) -> bool:
@@ -491,11 +500,11 @@ class Game(NamedTuple):
         players = (*players[1:], players[0])
 
         # Check if we're done revealing cards. If we are, we need to skip turns
-        # until we've reached the player who revealed the lowest cards.
+        # until we've reached the player who revealed the highest cards.
         turn += 1
         if turn == len(players):
             state = State.DRAW_OR_REPLACE_WITH_DISCARD
-            lowest_hand_player_index = min(
+            lowest_hand_player_index = max(
                 range(len(players)),
                 key=lambda i: players[i].hand_score_revealed,
             )
