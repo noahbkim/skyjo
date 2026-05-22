@@ -42,7 +42,7 @@ class RandomPlayer(skyjo2.play.Player):
         self.rng = rng
 
     def play(self, game: skyjo2.Game) -> skyjo2.play.Action:
-        actions = tuple(skyjo2.play.explore(game))
+        actions = tuple(skyjo2.play.iter_actions(game))
         assert len(actions) > 0
         return self.rng.choice(actions)
 

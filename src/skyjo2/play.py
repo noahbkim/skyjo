@@ -36,13 +36,10 @@ class Player(Protocol):
         """Play an action based on the current state of the game."""
 
 
-def explore(game: Game) -> Iterator[Action]:
+def iter_actions(game: Game) -> Iterator[Action]:
     """Yield all actions that may be played for a given game."""
 
-    if game.state == State.DEAL_FIRST_CARD:
-        return
-
-    elif game.state == State.REVEAL_SECOND_CARD:
+    if game.state == State.REVEAL_SECOND_CARD:
         assert game.player.hand[0].is_revealed
         # Only distinct choices are same column and different column.
         assert not game.player.hand[1].is_revealed
@@ -51,7 +48,7 @@ def explore(game: Game) -> Iterator[Action]:
         yield (ActionKind.REVEAL_SECOND_CARD, HAND_ROWS)  # different column
 
     elif game.state == State.DRAW_OR_REPLACE_WITH_DISCARD:
-        yield (ActionKind.DRAW_CARD)
+        yield (ActionKind.DRAW_CARD,)
         for i, finger in enumerate(game.player.hand):
             if not finger.is_cleared:
                 yield (ActionKind.REPLACE_WITH_DISCARD, i)
@@ -64,8 +61,7 @@ def explore(game: Game) -> Iterator[Action]:
             if not finger.is_cleared:
                 yield (ActionKind.REPLACE_WITH_DRAW, i)
 
-    else:
-        assert False, f"unknown state {game}"
+    assert False
 
 
 def play(
