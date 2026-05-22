@@ -143,7 +143,7 @@ def play(
         # making progress, and if so, forfeit. Doing so sets the game's state
         # to `State.NULL`, meaning we don't have to break.
         if not game.is_ending and no_progress_turn_max is not None:
-            turn_per_player = turn // len(players)
+            turn_per_player = (turn + len(players) - 1) // len(players)
             no_progress_turn_count = last_progress_turns[player_index] - turn_per_player
             if no_progress_turn_count > no_progress_turn_max:
                 game = game.with_forfeit()
