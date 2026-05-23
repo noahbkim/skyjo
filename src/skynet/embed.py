@@ -5,12 +5,12 @@ from typing import NamedTuple
 
 import torch
 
-from skyjo2 import DECK, HAND_COLUMNS, HAND_ROWS, Finger, Game, State
+from skyjo2 import DECK, HAND_COLUMNS, HAND_ROWS, Finger, Game, GameState
 
 DTYPE = torch.float32
 
 TURN_SIZE = 1
-STATE_SIZE = len(State)
+STATE_SIZE = len(GameState)
 CARD_SIZE = len(DECK)
 DRAWN_CARD_SIZE = CARD_SIZE
 DRAW_PILE_SIZE = CARD_SIZE
@@ -19,13 +19,13 @@ DISCARD_PILE_SIZE = CARD_SIZE
 FINGER_SIZE = CARD_SIZE + 2  # hidden, cleared
 
 
-def get_state_embedding(state: State, tensor: torch.Tensor) -> torch.Tensor:
+def get_state_embedding(state: GameState, tensor: torch.Tensor) -> torch.Tensor:
     assert tensor.shape == (STATE_SIZE,)
-    tensor[0] = state == State.DEAL_FIRST_CARDS
-    tensor[1] = state == State.REVEAL_SECOND_CARD
-    tensor[2] = state == State.DRAW_OR_REPLACE_WITH_DISCARD
-    tensor[3] = state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
-    tensor[4] = state == State.REVEAL_HIDDEN_CARDS
+    tensor[0] = state == GameState.DEAL_FIRST_CARDS
+    tensor[1] = state == GameState.REVEAL_SECOND_CARD
+    tensor[2] = state == GameState.DRAW_OR_REPLACE_WITH_DISCARD
+    tensor[3] = state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
+    tensor[4] = state == GameState.REVEAL_HIDDEN_CARDS
     return tensor
 
 

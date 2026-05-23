@@ -51,7 +51,7 @@ class InteractivePlayer(skyjo2.play.Player):
     """Prompts the user for their own actions."""
 
     def play(self, game: skyjo2.Game) -> skyjo2.play.Action:
-        if game.state == skyjo2.State.REVEAL_SECOND_CARD:
+        if game.state == skyjo2.GameState.REVEAL_SECOND_CARD:
             while True:
                 choice = input(
                     "> reveal the second card below the top left (1, 0) or to the right of it (0, 1) [b/r/(r, c)] "
@@ -69,7 +69,7 @@ class InteractivePlayer(skyjo2.play.Player):
                         continue
                     return skyjo2.play.RevealSecondCard(finger_index)
                 print("invalid choice")
-        elif game.state == skyjo2.State.DRAW_OR_REPLACE_WITH_DISCARD:
+        elif game.state == skyjo2.GameState.DRAW_OR_REPLACE_WITH_DISCARD:
             while True:
                 choice = input(
                     "> draw or replace a card with the discard [d/r (r, c)] "
@@ -86,7 +86,9 @@ class InteractivePlayer(skyjo2.play.Player):
                         continue
                     return skyjo2.play.ReplaceCardWithDiscard(finger_index)
                 print("invalid choice")
-        elif game.state == skyjo2.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+        elif (
+            game.state == skyjo2.GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
+        ):
             while True:
                 choice = input(
                     "> discard draw and reveal a card or place the draw in your hand [r (r, c)/p (r, c)] "
@@ -192,7 +194,7 @@ def main() -> None:
     print(f"players: {len(players)}")
     print()
     for game in skyjo2.play.play(tuple(map(NarratedPlayer, players)), rng=rng):
-        if game.state == skyjo2.State.DEAL_FIRST_CARDS:
+        if game.state == skyjo2.GameState.DEAL_FIRST_CARDS:
             print("# all players were dealt their first card")
             print()
             continue

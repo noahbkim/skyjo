@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from enum import IntEnum, auto
 from typing import Iterator, Protocol
 
-from . import HAND_ROWS, Game, State
+from . import HAND_ROWS, Game, GameState
 
 
 class ActionKind(IntEnum):
@@ -39,7 +39,7 @@ class Player(Protocol):
 def iter_actions(game: Game) -> Iterator[Action]:
     """Yield all actions that may be played for a given game."""
 
-    if game.state == State.REVEAL_SECOND_CARD:
+    if game.state == GameState.REVEAL_SECOND_CARD:
         assert game.player.hand[0].is_revealed
         # Only distinct choices are same column and different column.
         assert not game.player.hand[1].is_revealed
@@ -47,13 +47,13 @@ def iter_actions(game: Game) -> Iterator[Action]:
         assert not game.player.hand[HAND_ROWS].is_revealed
         yield (ActionKind.REVEAL_SECOND_CARD, HAND_ROWS)  # different column
 
-    elif game.state == State.DRAW_OR_REPLACE_WITH_DISCARD:
+    elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
         yield (ActionKind.DRAW_CARD,)
         for i, finger in enumerate(game.player.hand):
             if not finger.is_cleared:
                 yield (ActionKind.REPLACE_WITH_DISCARD, i)
 
-    elif game.state == State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+    elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
         for i, finger in enumerate(game.player.hand):
             if not finger.is_revealed:
                 assert not finger.is_cleared
@@ -91,15 +91,15 @@ def play(
         game = game.with_random_discard_and_first_cards_dealt(rng=rng)
         yield game
 
-        while game.state != State.REVEAL_HIDDEN_CARDS:
+        while game.state != GameState.REVEAL_HIDDEN_CARDS:
             turn = game.turn
-            player_index = turn % len(players)
+            player_index = game.player.index
             player_hand_revealed_count = game.player.hand_revealed_count
 
             action = players[player_index].play(game)
             match game, action:
                 case (
-                    Game(state=State.REVEAL_SECOND_CARD),
+                    Game(state=GameState.REVEAL_SECOND_CARD),
                     (ActionKind.REVEAL_SECOND_CARD, finger_index),
                 ):
                     game = game.with_random_second_card_revealed(
@@ -107,14 +107,14 @@ def play(
                         rng=rng,
                     )
                 case (
-                    Game(state=State.DRAW_OR_REPLACE_WITH_DISCARD),
+                    Game(state=GameState.DRAW_OR_REPLACE_WITH_DISCARD),
                     (ActionKind.DRAW_CARD,),
                 ):
                     game = game.with_random_drawn_card(
                         rng=rng,
                     )
                 case (
-                    Game(state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
+                    Game(state=GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
                     (ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, finger_index),
                 ):
                     game = game.with_draw_discarded_and_random_card_revealed(
@@ -122,7 +122,7 @@ def play(
                         rng=rng,
                     )
                 case (
-                    Game(state=State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
+                    Game(state=GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
                     (ActionKind.REPLACE_WITH_DRAW, finger_index),
                 ):
                     game = game.with_random_card_replaced_with_draw(
@@ -130,7 +130,7 @@ def play(
                         rng=rng,
                     )
                 case (
-                    Game(state=State.DRAW_OR_REPLACE_WITH_DISCARD),
+                    Game(state=GameState.DRAW_OR_REPLACE_WITH_DISCARD),
                     (ActionKind.REPLACE_WITH_DISCARD, finger_index),
                 ):
                     game = game.with_random_card_replaced_with_discard(

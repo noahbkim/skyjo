@@ -8,11 +8,11 @@ import skyjo2.play as sj_play
 
 class DrawPlayer(sj_play.Player):
     def play(self, game: sj.Game) -> sj_play.Action:
-        if game.state == sj.State.REVEAL_SECOND_CARD:
+        if game.state == sj.GameState.REVEAL_SECOND_CARD:
             return (sj_play.ActionKind.REVEAL_SECOND_CARD, 1)  # same column
-        elif game.state == sj.State.DRAW_OR_REPLACE_WITH_DISCARD:
+        elif game.state == sj.GameState.DRAW_OR_REPLACE_WITH_DISCARD:
             return (sj_play.ActionKind.DRAW_CARD,)
-        elif game.state == sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+        elif game.state == sj.GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
             for i, finger in enumerate(game.player.hand):
                 if finger.is_hidden:
                     return (sj_play.ActionKind.REPLACE_WITH_DRAW, i)
@@ -21,11 +21,11 @@ class DrawPlayer(sj_play.Player):
 
 class StallPlayer(sj_play.Player):
     def play(self, game: sj.Game) -> sj_play.Action:
-        if game.state == sj.State.REVEAL_SECOND_CARD:
+        if game.state == sj.GameState.REVEAL_SECOND_CARD:
             return (sj_play.ActionKind.REVEAL_SECOND_CARD, 1)  # same column
-        elif game.state == sj.State.DRAW_OR_REPLACE_WITH_DISCARD:
+        elif game.state == sj.GameState.DRAW_OR_REPLACE_WITH_DISCARD:
             return (sj_play.ActionKind.REPLACE_WITH_DISCARD, 2)
-        elif game.state == sj.State.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+        elif game.state == sj.GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
             assert False, f"unexpected state {game}"
         assert False, f"unknown state {game}"
 
@@ -43,7 +43,7 @@ def test_play_round_two(rng: random.Random) -> None:
     assert result == sj.Game(
         turn=22,
         end_turn=20,
-        state=sj.State.DEAL_FIRST_CARDS,
+        state=sj.GameState.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(4, 7, 11, 7, 7, 8, 7, 5, 6, 5, 7, 10, 7, 8, 6),
         discarded_card_index=6,
@@ -102,7 +102,7 @@ def test_play_round_three(rng: random.Random) -> None:
     assert result == sj.Game(
         turn=33,
         end_turn=30,
-        state=sj.State.DEAL_FIRST_CARDS,
+        state=sj.GameState.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(3, 6, 8, 6, 4, 7, 6, 5, 6, 4, 6, 6, 5, 8, 3),
         discarded_card_index=2,
@@ -181,7 +181,7 @@ def test_play_round_forfeit(rng: random.Random) -> None:
     assert replay[-2] == sj.Game(
         turn=15,
         end_turn=13,
-        state=sj.State.REVEAL_HIDDEN_CARDS,
+        state=sj.GameState.REVEAL_HIDDEN_CARDS,
         drawn_card_index=None,
         draw_pile=(5, 9, 13, 8, 9, 9, 9, 7, 9, 8, 8, 10, 8, 9, 9),
         discarded_card_index=2,
@@ -229,7 +229,7 @@ def test_play_round_forfeit(rng: random.Random) -> None:
     assert result == sj.Game(
         turn=15,
         end_turn=13,
-        state=sj.State.DEAL_FIRST_CARDS,
+        state=sj.GameState.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(5, 8, 12, 7, 8, 8, 8, 7, 8, 6, 7, 10, 8, 9, 7),
         discarded_card_index=2,
@@ -289,7 +289,7 @@ def test_play_game_three(rng: random.Random) -> None:
     assert result == sj.Game(
         turn=33,
         end_turn=30,
-        state=sj.State.DEAL_FIRST_CARDS,
+        state=sj.GameState.DEAL_FIRST_CARDS,
         drawn_card_index=None,
         draw_pile=(1, 2, 0, 2, 0, 1, 1, 1, 1, 1, 1, 0, 2, 3, 0),
         discarded_card_index=4,
