@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from collections.abc import Iterable
 
 from . import CARD_VALUES, HAND_COLUMNS, HAND_ROWS, Finger, Game
@@ -25,14 +24,11 @@ def render_finger(finger: Finger) -> str:
     return str(CARD_VALUES[finger.card_index]).rjust(2)
 
 
-def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
+def render_game(game: Game) -> Iterable[str]:
     """Render the game as ASCII art."""
 
-    if column_max is None:
-        column_max = shutil.get_terminal_size((0, 0)).columns
-
     yield (
-        f"turn: {game.turn}"
+        f"turn: {game.turn_index}"
         + (
             f"  discard: {render_card(game.discarded_card_index)}"
             if game.discarded_card_index is not None
@@ -48,9 +44,11 @@ def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
     yield ""
 
     hand_width = HAND_COLUMNS * 2 + HAND_COLUMNS - 1
+    player_index = game.player_index
+    marker = "> "
 
     yield "  ".join(
-        _lrjust(f"p{(i + game.turn) % len(game.players)}:", player.score, hand_width)
+        _lrjust(f"{marker * (i == player_index)}p{i}", player.score, hand_width)
         for i, player in enumerate(game.players)
     )
 

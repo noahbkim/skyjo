@@ -16,3 +16,4 @@ from .game import Finger as Finger
 from .game import Game as Game
 from .game import GameState as GameState
 from .game import Player as Player
+from .render import render_game as render_game

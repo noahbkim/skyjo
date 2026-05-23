@@ -16,13 +16,39 @@ class ActionKind(IntEnum):
     REPLACE_WITH_DISCARD = auto()
 
 
+type RevealSecondCard = tuple[ActionKind.REVEAL_SECOND_CARD, int]
+type DrawCard = tuple[ActionKind.DRAW_CARD]
+type DiscardDrawAndRevealCard = tuple[ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, int]
+type ReplaceWithDraw = tuple[ActionKind.REPLACE_WITH_DRAW, int]
+type ReplaceWithDiscard = tuple[ActionKind.REPLACE_WITH_DISCARD, int]
+
 type Action = (
-    tuple[ActionKind.REVEAL_SECOND_CARD, int]
-    | tuple[ActionKind.DRAW_CARD]
-    | tuple[ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, int]
-    | tuple[ActionKind.REPLACE_WITH_DRAW, int]
-    | tuple[ActionKind.REPLACE_WITH_DISCARD, int]
+    RevealSecondCard
+    | DrawCard
+    | DiscardDrawAndRevealCard
+    | ReplaceWithDraw
+    | ReplaceWithDiscard
 )
+
+
+def reveal_second_card(card_index: int) -> RevealSecondCard:
+    return (ActionKind.REVEAL_SECOND_CARD, card_index)
+
+
+def draw_card() -> DrawCard:
+    return (ActionKind.DRAW_CARD,)
+
+
+def discard_draw_and_reveal_card(card_index: int) -> DiscardDrawAndRevealCard:
+    return (ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, card_index)
+
+
+def replace_with_draw(card_index: int) -> ReplaceWithDraw:
+    return (ActionKind.REPLACE_WITH_DRAW, card_index)
+
+
+def replace_with_discard(card_index: int) -> ReplaceWithDiscard:
+    return (ActionKind.REPLACE_WITH_DISCARD, card_index)
 
 
 class Rule(Exception):
@@ -92,9 +118,9 @@ def play(
         yield game
 
         while game.state != GameState.REVEAL_HIDDEN_CARDS:
-            turn = game.turn
-            player_index = game.player.index
+            turn_index = game.turn_index
             player_hand_revealed_count = game.player.hand_revealed_count
+            player_index = game.player_index
 
             action = players[player_index].play(game)
             match game, action:
@@ -104,14 +130,14 @@ def play(
                 ):
                     game = game.with_random_second_card_revealed(
                         finger_index,
-                        rng=rng,
+                        rng,
                     )
                 case (
                     Game(state=GameState.DRAW_OR_REPLACE_WITH_DISCARD),
                     (ActionKind.DRAW_CARD,),
                 ):
                     game = game.with_random_drawn_card(
-                        rng=rng,
+                        rng,
                     )
                 case (
                     Game(state=GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
@@ -119,7 +145,7 @@ def play(
                 ):
                     game = game.with_draw_discarded_and_random_card_revealed(
                         finger_index,
-                        rng=rng,
+                        rng,
                     )
                 case (
                     Game(state=GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW),
@@ -127,7 +153,7 @@ def play(
                 ):
                     game = game.with_random_card_replaced_with_draw(
                         finger_index,
-                        rng=rng,
+                        rng,
                     )
                 case (
                     Game(state=GameState.DRAW_OR_REPLACE_WITH_DISCARD),
@@ -135,25 +161,28 @@ def play(
                 ):
                     game = game.with_random_card_replaced_with_discard(
                         finger_index,
-                        rng=rng,
+                        rng,
                     )
                 case _, _:
                     raise Rule(f"Invalid action {action} for game {game}")
 
             # Check if the player revealed any new cards. Don't forget to account
             # for the player list rotating as the game state iterates.
-            if game.players[-1].hand_revealed_count > player_hand_revealed_count:
-                last_progress_turns[player_index] = turn
+            if (
+                game.players[player_index].hand_revealed_count
+                > player_hand_revealed_count
+            ):
+                last_progress_turns[player_index] = turn_index
 
             yield game
 
             # Check if the current player has exceeded the limit for turns without
             # making progress, and if so, forfeit. Doing so sets the game's state
             # to `State.NULL`, meaning we don't have to break.
-            if not game.is_ending and no_progress_turn_max is not None:
-                turn_per_player = (turn + len(players) - 1) // len(players)
+            if game.end_player_index is None and no_progress_turn_max is not None:
+                turn_count_per_player = turn_index // len(players)
                 no_progress_turn_count = (
-                    last_progress_turns[player_index] - turn_per_player
+                    last_progress_turns[player_index] - turn_count_per_player
                 )
                 if no_progress_turn_count > no_progress_turn_max:
                     game = game.with_forfeit()
