@@ -2,37 +2,45 @@ from __future__ import annotations
 
 import random
 
-import skyjo2.play as sj_play
-from skyjo2 import Finger, Game, GameState, Player
+from skyjo2 import (
+    Action,
+    Finger,
+    Game,
+    GameState,
+    Player,
+    draw_card,
+    play,
+    replace_with_discard,
+    replace_with_draw,
+    reveal_second_card,
+)
 
 
-class DrawPlayer(sj_play.Player):
-    def play(self, game: Game) -> sj_play.Action:
-        if game.state == GameState.REVEAL_SECOND_CARD:
-            return sj_play.reveal_second_card(1)
-        elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
-            return sj_play.draw_card()
-        elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
-            for i, finger in enumerate(game.player.hand):
-                if finger.is_hidden:
-                    return sj_play.replace_with_draw(i)
-        assert False, f"unknown state {game}"
+def draw(game: Game) -> Action:
+    if game.state == GameState.REVEAL_SECOND_CARD:
+        return reveal_second_card(1)
+    elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
+        return draw_card()
+    elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+        for i, finger in enumerate(game.player.hand):
+            if finger.is_hidden:
+                return replace_with_draw(i)
+    assert False, f"unknown state {game}"
 
 
-class StallPlayer(sj_play.Player):
-    def play(self, game: Game) -> sj_play.Action:
-        if game.state == GameState.REVEAL_SECOND_CARD:
-            return sj_play.reveal_second_card(1)
-        elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
-            return sj_play.replace_with_discard(2)
-        elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
-            assert False, f"unexpected state {game}"
-        assert False, f"unknown state {game}"
+def stall(game: Game) -> Action:
+    if game.state == GameState.REVEAL_SECOND_CARD:
+        return reveal_second_card(1)
+    elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
+        return replace_with_discard(2)
+    elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+        assert False, f"unexpected state {game}"
+    assert False, f"unknown state {game}"
 
 
 def test_play_round_two(rng: random.Random) -> None:
-    players = (DrawPlayer(), DrawPlayer())
-    replay = list(sj_play.play(players, rng=rng, round_max=1))
+    players = (draw, draw)
+    replay = list(play(players, rng=rng, round_max=1))
     # 1 (new)
     # 1 (deal)
     # 2 (reveal second)
@@ -89,8 +97,8 @@ def test_play_round_two(rng: random.Random) -> None:
 
 
 def test_play_round_three(rng: random.Random) -> None:
-    players = (DrawPlayer(), DrawPlayer(), DrawPlayer())
-    replay = list(sj_play.play(players, rng=rng, round_max=1))
+    players = (draw, draw, draw)
+    replay = list(play(players, rng=rng, round_max=1))
     # 1 (new)
     # 1 (deal)
     # 3 (reveal second)
@@ -164,8 +172,8 @@ def test_play_round_three(rng: random.Random) -> None:
 
 
 def test_play_round_forfeit(rng: random.Random) -> None:
-    players = (DrawPlayer(), StallPlayer())
-    replay = list(sj_play.play(players, rng=rng, no_progress_turn_max=5, round_max=1))
+    players = (draw, stall)
+    replay = list(play(players, rng=rng, no_progress_turn_max=5, round_max=1))
     # 1 (new)
     # 1 (deal)
     # 2 (reveal)
@@ -271,8 +279,8 @@ def test_play_round_forfeit(rng: random.Random) -> None:
 
 
 def test_play_game_three(rng: random.Random) -> None:
-    players = (DrawPlayer(), DrawPlayer(), DrawPlayer())
-    replay = list(sj_play.play(players, rng=rng))
+    players = (draw, draw, draw)
+    replay = list(play(players, rng=rng))
     # 1 (new)
     # ----------- x2 after this point for 2 rounds
     # 1 (deal)

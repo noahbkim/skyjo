@@ -12,11 +12,11 @@ def _lrjust(left: object, right: object, width: int) -> str:
     return f"{left}{space}{right}"
 
 
-def render_card(card_index: int) -> str:
+def _render_card(card_index: int) -> str:
     return str(CARD_VALUES[card_index])
 
 
-def render_finger(finger: Finger) -> str:
+def _render_finger(finger: Finger) -> str:
     if finger.is_hidden:
         return "[]"
     if finger.is_cleared:
@@ -24,18 +24,18 @@ def render_finger(finger: Finger) -> str:
     return str(CARD_VALUES[finger.card_index]).rjust(2)
 
 
-def render_game(game: Game) -> Iterable[str]:
+def render(game: Game) -> Iterable[str]:
     """Render the game as ASCII art."""
 
     yield (
         f"turn: {game.turn_index}"
         + (
-            f"  discard: {render_card(game.discarded_card_index)}"
+            f"  discard: {_render_card(game.discarded_card_index)}"
             if game.discarded_card_index is not None
             else ""
         )
         + (
-            f"  draw: {render_card(game.drawn_card_index)}"
+            f"  draw: {_render_card(game.drawn_card_index)}"
             if game.drawn_card_index is not None
             else ""
         )
@@ -48,7 +48,7 @@ def render_game(game: Game) -> Iterable[str]:
     marker = "> "
 
     yield "  ".join(
-        _lrjust(f"{marker * (i == player_index)}p{i}", player.score, hand_width)
+        _lrjust(f"{marker * (i == player_index)}p{i}:", player.score, hand_width)
         for i, player in enumerate(game.players)
     )
 
@@ -57,7 +57,7 @@ def render_game(game: Game) -> Iterable[str]:
     for row_index in range(HAND_ROWS):
         yield "  ".join(
             " ".join(
-                render_finger(finger) for finger in player.hand[row_index::HAND_ROWS]
+                _render_finger(finger) for finger in player.hand[row_index::HAND_ROWS]
             )
             for player in game.players
         )

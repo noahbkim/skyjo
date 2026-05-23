@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from skyjo2 import Game
-from skyjo2.play import Action as Action
-from skyjo2.play import ActionKind as ActionKind
-from skyjo2.play import iter_actions as iter_actions
+from skyjo2._play import Action as Action
+from skyjo2._play import ActionKind as ActionKind
+from skyjo2._play import iter_actions as iter_actions
 
 type Transition = (
     tuple[ActionKind.REVEAL_SECOND_CARD, int, int]

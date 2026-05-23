@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 from enum import IntEnum, auto
-from typing import Iterator, Protocol
+from typing import Iterator, Protocol, assert_never
 
 from . import HAND_ROWS, Game, GameState
 
@@ -55,11 +55,13 @@ class Rule(Exception):
     """Raised when a rule is broken, i.e. an invalid action is played."""
 
 
-class Player(Protocol):
+class Actor(Protocol):
     """A protocol that enables participation in a Skyjo game."""
 
-    def play(self, game: Game) -> Action:
+    def __call__(self, game: Game) -> Action:
         """Play an action based on the current state of the game."""
+
+        raise NotImplementedError()
 
 
 def iter_actions(game: Game) -> Iterator[Action]:
@@ -87,11 +89,12 @@ def iter_actions(game: Game) -> Iterator[Action]:
             if not finger.is_cleared:
                 yield (ActionKind.REPLACE_WITH_DRAW, i)
 
-    assert False
+    else:
+        assert_never(game.state)
 
 
 def play(
-    players: Sequence[Player],
+    actors: Sequence[Actor],
     rng: random.Random = random,
     *,
     round_max: int | None = None,
@@ -100,15 +103,15 @@ def play(
 ) -> Iterator[Game]:
     """Orchestrate a game between the provided players."""
 
-    assert 2 <= len(players) <= 8
+    assert 2 <= len(actors) <= 8
 
     # Count the total number of rounds we've played.
     round_index = 0
 
     # Keep track of the last time the player revealed or replaced a new card.
-    last_progress_turns = [0] * len(players)
+    last_progress_turns = [0] * len(actors)
 
-    game = Game.new(players=len(players))
+    game = Game.new(players=len(actors))
     yield game
 
     while (round_max is None or round_index < round_max) and (
@@ -122,7 +125,7 @@ def play(
             player_hand_revealed_count = game.player.hand_revealed_count
             player_index = game.player_index
 
-            action = players[player_index].play(game)
+            action = actors[player_index](game)
             match game, action:
                 case (
                     Game(state=GameState.REVEAL_SECOND_CARD),
@@ -180,7 +183,7 @@ def play(
             # making progress, and if so, forfeit. Doing so sets the game's state
             # to `State.NULL`, meaning we don't have to break.
             if game.end_player_index is None and no_progress_turn_max is not None:
-                turn_count_per_player = turn_index // len(players)
+                turn_count_per_player = turn_index // len(actors)
                 no_progress_turn_count = (
                     last_progress_turns[player_index] - turn_count_per_player
                 )
