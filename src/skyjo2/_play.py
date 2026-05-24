@@ -186,6 +186,11 @@ def play_round(
     *,
     no_progress_turn_max: int | None = None,
 ) -> Iterator[Game]:
+    """Play a single round of a Skyjo game."""
+
+    assert 2 <= len(actors) <= 8
+    assert len(actors) == len(game.players)
+
     # Keep track of the last time the player revealed or replaced a new card.
     last_progress_turns = [0] * len(actors)
 
@@ -235,6 +240,7 @@ def play_game(
     """Orchestrate a game between the provided players."""
 
     assert 2 <= len(actors) <= 8
+    assert len(actors) == len(game.players)
 
     while score_max is None or all(player.score < score_max for player in game.players):
         for game in play_round(
