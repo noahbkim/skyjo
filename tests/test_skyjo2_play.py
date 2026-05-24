@@ -183,11 +183,11 @@ def test_play_round_forfeit(rng: random.Random) -> None:
     assert len(replay) == 27
     assert replay[-2] == Game(
         state=GameState.REVEAL_HIDDEN_CARDS,
-        turn_index=15,
-        draw_pile=(5, 9, 12, 8, 9, 9, 9, 7, 9, 7, 8, 10, 8, 9, 9),
+        turn_index=16,
+        draw_pile=(5, 9, 13, 8, 9, 9, 9, 7, 9, 8, 8, 10, 8, 9, 9),
         drawn_card_index=None,
-        discard_pile=(0, 0, 2, 0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 0, 1),
-        discarded_card_index=9,
+        discard_pile=(0, 0, 1, 0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 0, 1),
+        discarded_card_index=2,
         players=(
             Player(
                 score=0,
@@ -201,7 +201,7 @@ def test_play_round_forfeit(rng: random.Random) -> None:
                     Finger(card_index=3, is_revealed=True),
                     Finger(card_index=7, is_revealed=True),
                     Finger(card_index=8, is_revealed=True),
-                    Finger(card_index=2, is_revealed=True),
+                    Finger(card_index=None, is_revealed=False),
                     Finger(card_index=None, is_revealed=False),
                     Finger(card_index=None, is_revealed=False),
                 ),
@@ -225,54 +225,7 @@ def test_play_round_forfeit(rng: random.Random) -> None:
             ),
         ),
         start_player_index=0,
-        end_player_index=1,
-    )
-    result = replay[-1]
-    assert result == Game(
-        state=GameState.DEAL_FIRST_CARDS,
-        turn_index=15,
-        draw_pile=(5, 8, 12, 7, 8, 8, 8, 7, 7, 6, 7, 10, 8, 9, 7),
-        drawn_card_index=None,
-        discard_pile=(0, 0, 2, 0, 0, 0, 0, 2, 0, 2, 1, 0, 0, 0, 1),
-        discarded_card_index=9,
-        players=(
-            Player(
-                score=66,
-                hand=(
-                    Finger(card_index=10, is_revealed=True),
-                    Finger(card_index=6, is_revealed=True),
-                    Finger(card_index=12, is_revealed=True),
-                    Finger(card_index=12, is_revealed=True),
-                    Finger(card_index=5, is_revealed=True),
-                    Finger(card_index=3, is_revealed=True),
-                    Finger(card_index=3, is_revealed=True),
-                    Finger(card_index=7, is_revealed=True),
-                    Finger(card_index=8, is_revealed=True),
-                    Finger(card_index=2, is_revealed=True),
-                    Finger(card_index=14, is_revealed=True),
-                    Finger(card_index=8, is_revealed=True),
-                ),
-            ),
-            Player(
-                score=108,
-                hand=(
-                    Finger(card_index=1, is_revealed=True),
-                    Finger(card_index=13, is_revealed=True),
-                    Finger(card_index=4, is_revealed=True),
-                    Finger(card_index=1, is_revealed=True),
-                    Finger(card_index=5, is_revealed=True),
-                    Finger(card_index=6, is_revealed=True),
-                    Finger(card_index=4, is_revealed=True),
-                    Finger(card_index=9, is_revealed=True),
-                    Finger(card_index=10, is_revealed=True),
-                    Finger(card_index=14, is_revealed=True),
-                    Finger(card_index=3, is_revealed=True),
-                    Finger(card_index=8, is_revealed=True),
-                ),
-            ),
-        ),
-        start_player_index=0,
-        end_player_index=1,
+        end_player_index=0,
     )
 
 

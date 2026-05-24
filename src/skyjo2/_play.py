@@ -192,35 +192,34 @@ def play_round(
     assert len(actors) == len(game.players)
 
     # Keep track of the last time the player revealed or replaced a new card.
-    last_progress_turns = [0] * len(actors)
+    last_progress_turn_index = list(range(len(game.players)))
 
     game = game.with_random_discard_and_first_cards_dealt(rng=rng)
     yield game
 
     while game.state != GameState.REVEAL_HIDDEN_CARDS:
         turn_index = game.turn_index
-        player_hand_revealed_count = game.player.hand_revealed_count
         player_index = game.player_index
+
+        # Only bother tracking revealed cards if we're enforcing progress.
+        if no_progress_turn_max is not None:
+            hand_revealed_count = game.player.hand_revealed_count
 
         action = actors[player_index](game)
         game = with_action(game, action, rng)
-
-        # Check if the player revealed any new cards. Don't forget to account
-        # for the player list rotating as the game state iterates.
-        if game.players[player_index].hand_revealed_count > player_hand_revealed_count:
-            last_progress_turns[player_index] = turn_index
-
         yield game
 
-        # Check if the current player has exceeded the limit for turns without
-        # making progress, and if so, forfeit. Doing so sets the game's state
-        # to `State.NULL`, meaning we don't have to break.
-        if game.end_player_index is None and no_progress_turn_max is not None:
-            turn_count_per_player = turn_index // len(actors)
-            no_progress_turn_count = (
-                last_progress_turns[player_index] - turn_count_per_player
-            )
-            if no_progress_turn_count > no_progress_turn_max:
+        if no_progress_turn_max is not None and game.end_player_index is None:
+            # Check if the player revealed any new cards. Don't forget to account
+            # for the player list rotating as the game state iterates.
+            if game.players[player_index].hand_revealed_count > hand_revealed_count:
+                last_progress_turn_index[player_index] = turn_index
+
+            # Check if the current player has exceeded the limit for turns without
+            # making progress, and if so, forfeit. Doing so sets the game's state
+            # to `State.NULL`, meaning we don't have to break.
+            no_progress_turn_count = turn_index - last_progress_turn_index[player_index]
+            if no_progress_turn_count // len(actors) > no_progress_turn_max:
                 game = game.with_forfeit()
                 yield game
 
