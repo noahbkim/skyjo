@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from enum import IntEnum, auto
 from typing import Iterator, Protocol, assert_never
 
-from ._game import HAND_ROWS, Game, GameState, Rule
+from . import HAND_ROWS, Game, GameState, Rule
 
 # MARK: Action
 
