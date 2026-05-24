@@ -29,6 +29,14 @@ CARD_COUNTS = tuple(DECK.values())
 HAND_ROWS = 3
 HAND_COLUMNS = 4
 
+
+# MARK: Rule
+
+
+class Rule(Exception):
+    """Raised when a rule is broken, i.e. an invalid action is played."""
+
+
 # MARK: Finger
 
 
@@ -318,7 +326,8 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DEAL_FIRST_CARDS
+        if state != GameState.DEAL_FIRST_CARDS:
+            raise Rule(f"Cannot deal cards in state {state}")
 
         state = GameState.REVEAL_SECOND_CARD
         turn_index = 0
@@ -365,7 +374,8 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DEAL_FIRST_CARDS
+        if state != GameState.DEAL_FIRST_CARDS:
+            raise Rule(f"Cannot deal cards in state {state}")
 
         state = GameState.REVEAL_SECOND_CARD
         turn_index = 0
@@ -424,6 +434,9 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
+        if state != GameState.REVEAL_SECOND_CARD:
+            raise Rule(f"Cannot reveal second card in state {state}")
+
         assert state == GameState.REVEAL_SECOND_CARD
         assert turn_index < len(players)
         assert sum(draw_pile) > 0
@@ -433,11 +446,14 @@ class Game(NamedTuple):
 
         player_index = (start_player_index + turn_index) % len(players)
 
+        # Ensure we're revealing a hidden card.
+        if players[player_index].hand[finger_index].is_revealed:
+            raise Rule(f"Player {player_index}'s selected card is already revealed")
+
         # Formally draw the card we're revealing.
         draw_pile = _with_card_drawn(draw_pile, revealed_card_index)
 
         # Reveal the requested card.
-        assert players[player_index].hand[finger_index].is_hidden
         players = (
             *players[:player_index],
             players[player_index].with_card(finger_index, revealed_card_index),
@@ -506,7 +522,9 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DRAW_OR_REPLACE_WITH_DISCARD
+        if state != GameState.DRAW_OR_REPLACE_WITH_DISCARD:
+            raise Rule(f"Cannot draw a card in state {state}")
+
         assert drawn_card_index is None
         assert sum(draw_pile) > 0
         assert discarded_card_index is not None
@@ -533,7 +551,7 @@ class Game(NamedTuple):
             end_player_index=end_player_index,
         )
 
-    def with_random_drawn_card(self, rng: random.Random) -> Game:
+    def with_random_card_drawn(self, rng: random.Random) -> Game:
         """Draw a random card from the pile but do nothing with it."""
 
         card_index = _pick_random_card_index(self.draw_pile, rng)
@@ -559,13 +577,20 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
+        if state != GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+            raise Rule(f"Cannot discard draw and reveal in state {state}")
+
         assert drawn_card_index is not None
         assert sum(draw_pile) > 0
         assert discarded_card_index is not None
 
         player_index = (start_player_index + turn_index) % len(players)
-        assert players[player_index].hand[finger_index].is_hidden
+
+        finger = players[player_index].hand[finger_index]
+        if finger.is_revealed:
+            raise Rule(f"Player {player_index}'s selected card is already revealed")
+        elif finger.is_cleared:
+            raise Rule(f"Player {player_index}'s selected card is cleared")
 
         # Formally draw the revealed card.
         draw_pile = _with_card_drawn(draw_pile, revealed_card_index)
@@ -656,15 +681,20 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
+        if state != GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
+            raise Rule(f"Cannot replace card with draw in state {state}")
+
         assert drawn_card_index is not None
         assert discarded_card_index is not None
 
         player_index = (start_player_index + turn_index) % len(players)
 
+        finger = players[player_index].hand[finger_index]
+        if finger.is_cleared:
+            raise Rule(f"Player {player_index}'s selected card is cleared")
+
         # Get the card being replaced. If it's hidden, we'll need to formally
         # draw the preordained revealed card.
-        finger = players[player_index].hand[finger_index]
         old_finger_card_index = finger.card_index
         if old_finger_card_index is None:
             assert finger.is_hidden
@@ -763,14 +793,19 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DRAW_OR_REPLACE_WITH_DISCARD
+        if state != GameState.DRAW_OR_REPLACE_WITH_DISCARD:
+            raise Rule(f"Cannot replace card with discard in state {state}")
+
         assert drawn_card_index is None
 
         player_index = (start_player_index + turn_index) % len(players)
 
+        finger = players[player_index].hand[finger_index]
+        if finger.is_cleared:
+            raise Rule(f"Player {player_index}'s selected card is cleared")
+
         # Move the replaced card to be the new discarded card. If the card was
         # hidden, it needs to be formally drawn.
-        finger = players[player_index].hand[finger_index]
         old_finger_card_index = finger.card_index
         if old_finger_card_index is None:
             assert finger.is_hidden
@@ -858,7 +893,9 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.DRAW_OR_REPLACE_WITH_DISCARD
+        if state != GameState.DRAW_OR_REPLACE_WITH_DISCARD:
+            raise Rule(f"Cannot forfeit in state {state}")
+
         assert drawn_card_index is None
         assert end_player_index is None
 
@@ -898,7 +935,9 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.REVEAL_HIDDEN_CARDS
+        if state != GameState.REVEAL_HIDDEN_CARDS:
+            raise Rule(f"Cannot reveal hidden cards in state {state}")
+
         assert drawn_card_index is None
 
         player_index = (start_player_index + turn_index) % len(players)
@@ -954,7 +993,9 @@ class Game(NamedTuple):
         end_player_index = self.end_player_index
         del self
 
-        assert state == GameState.REVEAL_HIDDEN_CARDS
+        if state != GameState.REVEAL_HIDDEN_CARDS:
+            raise Rule(f"Cannot reveal hidden cards in state {state}")
+
         assert drawn_card_index is None
 
         player_index = (start_player_index + turn_index) % len(players)

@@ -274,7 +274,7 @@ class TestGame:
         game = game.with_random_discard_and_first_cards_dealt(rng)
         game = game.with_random_second_card_revealed(1, rng)
         game = game.with_random_second_card_revealed(HAND_ROWS, rng)
-        game = game.with_random_drawn_card(rng)
+        game = game.with_random_card_drawn(rng)
         game = game.with_draw_discarded_and_random_card_revealed(2, rng)
         assert game == Game(
             state=GameState.DRAW_OR_REPLACE_WITH_DISCARD,
@@ -574,7 +574,7 @@ class TestGame:
         game = game.with_random_discard_and_first_cards_dealt(rng)
         game = game.with_random_second_card_revealed(1, rng)
         game = game.with_random_second_card_revealed(HAND_ROWS, rng)
-        game = game.with_random_drawn_card(rng)
+        game = game.with_random_card_drawn(rng)
         game = game.with_random_card_replaced_with_draw(1, rng)
         assert game == Game(
             state=GameState.DRAW_OR_REPLACE_WITH_DISCARD,

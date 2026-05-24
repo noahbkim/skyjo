@@ -4,49 +4,47 @@ import random
 
 from skyjo2 import (
     Action,
+    ActionKind,
     Finger,
     Game,
     GameState,
     Player,
-    draw_card,
-    play,
-    replace_with_discard,
-    replace_with_draw,
-    reveal_second_card,
+    play_game,
+    play_round,
 )
 
 
 def draw(game: Game) -> Action:
     if game.state == GameState.REVEAL_SECOND_CARD:
-        return reveal_second_card(1)
+        return (ActionKind.REVEAL_SECOND_CARD, 1)
     elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
-        return draw_card()
+        return (ActionKind.DRAW_CARD,)
     elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
         for i, finger in enumerate(game.player.hand):
             if finger.is_hidden:
-                return replace_with_draw(i)
+                return (ActionKind.REPLACE_WITH_DRAW, i)
     assert False, f"unknown state {game}"
 
 
 def stall(game: Game) -> Action:
     if game.state == GameState.REVEAL_SECOND_CARD:
-        return reveal_second_card(1)
+        return (ActionKind.REVEAL_SECOND_CARD, 1)
     elif game.state == GameState.DRAW_OR_REPLACE_WITH_DISCARD:
-        return replace_with_discard(2)
+        return (ActionKind.REPLACE_WITH_DISCARD, 2)
     elif game.state == GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW:
         assert False, f"unexpected state {game}"
     assert False, f"unknown state {game}"
 
 
 def test_play_round_two(rng: random.Random) -> None:
+    game = Game.new(players=2)
     players = (draw, draw)
-    replay = list(play(players, rng=rng, round_max=1))
-    # 1 (new)
+    replay = list(play_round(game, players, rng))
     # 1 (deal)
     # 2 (reveal second)
     # 2 players * 10 cards * 2 actions (draws + replaces)
     # 1 (reveal hidden)
-    assert len(replay) == 45
+    assert len(replay) == 44
     result = replay[-1]
     assert result == Game(
         state=GameState.DEAL_FIRST_CARDS,
@@ -97,14 +95,14 @@ def test_play_round_two(rng: random.Random) -> None:
 
 
 def test_play_round_three(rng: random.Random) -> None:
+    game = Game.new(players=3)
     players = (draw, draw, draw)
-    replay = list(play(players, rng=rng, round_max=1))
-    # 1 (new)
+    replay = list(play_round(game, players, rng))
     # 1 (deal)
     # 3 (reveal second)
     # 3 players * 10 cards * 2 actions (draws + replaces)
     # 1 (reveal hidden)
-    assert len(replay) == 66
+    assert len(replay) == 65
     result = replay[-1]
     assert result == Game(
         state=GameState.DEAL_FIRST_CARDS,
@@ -172,9 +170,9 @@ def test_play_round_three(rng: random.Random) -> None:
 
 
 def test_play_round_forfeit(rng: random.Random) -> None:
+    game = Game.new(players=2)
     players = (draw, stall)
-    replay = list(play(players, rng=rng, no_progress_turn_max=5, round_max=1))
-    # 1 (new)
+    replay = list(play_round(game, players, rng, no_progress_turn_max=5))
     # 1 (deal)
     # 2 (reveal)
     # 1 player * 5 cards * 2 actions (draws + replaces)
@@ -182,7 +180,7 @@ def test_play_round_forfeit(rng: random.Random) -> None:
     # 1 forefit
     # 2 actions (draw + replace in endgame)
     # 1 (reveal hidden cards)
-    assert len(replay) == 28
+    assert len(replay) == 27
     assert replay[-2] == Game(
         state=GameState.REVEAL_HIDDEN_CARDS,
         turn_index=15,
@@ -279,15 +277,15 @@ def test_play_round_forfeit(rng: random.Random) -> None:
 
 
 def test_play_game_three(rng: random.Random) -> None:
+    game = Game.new(players=3)
     players = (draw, draw, draw)
-    replay = list(play(players, rng=rng))
-    # 1 (new)
-    # ----------- x2 after this point for 2 rounds
+    replay = list(play_game(game, players, rng))
     # 1 (deal)
     # 3 (reveal second)
     # 3 players * 10 cards * 2 actions (draws + replaces)
     # 1 (reveal hidden)
-    assert len(replay) == 1 + 65 * 2
+    # x2 (two rounds)
+    assert len(replay) == 65 * 2
     result = replay[-1]
     assert result == Game(
         state=GameState.DEAL_FIRST_CARDS,

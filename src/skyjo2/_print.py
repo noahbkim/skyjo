@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TextIO
 
 from . import CARD_VALUES, HAND_COLUMNS, HAND_ROWS, Finger, Game
 
@@ -12,11 +13,11 @@ def _lrjust(left: object, right: object, width: int) -> str:
     return f"{left}{space}{right}"
 
 
-def _render_card(card_index: int) -> str:
+def _format_card(card_index: int) -> str:
     return str(CARD_VALUES[card_index])
 
 
-def _render_finger(finger: Finger) -> str:
+def _format_finger(finger: Finger) -> str:
     if finger.is_hidden:
         return "[]"
     if finger.is_cleared:
@@ -24,18 +25,18 @@ def _render_finger(finger: Finger) -> str:
     return str(CARD_VALUES[finger.card_index]).rjust(2)
 
 
-def render(game: Game) -> Iterable[str]:
+def format_game(game: Game) -> Iterable[str]:
     """Render the game as ASCII art."""
 
     yield (
         f"turn: {game.turn_index}"
         + (
-            f"  discard: {_render_card(game.discarded_card_index)}"
+            f"  discard: {_format_card(game.discarded_card_index)}"
             if game.discarded_card_index is not None
             else ""
         )
         + (
-            f"  draw: {_render_card(game.drawn_card_index)}"
+            f"  draw: {_format_card(game.drawn_card_index)}"
             if game.drawn_card_index is not None
             else ""
         )
@@ -57,7 +58,14 @@ def render(game: Game) -> Iterable[str]:
     for row_index in range(HAND_ROWS):
         yield "  ".join(
             " ".join(
-                _render_finger(finger) for finger in player.hand[row_index::HAND_ROWS]
+                _format_finger(finger) for finger in player.hand[row_index::HAND_ROWS]
             )
             for player in game.players
         )
+
+
+def print_game(game: Game, file: TextIO | None = None) -> None:
+    """Print the game to stdout."""
+
+    for line in format_game(game):
+        print(line, file=file)

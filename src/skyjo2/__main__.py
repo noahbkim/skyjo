@@ -32,6 +32,26 @@ def indices(of: Sequence[object]) -> range:
     return range(-len(of), len(of))
 
 
+def reveal_second_card(card_index: int) -> skyjo2.Action:
+    return (skyjo2.ActionKind.REVEAL_SECOND_CARD, card_index)
+
+
+def draw_card() -> skyjo2.Action:
+    return (skyjo2.ActionKind.DRAW_CARD,)
+
+
+def discard_draw_and_reveal_card(card_index: int) -> skyjo2.Action:
+    return (skyjo2.ActionKind.DISCARD_DRAW_AND_REVEAL_CARD, card_index)
+
+
+def replace_with_draw(card_index: int) -> skyjo2.Action:
+    return (skyjo2.ActionKind.REPLACE_WITH_DRAW, card_index)
+
+
+def replace_with_discard(card_index: int) -> skyjo2.Action:
+    return (skyjo2.ActionKind.REPLACE_WITH_DISCARD, card_index)
+
+
 class RandomActor(skyjo2.Actor):
     """Proof of concept player that picks a random action."""
 
@@ -51,9 +71,9 @@ class InteractiveActor(skyjo2.Actor):
                     "> reveal the second card below the top left (1, 0) or to the right of it (0, 1) [b/r/(r, c)] "
                 )
                 if "below".startswith(choice.strip().lower()):
-                    return skyjo2.reveal_second_card(1)
+                    return reveal_second_card(1)
                 elif "right".startswith(choice.strip().lower()):
-                    return skyjo2.reveal_second_card(skyjo2.HAND_ROWS)
+                    return reveal_second_card(skyjo2.HAND_ROWS)
                 elif (finger_index := parse(choice)) is not None:
                     if finger_index not in indices(game.player.hand):
                         print("invalid choice: card is out of bounds")
@@ -61,7 +81,7 @@ class InteractiveActor(skyjo2.Actor):
                     if finger_index in {0, -len(game.player.hand)}:
                         print("invalid choice: card is already revealed")
                         continue
-                    return skyjo2.reveal_second_card(finger_index)
+                    return reveal_second_card(finger_index)
                 print("invalid choice")
         elif game.state == skyjo2.GameState.DRAW_OR_REPLACE_WITH_DISCARD:
             while True:
@@ -70,7 +90,7 @@ class InteractiveActor(skyjo2.Actor):
                 )
                 action, _, finger_position = choice.partition(" ")
                 if "draw".startswith(action.strip().lower()):
-                    return skyjo2.draw_card()
+                    return draw_card()
                 elif "replace".startswith(action.strip().lower()):
                     if (finger_index := parse(finger_position)) is None:
                         print("invalid choice: cannot parse card position")
@@ -78,7 +98,7 @@ class InteractiveActor(skyjo2.Actor):
                     if finger_index not in indices(game.player.hand):
                         print("invalid choice: card out of bounds")
                         continue
-                    return skyjo2.replace_with_draw(finger_index)
+                    return replace_with_draw(finger_index)
                 print("invalid choice")
         elif (
             game.state == skyjo2.GameState.DISCARD_DRAW_AND_REVEAL_OR_REPLACE_WITH_DRAW
@@ -101,7 +121,7 @@ class InteractiveActor(skyjo2.Actor):
                     if game.player.hand[finger_index].is_cleared:
                         print("invalid choice: card is cleared")
                         continue
-                    return skyjo2.discard_draw_and_reveal_card(finger_index)
+                    return discard_draw_and_reveal_card(finger_index)
                 if "place".startswith(action.strip().lower()):
                     if (finger_index := parse(finger_position)) is None:
                         print("invalid choice: cannot parse card position")
@@ -109,7 +129,7 @@ class InteractiveActor(skyjo2.Actor):
                     if finger_index not in indices(game.player.hand):
                         print("invalid choice: card out of bounds")
                         continue
-                    return skyjo2.replace_with_draw(finger_index)
+                    return replace_with_draw(finger_index)
                 print("invalid choice")
         assert_never(game.state)
 
@@ -188,8 +208,9 @@ def main() -> None:
     print(f"seed: {seed}")
     print(f"players: {len(actors)}")
     print()
+    game = skyjo2.Game.new(players=len(actors))
     actors = tuple(map(NarratedActor, actors))
-    for game in skyjo2.play(actors, rng=random):
+    for game in skyjo2.play_game(game, actors, rng=random):
         if game.state == skyjo2.GameState.DEAL_FIRST_CARDS:
             for i, player in enumerate(game.players):
                 me = f"p{i}"
@@ -198,8 +219,7 @@ def main() -> None:
             print()
             continue
 
-        for line in skyjo2.render(game):
-            print(line)
+        skyjo2.print_game(game)
 
         actor = actors[game.player_index % len(actors)]
         if isinstance(actor.inner, InteractiveActor):
