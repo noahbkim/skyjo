@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from . import checkpoint
 from . import game as sj
 
 """
@@ -164,16 +165,17 @@ def batch_mask_and_renormalize_policy_probabilities(
         "expected no samples with no valid actions"
     )
     # Change denominator to 1 if total probability is 0 to make division safe
-    safe_denominator = torch.where(
-        total_valid_action_probabilities == 0, 1.0, total_valid_action_probabilities
+    zero_probability_rows = total_valid_action_probabilities == 0
+    safe_denominator = np.where(
+        zero_probability_rows, 1.0, total_valid_action_probabilities
     )
     renormalized_valid_action_probabilities = (
-        valid_action_probabilities / safe_denominator
+        valid_action_probabilities / safe_denominator[:, np.newaxis]
     )
     # Assign uniform probability where total probability is 0
-    renormalized_valid_action_probabilities = torch.where(
-        total_valid_action_probabilities == 0,
-        1 / num_valid_actions,
+    renormalized_valid_action_probabilities = np.where(
+        zero_probability_rows[:, np.newaxis],
+        batch_masks / num_valid_actions[:, np.newaxis],
         renormalized_valid_action_probabilities,
     )
     return renormalized_valid_action_probabilities
@@ -625,7 +627,9 @@ class SimpleSkyNet(nn.Module):
             policy_out,
         )
 
+    @torch.inference_mode()
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
+        self.eval()
         spatial_tensor = einops.rearrange(
             torch.tensor(
                 sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
@@ -649,14 +653,24 @@ class SimpleSkyNet(nn.Module):
         self.device = device
         self.to(device)
 
-    def save(self, dir: pathlib.Path) -> pathlib.Path:
+    def save(
+        self,
+        dir: pathlib.Path,
+        optimizer: torch.optim.Optimizer | None = None,
+        configuration: typing.Any = None,
+        progress: checkpoint.TrainingProgress | None = None,
+    ) -> pathlib.Path:
         curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
-        torch.save(
-            self.state_dict(),
-            model_path,
+        model_path = dir / (
+            f"checkpoint_{curr_utc_dt.strftime('%Y%m%d_%H%M%S_%f')}.pth"
         )
-        return model_path
+        return checkpoint.save_checkpoint(
+            model_path,
+            model=self,
+            optimizer=optimizer,
+            configuration=configuration,
+            progress=progress,
+        )
 
 
 class TransformerBlock(nn.Module):
@@ -929,14 +943,24 @@ class EquivariantSkyNet(nn.Module):
         self.device = device
         self.to(device)
 
-    def save(self, dir: pathlib.Path) -> pathlib.Path:
+    def save(
+        self,
+        dir: pathlib.Path,
+        optimizer: torch.optim.Optimizer | None = None,
+        configuration: typing.Any = None,
+        progress: checkpoint.TrainingProgress | None = None,
+    ) -> pathlib.Path:
         curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
-        torch.save(
-            self.state_dict(),
-            model_path,
+        model_path = dir / (
+            f"checkpoint_{curr_utc_dt.strftime('%Y%m%d_%H%M%S_%f')}.pth"
         )
-        return model_path
+        return checkpoint.save_checkpoint(
+            model_path,
+            model=self,
+            optimizer=optimizer,
+            configuration=configuration,
+            progress=progress,
+        )
 
     def forward(
         self,
@@ -1067,7 +1091,9 @@ class EquivariantSkyNet(nn.Module):
             mask,
         )
 
+    @torch.inference_mode()
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
+        self.eval()
         spatial_tensor = einops.rearrange(
             torch.tensor(
                 sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
@@ -1217,7 +1243,7 @@ if __name__ == "__main__":
         device=device,
     )
     while True:
-        with torch.no_grad():
+        with torch.inference_mode():
             model.forward(
                 spatial_tensor,
                 nonspatial_tensor,

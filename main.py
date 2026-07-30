@@ -1,4 +1,5 @@
 import logging
+import functools
 import pathlib
 import random
 import typing
@@ -48,34 +49,20 @@ def create_random_potential_clear_position() -> sj.Skyjo:
 def model_faceoff_threshold(
     model: skynet.SkyNet,
     previous_model: skynet.SkyNet,
-    policy_rounds: int,
-    value_rounds: int,
-    temperature: float,
-    terminal_state_rollouts: int,
-    win_percentage_threshold: float,
+    model_player_config: player.ModelPlayerConfig,
+    paired_rounds: int = 100,
+    seed: int = 0,
     start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
 ):
-    policy_faceoff_result = faceoff.model_policy_faceoff(
+    candidate_wins, champion_wins = faceoff.model_mcts_faceoff(
         model,
         previous_model,
-        policy_rounds,
-        temperature,
-        start_state_generator,
+        model_player_config,
+        paired_rounds=paired_rounds,
+        seed=seed,
+        start_state_generator=start_state_generator,
     )
-    value_faceoff_result = faceoff.model_value_faceoff(
-        model,
-        previous_model,
-        value_rounds,
-        terminal_state_rollouts,
-        start_state_generator,
-    )
-    return (
-        policy_faceoff_result[0] / (policy_faceoff_result[0] + policy_faceoff_result[1])
-        > win_percentage_threshold
-    ) or (
-        value_faceoff_result[0] / (value_faceoff_result[0] + value_faceoff_result[1])
-        > win_percentage_threshold
-    )
+    return candidate_wins > champion_wins
 
 
 if __name__ == "__main__":
@@ -166,8 +153,9 @@ if __name__ == "__main__":
         epochs=2,
         batch_size=256,
         learn_rate=1e-3,
-        loss_function=lambda model_outputs, targets: train_utils.base_loss(
-            model_outputs, targets, value_scale=1.0
+        loss_function=functools.partial(
+            train_utils.base_loss,
+            value_scale=1.0,
         ),
     )
     learn_config = train.LearnConfig(
@@ -183,11 +171,9 @@ if __name__ == "__main__":
         model_faceoff_function=lambda model, previous_model: model_faceoff_threshold(
             model,
             previous_model,
-            500,
-            25,
-            1.0,
-            10,
-            0.50,
+            model_player_config,
+            paired_rounds=100,
+            seed=0,
             # create_random_potential_clear_position,
         ),
         # model_faceoff_function=lambda model, previous_model: True,
@@ -242,12 +228,8 @@ if __name__ == "__main__":
         ),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         action_mask_shape=(sj.MASK_SIZE,),
-        policy_target_shape=(sj.MASK_SIZE,),
-        outcome_target_shape=(players,),
-        points_target_shape=(players,),
-        cleared_columns_target_shape=(players * sj.COLUMN_COUNT,),
         path=pathlib.Path(
-            f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/buffer.pkl"
+            f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/dataset"
         ),
     )
     train.run_multiprocessed_selfplay_with_local_predictor_learning(

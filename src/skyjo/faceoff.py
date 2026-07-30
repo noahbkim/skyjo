@@ -1,9 +1,21 @@
+import dataclasses
 import logging
+import random
 import typing
 
-from . import player
+import numpy as np
+import torch
+
+from . import config, player, predictor
 from . import game as sj
 from . import skynet
+
+
+@dataclasses.dataclass(slots=True)
+class MCTSPromotionConfig(config.Config):
+    model_player_config: player.ModelPlayerConfig
+    paired_rounds: int = 100
+    seed: int = 0
 
 
 def single_game_faceoff(
@@ -166,3 +178,69 @@ def model_value_faceoff(
         f"Model 1 avg point differential: {model1_point_differential / (2 * rounds)} Model 2 avg point differential: {model2_point_differential / (2 * rounds)}"
     )
     return model1_wins, model2_wins
+
+
+def model_mcts_faceoff(
+    candidate: skynet.SkyNet,
+    champion: skynet.SkyNet,
+    model_player_config: player.ModelPlayerConfig,
+    paired_rounds: int = 100,
+    seed: int = 0,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    game_completed_callback: typing.Callable[[], None] | None = None,
+) -> tuple[int, int]:
+    """Evaluate deployed MCTS agents with common seeds and swapped seats."""
+    if paired_rounds < 1:
+        raise ValueError("paired_rounds must be at least one")
+    evaluation_player_config = dataclasses.replace(
+        model_player_config, action_softmax_temperature=0.0
+    )
+    candidate_player = player.ModelPlayer(
+        predictor.LocalPredictorClient(candidate, max_batch_size=512),
+        **evaluation_player_config.kwargs(),
+    )
+    champion_player = player.ModelPlayer(
+        predictor.LocalPredictorClient(champion, max_batch_size=512),
+        **evaluation_player_config.kwargs(),
+    )
+    candidate_wins = champion_wins = 0
+    for pair_index in range(paired_rounds):
+        pair_seed = seed + pair_index
+        for candidate_seat in (0, 1):
+            random.seed(pair_seed)
+            np.random.seed(pair_seed)
+            torch.manual_seed(pair_seed)
+            start_state = (
+                start_state_generator() if start_state_generator is not None else None
+            )
+            players = (
+                [candidate_player, champion_player]
+                if candidate_seat == 0
+                else [champion_player, candidate_player]
+            )
+            outcome, _ = single_game_faceoff(players, start_state=start_state)
+            winner = int(np.argmax(outcome))
+            if winner == candidate_seat:
+                candidate_wins += 1
+            else:
+                champion_wins += 1
+            if game_completed_callback is not None:
+                game_completed_callback()
+    return candidate_wins, champion_wins
+
+
+def passes_mcts_promotion(
+    candidate: skynet.SkyNet,
+    champion: skynet.SkyNet,
+    promotion_config: MCTSPromotionConfig,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+) -> bool:
+    candidate_wins, champion_wins = model_mcts_faceoff(
+        candidate,
+        champion,
+        promotion_config.model_player_config,
+        paired_rounds=promotion_config.paired_rounds,
+        seed=promotion_config.seed,
+        start_state_generator=start_state_generator,
+    )
+    return candidate_wins > champion_wins

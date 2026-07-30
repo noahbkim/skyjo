@@ -43,10 +43,12 @@ def ucb_score(
         and child.visit_count
         < np.sqrt(forced_playout_k * parent.visit_count * action_probability)
     ):
-        return 1000
+        return 1000 - getattr(child, "virtual_loss", 0.0)
     return skynet.state_value_for_player(
         child.state_value, sj.get_player(parent.state)
-    ) + action_probability * np.sqrt(parent.total_count) / (1 + child.child_count)
+    ) + action_probability * np.sqrt(parent.total_count) / (
+        1 + child.child_count
+    ) - getattr(child, "virtual_loss", 0.0)
 
 
 # MARK: NODES
@@ -61,6 +63,7 @@ class DecisionStateNode:
     model_prediction: skynet.SkyNetPrediction | None = None
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
+    virtual_loss_total: float = 0.0
     is_expanded: bool = False
     are_children_discovered: bool = False
     dirichlet_noise: np.ndarray[tuple[int], np.float32] | None = None
@@ -96,6 +99,10 @@ class DecisionStateNode:
     @property
     def child_count(self) -> int:
         return self.visit_count
+
+    @property
+    def virtual_loss(self) -> float:
+        return self.virtual_loss_total
 
     @property
     def state_value(self) -> skynet.StateValue:
@@ -221,12 +228,13 @@ class AfterStateNode:
     action: sj.SkyjoAction
     parent: DecisionStateNode
     state_value_total: skynet.StateValue | None = None
-    children: dict[sj.Skyjo, DecisionStateNode | TerminalStateNode] = dataclasses.field(
+    children: dict[int, DecisionStateNode | TerminalStateNode] = dataclasses.field(
         default_factory=dict
     )
-    child_weights: dict[sj.Skyjo, int] = dataclasses.field(default_factory=dict)
-    child_weight_total: int = 0
+    child_weights: dict[int, float] = dataclasses.field(default_factory=dict)
+    child_weight_total: float = 0.0
     visit_count: int = 0
+    virtual_loss_total: float = 0.0
     is_expanded: bool = False
     all_children_discovered: bool = False
 
@@ -249,6 +257,10 @@ class AfterStateNode:
     @property
     def child_count(self) -> int:
         return self.visit_count
+
+    @property
+    def virtual_loss(self) -> float:
+        return self.virtual_loss_total
 
     @property
     def state_value(self) -> skynet.StateValue:
@@ -492,7 +504,7 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue):
 
 def run_mcts(
     game_state: sj.Skyjo,
-    predictor_client: predictor.PredictorClient,
+    predictor_client: predictor.AbstractPredictorClient,
     iterations: int,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,

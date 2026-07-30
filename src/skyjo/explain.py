@@ -488,7 +488,7 @@ def validate_model_with_games_data(
     value_loss_scale: float = 1.0,
 ):
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         spatial_inputs_tensor = torch.tensor(
             validation_batch.spatial_inputs, dtype=torch.float32, device=model.device
         )

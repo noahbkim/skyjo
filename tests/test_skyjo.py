@@ -14,14 +14,13 @@ def test_new_skyjo(players: int):
         turn_count,
         current_card,
         countdown,
-    ) = sj.new(players=players)
+    ) = sj.new(players=players, top=sj.CARD_P8)
 
     # Assert game state
     assert game_state.shape == (sj.GAME_SIZE,)
     assert game_state[sj.GAME_ACTION + sj.ACTION_FLIP_SECOND] == 1
-    assert (
-        np.sum(game_state[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE]) == 0
-    )  # No top card initially
+    assert np.sum(game_state[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE]) == 1
+    assert game_state[sj.GAME_TOP + sj.CARD_P8] == 1
     assert (
         np.sum(game_state[sj.GAME_DISCARDS : sj.GAME_DISCARDS + sj.CARD_SIZE]) == 0
     )  # No discards initially
@@ -50,7 +49,9 @@ def test_new_skyjo(players: int):
 
     # Assert deck state
     assert deck_state.shape == (sj.CARD_SIZE,)
-    assert np.array_equal(deck_state, np.array(sj.CARD_COUNTS, dtype=np.int16))
+    expected_deck = np.array(sj.CARD_COUNTS, dtype=np.int16)
+    expected_deck[sj.CARD_P8] -= 1
+    assert np.array_equal(deck_state, expected_deck)
 
     # Assert other parameters
     assert num_players == players
@@ -87,31 +88,27 @@ def test_no_progress_rule_ends_game_and_doubles_scores(players: int):
             s, sj.MASK_FLIP_SECOND_BELOW
         )  # Flips (1,0) for current player
 
-    # Simulate (NO_PROGRESS_TURN_THRESHOLD - 1) full rounds of no-progress actions
-    # Each player takes discard and replaces card (0,0) which is already face-up
-    for _ in range(sj.NO_PROGRESS_TURN_THRESHOLD - 1):
+    # The limit is inclusive: exactly NO_PROGRESS_TURN_THRESHOLD completed
+    # no-progress turns per player are allowed.
+    for _ in range(sj.NO_PROGRESS_TURN_THRESHOLD):
         for _ in range(players):
             s = sj.apply_action(s, sj.MASK_TAKE)
             s = sj.apply_action(s, sj.MASK_REPLACE + 0)  # Replace (0,0)
-            assert sj.get_countdown(s) is None  # Countdown should not be set yet
+            assert sj.get_countdown(s) is None
 
-    # Player 0 (original, current player) is about to take a turn.
-    # They have made (NO_PROGRESS_TURN_THRESHOLD - 1) no-progress rounds for themselves.
-    # Their next action (flipping a new card) should trigger the countdown because the no-progress
-    # check uses their Last Revealed Turn *before* this revealing flip.
+    # Player 0's next completed no-progress turn exceeds the limit and starts
+    # the end-of-round countdown. The check occurs after the completed turn.
+    s = sj.apply_action(s, sj.MASK_TAKE)
+    assert sj.get_countdown(s) is None
+    s = sj.apply_action(s, sj.MASK_REPLACE + 0)
+    assert sj.get_countdown(s) == (players - 1) * 2
 
-    # Simulate remaining turns for the other (players - 1) players.
-    # Each takes two actions, consuming the countdown.
-    for i in range(players - 1):  # For each of the other players
+    # Every other player receives one final two-decision turn.
+    for i in range(players - 1):
         s = sj.apply_action(s, sj.MASK_TAKE)
         s = sj.apply_action(s, sj.MASK_REPLACE + 0)  # Replace (0,0)
-        expected_countdown = (players - 1) * 2 - i * 2
-        assert sj.get_countdown(s) == expected_countdown, (
-            f"Countdown started: actual {sj.get_countdown(s)}, expected {expected_countdown}"
-        )
-
-    s = sj.apply_action(s, sj.MASK_DRAW)  # Player 0 (original) draws
-    s = sj.apply_action(s, sj.MASK_FLIP + 1)
+        expected_countdown = (players - 2 - i) * 2
+        assert sj.get_countdown(s) == expected_countdown
 
     # Game should be over. The last apply_action should have triggered end_round.
     assert sj.get_countdown(s) == 0, (
@@ -125,7 +122,25 @@ def test_no_progress_rule_ends_game_and_doubles_scores(players: int):
         [sj.get_score(s, player=i) for i in range(players)], dtype=np.int16
     )
 
-    expected_scores = base_scores * 2
-    expected_scores[-1] = base_scores[-1]
+    assert np.array_equal(final_scores, base_scores * 2)
 
-    assert np.array_equal(final_scores, expected_scores)
+
+def test_revealing_replacement_resets_no_progress_before_checking_limit():
+    rng = np.random.default_rng(0)
+
+    class RandomAdapter:
+        def random(self):
+            return float(rng.random())
+
+    random_adapter = RandomAdapter()
+    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random_adapter)
+    for _ in range(2):
+        state = sj.apply_action(
+            state, sj.MASK_FLIP_SECOND_BELOW, rng=random_adapter
+        )
+    game, table, deck, players, _, card, countdown = state
+    stale_turn = (sj.NO_PROGRESS_TURN_THRESHOLD + 1) * players
+    state = (game, table, deck, players, stale_turn, card, countdown)
+    state = sj.apply_action(state, sj.MASK_TAKE, rng=random_adapter)
+    state = sj.apply_action(state, sj.MASK_REPLACE + 1, rng=random_adapter)
+    assert sj.get_countdown(state) is None

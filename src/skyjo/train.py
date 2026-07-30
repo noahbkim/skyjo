@@ -13,6 +13,7 @@ import torch
 import torch.multiprocessing as mp
 
 from . import buffer
+from . import checkpoint
 from . import config
 from . import explain
 from . import factory
@@ -61,7 +62,82 @@ def train_step(
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    return loss.item(), loss_detail
+    return loss.item(), {"total_loss": loss.item(), **loss_detail}
+
+
+def train_steps(
+    model: skynet.SkyNet,
+    training_data_buffer: buffer.ReplayBuffer,
+    training_batch_size: int,
+    optimizer_steps: int,
+    optimizer: torch.optim.Optimizer,
+    loss_function: train_utils.LossFunction,
+) -> list[train_utils.LossDetails]:
+    """Run exactly ``optimizer_steps`` updates sampled from the replay buffer."""
+    if optimizer_steps < 0:
+        raise ValueError("optimizer_steps cannot be negative")
+    if training_batch_size < 1:
+        raise ValueError("training_batch_size must be at least one")
+    loss_details = []
+    for _ in range(optimizer_steps):
+        batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
+        _, step_loss_details = train_step(
+            model,
+            batch,
+            loss_function,
+            optimizer,
+        )
+        loss_details.append(step_loss_details)
+    return loss_details
+
+
+@torch.inference_mode()
+def evaluate_loss(
+    model: skynet.SkyNet,
+    evaluation_data_buffer: buffer.ReplayBuffer,
+    evaluation_batch_size: int,
+    loss_function: train_utils.LossFunction,
+) -> train_utils.LossDetails:
+    """Evaluate position-weighted total and component losses."""
+    if not evaluation_data_buffer:
+        raise ValueError("evaluation_data_buffer cannot be empty")
+    if evaluation_batch_size < 1:
+        raise ValueError("evaluation_batch_size must be at least one")
+    model.eval()
+    weighted_totals: dict[str, float] = {}
+    evaluated_positions = 0
+    for start in range(0, len(evaluation_data_buffer), evaluation_batch_size):
+        stop = min(start + evaluation_batch_size, len(evaluation_data_buffer))
+        batch = evaluation_data_buffer.batch_range(start, stop)
+        spatial_inputs_tensor = torch.tensor(
+            batch.spatial_inputs, dtype=torch.float32, device=model.device
+        )
+        non_spatial_inputs_tensor = torch.tensor(
+            batch.non_spatial_inputs, dtype=torch.float32, device=model.device
+        )
+        masks_tensor = torch.tensor(
+            batch.action_masks, dtype=torch.float32, device=model.device
+        )
+        tensor_targets = train_utils.numpy_targets_to_tensors(
+            batch.targets,
+            device=model.device,
+        )
+        model_output = model(
+            spatial_inputs_tensor,
+            non_spatial_inputs_tensor,
+            masks_tensor,
+        )
+        loss, details = loss_function(model_output, tensor_targets)
+        batch_size = stop - start
+        for name, value in {"total_loss": loss.item(), **details}.items():
+            weighted_totals[name] = (
+                weighted_totals.get(name, 0.0) + float(value) * batch_size
+            )
+        evaluated_positions += batch_size
+    return {
+        name: total / evaluated_positions
+        for name, total in weighted_totals.items()
+    }
 
 
 def train_epoch(
@@ -82,12 +158,14 @@ def train_epoch(
         optimizer (torch.optim.Optimizer): The optimizer to use for training.
         loss_function (typing.Callable): The loss function to use for training.
     """
-    training_loss_details = []
-    for _ in range(len(training_data_buffer) // training_batch_size + 1):
-        batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
-        loss, loss_detail = train_step(model, batch, loss_function, optimizer)
-        training_loss_details.append(loss_detail)
-    return training_loss_details
+    return train_steps(
+        model,
+        training_data_buffer,
+        training_batch_size=training_batch_size,
+        optimizer_steps=len(training_data_buffer) // training_batch_size + 1,
+        optimizer=optimizer,
+        loss_function=loss_function,
+    )
 
 
 def make_optimizer(
@@ -96,6 +174,11 @@ def make_optimizer(
 ) -> torch.optim.Optimizer:
     """Creates the optimizer for a model's training run."""
     return torch.optim.Adam(model.parameters(), lr=learn_rate, weight_decay=1e-4)
+
+
+def interval_due(step: int, interval: int | None) -> bool:
+    """Return whether an optional periodic operation is due without modulo-None."""
+    return interval is not None and step % interval == 0
 
 
 # MARK: Learning Loops
@@ -130,9 +213,9 @@ def learn(
     training_learn_rate: float,
     training_loss_function: train_utils.LossFunction,
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None,
-    validation_interval: int,
+    validation_interval: int | None,
     validation_function: typing.Callable[[skynet.SkyNet], None] | None,
-    update_model_interval: int,
+    update_model_interval: int | None,
     model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
     | None,
 ):
@@ -144,14 +227,45 @@ def learn(
     model = model_factory.get_latest_model()
     model.set_device(torch_device)
     optimizer = make_optimizer(model, training_learn_rate)
+    run_configuration = {
+        "learn": {
+            "games_generated_per_iteration": games_generated_per_iteration,
+            "training_epochs": training_epochs,
+            "validation_interval": validation_interval,
+            "update_model_interval": update_model_interval,
+        },
+        "training": {
+            "batch_size": training_batch_size,
+            "learn_rate": training_learn_rate,
+            "loss_function": training_loss_function,
+        },
+    }
+    progress = checkpoint.load_checkpoint(
+        model_factory.get_latest_checkpoint_path(),
+        model=model,
+        optimizer=optimizer,
+        expected_configuration=run_configuration,
+        map_location=torch_device,
+    )
+    model_factory.save_model(
+        model,
+        optimizer=optimizer,
+        configuration=run_configuration,
+        progress=progress,
+    )
     games_count = 0
     previous_games_count = 0
-    for iteration in range(learn_steps):
-        if iteration % validation_interval == 0 and validation_interval is not None:
+    for iteration in range(progress.iteration, learn_steps):
+        if (
+            validation_function is not None
+            and interval_due(iteration, validation_interval)
+        ):
             logging.info("[LEARN] Validating model")
             validation_function(model)
 
-        if iteration > 0 and iteration % update_model_interval == 0:
+        if (
+            iteration > 0 and interval_due(iteration, update_model_interval)
+        ):
             if model_faceoff_function is not None:
                 logging.info("[LEARN] Model Faceoff")
                 faceoff_result = model_faceoff_function(
@@ -163,12 +277,22 @@ def learn(
                     logging.info(
                         "[LEARN] Model Faceoff Failed, reverting to previous model"
                     )
-                    model = model_factory.get_latest_model()
+                    checkpoint.load_checkpoint(
+                        model_factory.get_latest_checkpoint_path(),
+                        model=model,
+                        optimizer=optimizer,
+                        expected_configuration=run_configuration,
+                        map_location=torch_device,
+                    )
                     model.set_device(torch_device)
-                    optimizer = make_optimizer(model, training_learn_rate)
 
             logging.info("[LEARN] Saving model")
-            saved_path = model_factory.save_model(model)
+            saved_path = model_factory.save_model(
+                model,
+                optimizer=optimizer,
+                configuration=run_configuration,
+                progress=progress,
+            )
             logging.info(f"[LEARN] Saved model to {saved_path}")
             logging.info("[LEARN] Updating predictor clients")
             for id, client in predictor_clients.items():
@@ -197,8 +321,17 @@ def learn(
             f"Generated game stats:\n{train_utils.game_stats_summary(game_stats_list)}"
         )
         previous_games_count = previous_games_count + len(game_stats_list)
+        progress = dataclasses.replace(
+            progress,
+            iteration=iteration + 1,
+            generated_games=progress.generated_games + len(game_stats_list),
+        )
         logging.info(f"[LEARN] Training for {training_epochs} epochs")
         for i in range(training_epochs):
+            optimizer_steps = (
+                len(training_data_buffer) // training_batch_size + 1
+            )
+            sampled_positions = optimizer_steps * training_batch_size
             loss_details = train_epoch(
                 model,
                 training_data_buffer,
@@ -209,10 +342,25 @@ def learn(
             if loss_stats_function is not None:
                 loss_stats = loss_stats_function(loss_details)
                 logging.info(f"[LEARN] Training Epoch {i} stats:\n{loss_stats}")
+            progress = dataclasses.replace(
+                progress,
+                epoch=i + 1,
+                trained_positions=progress.trained_positions
+                + sampled_positions,
+                optimizer_steps=progress.optimizer_steps + optimizer_steps,
+                sampled_positions=progress.sampled_positions
+                + sampled_positions,
+            )
         logging.info(
             f"[LEARN] Finished training for {training_epochs} epochs with "
             f"{len(training_data_buffer) // training_batch_size + 1} batches"
         )
+    model_factory.save_model(
+        model,
+        optimizer=optimizer,
+        configuration=run_configuration,
+        progress=progress,
+    )
 
 
 # MARK: Full Learning
@@ -252,8 +400,8 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
     logging.info(f"Using start position generator: {start_state_generator}")
     predictor_process, selfplay_actors = None, []
     try:
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
+        training_data_buffer = buffer.ReplayBuffer.from_config_or_load(
+            training_data_buffer_config
         )
 
         # Predictor setup
@@ -421,8 +569,8 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
         ]
         for actor in selfplay_actors:
             actor.start()
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
+        training_data_buffer = buffer.ReplayBuffer.from_config_or_load(
+            training_data_buffer_config
         )
         learn(
             model_factory=model_factory,
@@ -470,8 +618,8 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
     logging.info(f"Using start position generator: {start_state_generator}")
     selfplay_actors = []
     try:
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
+        training_data_buffer = buffer.ReplayBuffer.from_config_or_load(
+            training_data_buffer_config
         )
 
         # Predictor clients setup
@@ -561,11 +709,12 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
                 f"Loading existing training data buffer from {load_training_data_buffer_path}"
             )
             training_data_buffer = buffer.ReplayBuffer.load(
-                load_training_data_buffer_path
+                load_training_data_buffer_path,
+                capacity=training_data_buffer_config.max_size,
             )
         else:
-            training_data_buffer = buffer.ReplayBuffer(
-                **training_data_buffer_config.kwargs()
+            training_data_buffer = buffer.ReplayBuffer.from_config_or_load(
+                training_data_buffer_config
             )
 
         # Predictor clients setup
@@ -692,12 +841,15 @@ def run_single_process_learning(
         )
 
         if (
-            learn_step % learn_config.validation_interval == 0
-            and learn_config.validation_function is not None
+            learn_config.validation_function is not None
+            and interval_due(learn_step, learn_config.validation_interval)
         ):
             learn_config.validation_function(model)
 
-        if learn_step > 0 and learn_step % learn_config.update_model_interval == 0:
+        if (
+            learn_step > 0
+            and interval_due(learn_step, learn_config.update_model_interval)
+        ):
             logging.info(
                 f"Training data buffer length: {len(training_data_buffer)}, "
                 f"total buffer size: {len(training_data_buffer)}"

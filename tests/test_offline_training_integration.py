@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+import dataclasses
+import sys
+from pathlib import Path
+
+import numpy as np
+import torch
+import typer
+from typer.testing import CliRunner
+
+from skyjo import buffer, checkpoint, play, skynet, train, train_utils
+from skyjo import game as sj
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import run_train_epoch  # noqa: E402
+
+
+def make_dataset(path):
+    replay_buffer = buffer.ReplayBuffer(
+        max_size=32,
+        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        action_mask_shape=(sj.MASK_SIZE,),
+    )
+    for game_index in range(4):
+        state = sj.new(players=2, top=game_index)
+        action_mask = sj.actions(state).astype(np.float32)
+        policy = action_mask / action_mask.sum()
+        game_data = [
+            play.GameDataPoint(
+                state,
+                None,
+                {
+                    train_utils.VALUE_TARGET_NAME: np.array(
+                        [game_index % 2, (game_index + 1) % 2],
+                        dtype=np.float32,
+                    ),
+                    train_utils.POLICY_TARGET_NAME: policy,
+                },
+            )
+            for _ in range(2)
+        ]
+        replay_buffer.add_game_data(
+            game_data,
+            game_index=game_index,
+            play_seed=game_index * 2,
+            target_seed=game_index * 2 + 1,
+        )
+    replay_buffer.save(path, generation_metadata={"test": True})
+    return buffer.ReplayBuffer.load(path)
+
+
+def make_model() -> skynet.EquivariantSkyNet:
+    return skynet.EquivariantSkyNet(
+        spatial_input_shape=(
+            2,
+            sj.ROW_COUNT,
+            sj.COLUMN_COUNT,
+            sj.FINGER_SIZE,
+        ),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        value_output_shape=(2,),
+        policy_output_shape=(sj.MASK_SIZE,),
+        device=torch.device("cpu"),
+        embedding_dimensions=4,
+        global_state_embedding_dimensions=8,
+        num_heads=1,
+    )
+
+
+def assert_optimizer_states_equal(left, right) -> None:
+    left_state = left.state_dict()
+    right_state = right.state_dict()
+    assert left_state["param_groups"] == right_state["param_groups"]
+    assert left_state["state"].keys() == right_state["state"].keys()
+    for parameter_id in left_state["state"]:
+        for name, expected in left_state["state"][parameter_id].items():
+            actual = right_state["state"][parameter_id][name]
+            if isinstance(expected, torch.Tensor):
+                assert torch.equal(expected, actual)
+            else:
+                assert expected == actual
+
+
+def test_loaded_dataset_training_resume_matches_uninterrupted_and_evaluates(
+    tmp_path,
+):
+    complete = make_dataset(tmp_path / "dataset")
+    training_buffer, validation_buffer = complete.split_by_game(0.5, seed=3)
+    configuration = {
+        "model": {"name": "equivariant", "width": 4},
+        "training": {"batch_size": 2, "loss": "base"},
+        "dataset": {"dataset_id": complete.dataset_id, "split_seed": 3},
+    }
+    loss_function = train_utils.base_loss
+
+    torch.manual_seed(4)
+    initial_model = make_model()
+    initial_state = {
+        name: value.detach().clone()
+        for name, value in initial_model.state_dict().items()
+    }
+
+    continuous = make_model()
+    continuous.load_state_dict(initial_state)
+    continuous_optimizer = train.make_optimizer(continuous, 1e-3)
+    np.random.seed(19)
+    train.train_steps(
+        continuous,
+        training_buffer,
+        training_batch_size=2,
+        optimizer_steps=4,
+        optimizer=continuous_optimizer,
+        loss_function=loss_function,
+    )
+
+    interrupted = make_model()
+    interrupted.load_state_dict(initial_state)
+    interrupted_optimizer = train.make_optimizer(interrupted, 1e-3)
+    np.random.seed(19)
+    train.train_steps(
+        interrupted,
+        training_buffer,
+        training_batch_size=2,
+        optimizer_steps=2,
+        optimizer=interrupted_optimizer,
+        loss_function=loss_function,
+    )
+    saved_progress = checkpoint.TrainingProgress(
+        optimizer_steps=2,
+        sampled_positions=4,
+        trained_positions=4,
+    )
+    checkpoint_path = tmp_path / "resume.pth"
+    checkpoint.save_checkpoint(
+        checkpoint_path,
+        model=interrupted,
+        optimizer=interrupted_optimizer,
+        configuration=configuration,
+        progress=saved_progress,
+    )
+
+    resumed = make_model()
+    resumed_optimizer = train.make_optimizer(resumed, 1e-3)
+    restored_progress = checkpoint.load_checkpoint(
+        checkpoint_path,
+        model=resumed,
+        optimizer=resumed_optimizer,
+        expected_configuration=configuration,
+    )
+    assert restored_progress == saved_progress
+    train.train_steps(
+        resumed,
+        training_buffer,
+        training_batch_size=2,
+        optimizer_steps=2,
+        optimizer=resumed_optimizer,
+        loss_function=loss_function,
+    )
+    final_progress = dataclasses.replace(
+        restored_progress,
+        optimizer_steps=4,
+        sampled_positions=8,
+        trained_positions=8,
+    )
+
+    for expected, actual in zip(
+        continuous.parameters(), resumed.parameters(), strict=True
+    ):
+        assert torch.equal(expected, actual)
+    assert_optimizer_states_equal(continuous_optimizer, resumed_optimizer)
+    assert final_progress.optimizer_steps == 4
+    assert final_progress.sampled_positions == 8
+
+    continuous_loss = train.evaluate_loss(
+        continuous,
+        validation_buffer,
+        evaluation_batch_size=2,
+        loss_function=loss_function,
+    )
+    resumed_loss = train.evaluate_loss(
+        resumed,
+        validation_buffer,
+        evaluation_batch_size=2,
+        loss_function=loss_function,
+    )
+    assert continuous_loss == resumed_loss
+    assert set(resumed_loss) == {
+        "total_loss",
+        "outcome_value_loss",
+        "policy_loss",
+    }
+
+
+def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
+    dataset = make_dataset(tmp_path / "dataset")
+    first_checkpoint = tmp_path / "step_1.pth"
+    resumed_checkpoint = tmp_path / "step_2.pth"
+    app = typer.Typer()
+    app.command()(run_train_epoch.main)
+    common_arguments = [
+        str(dataset.path),
+        "--batch-size",
+        "2",
+        "--validation-fraction",
+        "0.5",
+        "--embedding-dimensions",
+        "4",
+        "--global-state-embedding-dimensions",
+        "8",
+        "--num-heads",
+        "1",
+    ]
+
+    first = CliRunner().invoke(
+        app,
+        [
+            *common_arguments,
+            "--steps",
+            "1",
+            "--output-checkpoint",
+            str(first_checkpoint),
+        ],
+    )
+    assert first.exit_code == 0, first.output
+    assert "optimizer_steps: 1" in first.output
+    assert "train_total_loss:" in first.output
+    assert "validation_total_loss:" in first.output
+
+    resumed = CliRunner().invoke(
+        app,
+        [
+            *common_arguments,
+            "--steps",
+            "2",
+            "--checkpoint",
+            str(first_checkpoint),
+            "--output-checkpoint",
+            str(resumed_checkpoint),
+        ],
+    )
+    assert resumed.exit_code == 0, resumed.output
+    assert "optimizer_steps: 2" in resumed.output
+    payload = torch.load(resumed_checkpoint, weights_only=False)
+    assert payload["progress"]["optimizer_steps"] == 2
+    assert payload["progress"]["sampled_positions"] == 4

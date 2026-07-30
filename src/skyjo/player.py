@@ -442,7 +442,7 @@ class PureModelPolicyPlayer(AbstractPlayer):
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
         self.model.eval()
-        with torch.no_grad():
+        with torch.inference_mode():
             prediction = self.model.predict(game_state)
         if self.temperature == 0:
             action_probabilities = np.zeros(prediction.policy_output.shape)
@@ -460,6 +460,7 @@ class PureModelValuePlayer(AbstractPlayer):
         self.model = model
         self.terminal_state_rollouts = terminal_state_rollouts
 
+    @torch.inference_mode()
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:

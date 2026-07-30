@@ -482,7 +482,9 @@ class PredictorProcess(mp.Process):
         model = self.model_factory.get_latest_model()
         model.set_device(self.torch_device)
         model.eval()
-        logging.info(f"Loaded model from {self.model_factory._get_latest_model_path()}")
+        logging.info(
+            f"Loaded model from {self.model_factory.get_latest_checkpoint_path()}"
+        )
         return model
 
     def _gather_available_inputs(self, unified_input_queue: UnifiedPredictorInputQueue):
@@ -565,7 +567,8 @@ class PredictorProcess(mp.Process):
                     ) = unified_input_queue.get_batch(self.max_batch_size)
 
                     # Model Inference
-                    with torch.no_grad():
+                    model.eval()
+                    with torch.inference_mode():
                         value_output, policy_output = model(
                             spatial_input_tensor,
                             non_spatial_input_tensor,
@@ -934,7 +937,8 @@ class LocalPredictorClient(AbstractPredictorClient):
             device=self.device,
             dtype=torch.float32,
         )
-        with torch.no_grad():
+        self.model.eval()
+        with torch.inference_mode():
             value_output, policy_output = self.model(
                 spatial_input_tensor, nonspatial_input_tensor, mask_tensor
             )
@@ -1017,7 +1021,7 @@ class LocalPredictorClient(AbstractPredictorClient):
 
         while not self.model_update_queue.empty():
             logging.info(
-                f"Updating model from latest path: {self.factory._get_latest_model_path()}"
+                f"Updating model from latest path: {self.factory.get_latest_checkpoint_path()}"
             )
             self.model_update_queue.get()
             self.model = self.factory.get_latest_model()
