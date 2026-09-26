@@ -28,17 +28,40 @@ DEFAULT_NUM_HEADS = 2
 _WORKER_CANDIDATE: skynet.SkyNet | None = None
 _WORKER_CHAMPION: skynet.SkyNet | None = None
 _WORKER_PLAYER_CONFIG: player.ModelPlayerConfig | None = None
+_WORKER_CHAMPION_PLAYER_CONFIG: player.ModelPlayerConfig | None = None
 
 
-def _checkpoint_model_configuration(path: pathlib.Path) -> dict[str, typing.Any]:
+def _checkpoint_configuration(path: pathlib.Path) -> dict[str, typing.Any]:
     payload = torch.load(path, map_location="cpu", weights_only=False)
     if not isinstance(payload, dict):
         return {}
     configuration = payload.get("configuration")
-    if not isinstance(configuration, dict):
-        return {}
+    return configuration if isinstance(configuration, dict) else {}
+
+
+def _checkpoint_model_configuration(path: pathlib.Path) -> dict[str, typing.Any]:
+    configuration = _checkpoint_configuration(path)
     model_configuration = configuration.get("model")
     return model_configuration if isinstance(model_configuration, dict) else {}
+
+
+def _validate_checkpoint_architecture(
+    path: pathlib.Path,
+    model_configuration: dict[str, typing.Any],
+) -> None:
+    architecture_name = model_configuration.get("name")
+    if architecture_name is None:
+        return
+    if architecture_name not in {
+        skynet.EQUIVARIANT_ARCHITECTURE_NAME,
+        skynet.EQUIVARIANT_AUX_ARCHITECTURE_NAME,
+    }:
+        raise ValueError(
+            f"Checkpoint {path} uses unsupported model architecture "
+            f"{architecture_name!r}; expected "
+            "a supported equivariant architecture. "
+            "Legacy EquivariantSkyNet checkpoints cannot be loaded."
+        )
 
 
 def _resolve_model_parameter(
@@ -74,9 +97,15 @@ def _build_model(
     embedding_dimensions: int,
     global_state_embedding_dimensions: int,
     num_heads: int,
+    architecture_name: str | None = None,
 ) -> skynet.EquivariantSkyNet:
     players = 2
-    model = skynet.EquivariantSkyNet(
+    model_class = (
+        skynet.EquivariantSkyNetWithAuxiliaryHeads
+        if architecture_name == skynet.EQUIVARIANT_AUX_ARCHITECTURE_NAME
+        else skynet.EquivariantSkyNet
+    )
+    model = model_class(
         spatial_input_shape=(
             players,
             sj.ROW_COUNT,
@@ -106,6 +135,7 @@ def _model_player_config(
     *,
     mcts_iterations: int,
     terminal_state_rollouts: int,
+    score_utility_weight: float = 0.0,
 ) -> player.ModelPlayerConfig:
     return player.ModelPlayerConfig(
         action_softmax_temperature=0.0,
@@ -113,8 +143,21 @@ def _model_player_config(
         mcts_dirichlet_epsilon=0.0,
         mcts_after_state_evaluate_all_children=False,
         mcts_terminal_state_initial_rollouts=terminal_state_rollouts,
-        mcts_forced_playout_k=None,
+        mcts_score_utility_weight=score_utility_weight,
     )
+
+
+def _checkpoint_score_utility_weight(path: pathlib.Path) -> float:
+    configuration = _checkpoint_configuration(path)
+    player_configuration = configuration.get("player", {})
+    if not isinstance(player_configuration, dict):
+        player_configuration = {}
+    if "mcts_score_utility_weight" in player_configuration:
+        return float(player_configuration["mcts_score_utility_weight"])
+    search_configuration = configuration.get("search", {})
+    if not isinstance(search_configuration, dict):
+        return 0.0
+    return float(search_configuration.get("score_utility_weight", 0.0))
 
 
 def _initialize_faceoff_worker(
@@ -123,36 +166,45 @@ def _initialize_faceoff_worker(
     device_name: str,
     model_parameters: dict[str, int],
     model_player_config: player.ModelPlayerConfig,
+    candidate_architecture: str | None,
+    champion_architecture: str | None,
+    champion_model_player_config: player.ModelPlayerConfig,
 ) -> None:
     global _WORKER_CANDIDATE, _WORKER_CHAMPION, _WORKER_PLAYER_CONFIG
+    global _WORKER_CHAMPION_PLAYER_CONFIG
     torch.set_num_threads(1)
     device = torch.device(device_name)
     _WORKER_CANDIDATE = _build_model(
         checkpoint_path=candidate_checkpoint,
         device=device,
+        architecture_name=candidate_architecture,
         **model_parameters,
     )
     _WORKER_CHAMPION = _build_model(
         checkpoint_path=champion_checkpoint,
         device=device,
+        architecture_name=champion_architecture,
         **model_parameters,
     )
     _WORKER_PLAYER_CONFIG = model_player_config
+    _WORKER_CHAMPION_PLAYER_CONFIG = champion_model_player_config
 
 
-def _run_worker_pair(pair_seed: int) -> tuple[int, int]:
+def _run_worker_pair(pair_seed: int) -> faceoff.MCTSFaceoffResult:
     if (
         _WORKER_CANDIDATE is None
         or _WORKER_CHAMPION is None
         or _WORKER_PLAYER_CONFIG is None
+        or _WORKER_CHAMPION_PLAYER_CONFIG is None
     ):
         raise RuntimeError("faceoff worker was not initialized")
-    return faceoff.model_mcts_faceoff(
+    return faceoff.model_mcts_faceoff_detailed(
         _WORKER_CANDIDATE,
         _WORKER_CHAMPION,
         model_player_config=_WORKER_PLAYER_CONFIG,
         paired_rounds=1,
         seed=pair_seed,
+        champion_model_player_config=_WORKER_CHAMPION_PLAYER_CONFIG,
     )
 
 
@@ -166,9 +218,12 @@ def _run_parallel_faceoff(
     device_name: str,
     model_parameters: dict[str, int],
     model_player_config: player.ModelPlayerConfig,
+    champion_model_player_config: player.ModelPlayerConfig | None = None,
+    candidate_architecture: str | None = None,
+    champion_architecture: str | None = None,
     game_completed_callback: typing.Callable[[], None] | None,
-) -> tuple[int, int]:
-    candidate_wins = champion_wins = 0
+) -> faceoff.MCTSFaceoffResult:
+    result = faceoff.MCTSFaceoffResult()
     worker_count = min(workers, paired_rounds)
     context = multiprocessing.get_context("spawn")
     with concurrent.futures.ProcessPoolExecutor(
@@ -181,6 +236,9 @@ def _run_parallel_faceoff(
             device_name,
             model_parameters,
             model_player_config,
+            candidate_architecture,
+            champion_architecture,
+            champion_model_player_config or model_player_config,
         ),
     ) as executor:
         futures = [
@@ -188,16 +246,20 @@ def _run_parallel_faceoff(
             for pair_index in range(paired_rounds)
         ]
         for completed in concurrent.futures.as_completed(futures):
-            pair_candidate_wins, pair_champion_wins = completed.result()
-            candidate_wins += pair_candidate_wins
-            champion_wins += pair_champion_wins
+            completed_result = completed.result()
+            if isinstance(completed_result, tuple):
+                completed_result = faceoff.MCTSFaceoffResult(
+                    candidate_wins=completed_result[0],
+                    champion_wins=completed_result[1],
+                )
+            result = result + completed_result
             if game_completed_callback is not None:
                 game_completed_callback()
                 game_completed_callback()
-    return candidate_wins, champion_wins
+    return result
 
 
-def run_faceoff(
+def run_faceoff_detailed(
     *,
     candidate_checkpoint: pathlib.Path,
     champion_checkpoint: pathlib.Path,
@@ -211,8 +273,8 @@ def run_faceoff(
     num_heads: int | None,
     game_completed_callback: typing.Callable[[], None] | None = None,
     workers: int = 1,
-) -> tuple[int, int]:
-    """Load two checkpoints and return candidate and champion win counts."""
+) -> faceoff.MCTSFaceoffResult:
+    """Load two checkpoints and return paired win, score, and clear metrics."""
     if games < 2 or games % 2:
         raise ValueError("games must be a positive even number (one game per seat)")
     if mcts_iterations < 1:
@@ -227,6 +289,8 @@ def run_faceoff(
 
     candidate_configuration = _checkpoint_model_configuration(candidate_checkpoint)
     champion_configuration = _checkpoint_model_configuration(champion_checkpoint)
+    _validate_checkpoint_architecture(candidate_checkpoint, candidate_configuration)
+    _validate_checkpoint_architecture(champion_checkpoint, champion_configuration)
     model_parameters = {
         "embedding_dimensions": _resolve_model_parameter(
             name="embedding_dimensions",
@@ -250,9 +314,17 @@ def run_faceoff(
             default=DEFAULT_NUM_HEADS,
         ),
     }
+    candidate_architecture = candidate_configuration.get("name")
+    champion_architecture = champion_configuration.get("name")
     model_player_config = _model_player_config(
         mcts_iterations=mcts_iterations,
         terminal_state_rollouts=terminal_state_rollouts,
+        score_utility_weight=_checkpoint_score_utility_weight(candidate_checkpoint),
+    )
+    champion_model_player_config = _model_player_config(
+        mcts_iterations=mcts_iterations,
+        terminal_state_rollouts=terminal_state_rollouts,
+        score_utility_weight=_checkpoint_score_utility_weight(champion_checkpoint),
     )
     if workers > 1:
         return _run_parallel_faceoff(
@@ -264,27 +336,43 @@ def run_faceoff(
             device_name=device_name,
             model_parameters=model_parameters,
             model_player_config=model_player_config,
+            champion_model_player_config=champion_model_player_config,
+            candidate_architecture=candidate_architecture,
+            champion_architecture=champion_architecture,
             game_completed_callback=game_completed_callback,
         )
 
     candidate = _build_model(
         checkpoint_path=candidate_checkpoint,
         device=device,
+        architecture_name=candidate_architecture,
         **model_parameters,
     )
     champion = _build_model(
         checkpoint_path=champion_checkpoint,
         device=device,
+        architecture_name=champion_architecture,
         **model_parameters,
     )
-    return faceoff.model_mcts_faceoff(
+    return faceoff.model_mcts_faceoff_detailed(
         candidate,
         champion,
         model_player_config=model_player_config,
         paired_rounds=games // 2,
         seed=seed,
         game_completed_callback=game_completed_callback,
+        champion_model_player_config=champion_model_player_config,
     )
+
+
+def run_faceoff(
+    *, detailed: bool = False, **kwargs: typing.Any
+) -> tuple[int, int] | faceoff.MCTSFaceoffResult:
+    """Backward-compatible win-count interface."""
+    result = run_faceoff_detailed(**kwargs)
+    if detailed:
+        return result
+    return result.candidate_wins, result.champion_wins
 
 
 def faceoff_checkpoints(
@@ -355,7 +443,7 @@ def faceoff_checkpoints(
             unit="game",
             disable=not show_progress,
         ) as progress_bar:
-            candidate_wins, champion_wins = run_faceoff(
+            raw_result = run_faceoff(
                 candidate_checkpoint=candidate_checkpoint,
                 champion_checkpoint=champion_checkpoint,
                 games=games,
@@ -368,21 +456,49 @@ def faceoff_checkpoints(
                 num_heads=num_heads,
                 game_completed_callback=progress_bar.update,
                 workers=workers,
+                detailed=True,
             )
     except (OSError, RuntimeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
 
+    if isinstance(raw_result, tuple):
+        result = faceoff.MCTSFaceoffResult(
+            candidate_wins=raw_result[0],
+            champion_wins=raw_result[1],
+        )
+    else:
+        result = raw_result
     typer.echo(f"candidate: {candidate_checkpoint}")
     typer.echo(f"champion: {champion_checkpoint}")
     typer.echo(f"games: {games}")
     typer.echo(f"workers: {workers}")
-    typer.echo(f"candidate_wins: {candidate_wins}")
-    typer.echo(f"champion_wins: {champion_wins}")
-    typer.echo(f"candidate_win_rate: {candidate_wins / games:.1%}")
-    if candidate_wins == champion_wins:
-        typer.echo("winner: tie")
+    typer.echo(f"candidate_wins: {result.candidate_wins}")
+    typer.echo(f"champion_wins: {result.champion_wins}")
+    typer.echo(f"candidate_win_rate: {result.candidate_wins / games:.1%}")
+    typer.echo(f"candidate_mean_score: {result.candidate_mean_score:.3f}")
+    typer.echo(f"champion_mean_score: {result.champion_mean_score:.3f}")
+    typer.echo(
+        "candidate_mean_score_differential: "
+        f"{result.candidate_mean_score - result.champion_mean_score:.3f}"
+    )
+    typer.echo(f"candidate_mean_clears: {result.candidate_mean_clears:.3f}")
+    typer.echo(f"champion_mean_clears: {result.champion_mean_clears:.3f}")
+    if result.candidate_wins == result.champion_wins:
+        if result.candidate_mean_score == result.champion_mean_score:
+            typer.echo("winner: tie")
+        else:
+            winner = (
+                "candidate"
+                if result.candidate_mean_score < result.champion_mean_score
+                else "champion"
+            )
+            typer.echo(f"winner: {winner} (score tiebreak)")
     else:
-        winner = "candidate" if candidate_wins > champion_wins else "champion"
+        winner = (
+            "candidate"
+            if result.candidate_wins > result.champion_wins
+            else "champion"
+        )
         typer.echo(f"winner: {winner}")
 
 

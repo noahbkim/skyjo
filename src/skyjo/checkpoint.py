@@ -151,3 +151,32 @@ def load_checkpoint(
     if restore_rng:
         restore_rng_state(payload["rng_state"])
     return TrainingProgress(**payload["progress"])
+
+
+def load_auxiliary_warm_start(
+    path: pathlib.Path,
+    *,
+    model: torch.nn.Module,
+    map_location: torch.device | str | None = None,
+) -> None:
+    """Load a baseline checkpoint while allowing only new auxiliary heads."""
+    payload = torch.load(path, map_location=map_location, weights_only=False)
+    if not isinstance(payload, dict) or payload.get("format") != CHECKPOINT_FORMAT:
+        raise CheckpointFormatError(f"{path} is not a {CHECKPOINT_FORMAT} file")
+    if payload.get("version") != CHECKPOINT_VERSION:
+        raise CheckpointFormatError(
+            f"unsupported checkpoint version {payload.get('version')!r}; "
+            f"expected {CHECKPOINT_VERSION}"
+        )
+    incompatible = model.load_state_dict(payload["model_state_dict"], strict=False)
+    allowed_prefixes = ("round_score_tail.", "future_clear_tail.")
+    invalid_missing = [
+        key
+        for key in incompatible.missing_keys
+        if not key.startswith(allowed_prefixes)
+    ]
+    if invalid_missing or incompatible.unexpected_keys:
+        raise RuntimeError(
+            "warm-start checkpoint is incompatible outside auxiliary heads: "
+            f"missing={invalid_missing}, unexpected={incompatible.unexpected_keys}"
+        )

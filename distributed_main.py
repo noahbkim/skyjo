@@ -1,7 +1,12 @@
+"""Status: manual
+Purpose: Run multiprocessing Skyjo self-play, training, and model validation.
+Promote when: The distributed training orchestration becomes a maintained CLI.
+"""
+
 from __future__ import annotations
 
-import datetime
 import dataclasses
+import datetime
 import functools
 import logging
 import pathlib
@@ -12,25 +17,21 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-from skyjo import (
-    buffer,
-    checkpoint,
-    explain,
-    faceoff,
-    factory,
-    mcts,
-    play,
-    player,
-    predictor,
-    skynet,
-    train,
-    train_utils,
-)
+from skyjo import buffer, checkpoint, explain, faceoff, factory
 from skyjo import game as sj
+from skyjo import mcts, play, player, predictor, skynet, train, train_utils
 
 StartStateGenerator: typing.TypeAlias = typing.Callable[[], sj.Skyjo | None]
 PLAY_SEED_STREAM = 0
 TARGET_SEED_STREAM = 1
+
+
+def configure_torch_worker(torch_thread_count: int) -> None:
+    """Limit Torch CPU parallelism inside one multiprocessing worker."""
+    if torch_thread_count < 1:
+        raise ValueError("torch_thread_count must be positive")
+    torch.set_num_threads(torch_thread_count)
+    torch.set_num_interop_threads(1)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -52,9 +53,9 @@ def derive_game_seed(
     if stream < 0:
         raise ValueError("stream cannot be negative")
     return int(
-        np.random.SeedSequence(
-            [run_seed, global_game_index, stream]
-        ).generate_state(1, dtype=np.uint32)[0]
+        np.random.SeedSequence([run_seed, global_game_index, stream]).generate_state(
+            1, dtype=np.uint32
+        )[0]
     )
 
 
@@ -136,9 +137,7 @@ def play_games_locally(
             TARGET_SEED_STREAM,
         )
         set_seed(play_seed)
-        start_state = (
-            None if start_state_generator is None else start_state_generator()
-        )
+        start_state = None if start_state_generator is None else start_state_generator()
         history = play.distributed_play(
             model_players,
             start_state=start_state,
@@ -187,6 +186,28 @@ def add_generated_games_to_buffer(
         )
         game_stats_list.append(game_stats)
     return game_stats_list
+
+
+def initialize_training_data_buffer(
+    config: buffer.Config,
+    initial_dataset_path: pathlib.Path | None = None,
+) -> buffer.ReplayBuffer:
+    """Load the destination dataset, or seed a fresh destination from a snapshot."""
+    destination_manifest = (
+        None if config.path is None else config.path / buffer.MANIFEST_FILE
+    )
+    if destination_manifest is not None and destination_manifest.is_file():
+        return buffer.ReplayBuffer.from_config_or_load(config)
+    if initial_dataset_path is None:
+        return buffer.ReplayBuffer.from_config(config)
+    if not (initial_dataset_path / buffer.MANIFEST_FILE).is_file():
+        raise FileNotFoundError(f"No replay dataset found at {initial_dataset_path}")
+
+    replay_buffer = buffer.ReplayBuffer.from_config_or_load(
+        dataclasses.replace(config, path=initial_dataset_path)
+    )
+    replay_buffer.path = config.path
+    return replay_buffer
 
 
 def faceoff_models_locally(
@@ -290,21 +311,29 @@ def run_apply_async_local_selfplay_learning(
     model_player_config: player.ModelPlayerConfig,
     model_callable: typing.Callable[..., skynet.SkyNet],
     model_kwargs: dict[str, typing.Any],
+    torch_threads_per_worker: int = 1,
     run_seed: int = 0,
     games_per_task: int = 1,
     start_state_generator: StartStateGenerator | None = None,
     outcome_rollouts: int = 1,
     faceoff_rounds: int = 100,
     faceoff_rounds_per_task: int = 1,
+    initial_training_dataset_path: pathlib.Path | None = None,
 ) -> None:
-    training_data_buffer = buffer.ReplayBuffer.from_config_or_load(
-        training_data_buffer_config
+    if torch_threads_per_worker < 1:
+        raise ValueError("torch_threads_per_worker must be positive")
+    training_data_buffer = initialize_training_data_buffer(
+        training_data_buffer_config,
+        initial_training_dataset_path,
     )
     model = model_factory.get_latest_model()
     model.set_device(learn_config.torch_device)
     optimizer = train.make_optimizer(model, training_config.learn_rate)
     run_configuration = {
-        "model": model_kwargs,
+        "model": {
+            "name": getattr(model, "architecture_name", type(model).__name__),
+            **model_kwargs,
+        },
         "player": model_player_config,
         "learn": {
             "games_generated_per_iteration": (
@@ -328,13 +357,18 @@ def run_apply_async_local_selfplay_learning(
         map_location=learn_config.torch_device,
     )
 
-    with mp.Pool(processes=process_count) as pool:
-        for iteration in range(progress.iteration, learn_config.learn_steps):
+    starting_iteration = progress.iteration
+    first_new_game_index = max(training_data_buffer.game_indices, default=-1) + 1
+    with mp.Pool(
+        processes=process_count,
+        initializer=configure_torch_worker,
+        initargs=(torch_threads_per_worker,),
+    ) as pool:
+        for iteration in range(starting_iteration, learn_config.learn_steps):
             logging.info("[LEARN] Starting iteration %s", iteration)
 
-            if (
-                learn_config.validation_function is not None
-                and train.interval_due(iteration, learn_config.validation_interval)
+            if learn_config.validation_function is not None and train.interval_due(
+                iteration, learn_config.validation_interval
             ):
                 learn_config.validation_function(model)
 
@@ -346,8 +380,9 @@ def run_apply_async_local_selfplay_learning(
                 games_per_task,
             )
             batch_starts = np.cumsum([0, *batch_sizes[:-1]]).tolist()
-            first_iteration_game = (
-                iteration * learn_config.games_generated_per_iteration
+            first_iteration_game = first_new_game_index + (
+                (iteration - starting_iteration)
+                * learn_config.games_generated_per_iteration
             )
             async_results = [
                 pool.apply_async(
@@ -394,7 +429,7 @@ def run_apply_async_local_selfplay_learning(
                     generation_metadata={
                         "run_seed": run_seed,
                         "players": players,
-                        "model": model_kwargs,
+                        "model": run_configuration["model"],
                         "model_player": model_player_config,
                         "outcome_rollouts": outcome_rollouts,
                     },
@@ -443,24 +478,18 @@ def run_apply_async_local_selfplay_learning(
                         learn_config.loss_stats_function(loss_details),
                     )
 
-            optimizer_steps = (
-                optimizer_steps_per_epoch * training_config.epochs
-            )
+            optimizer_steps = optimizer_steps_per_epoch * training_config.epochs
             sampled_positions = optimizer_steps * training_config.batch_size
             progress = checkpoint.TrainingProgress(
                 iteration=iteration + 1,
                 epoch=training_config.epochs,
                 generated_games=progress.generated_games + len(game_stats_list),
-                trained_positions=progress.trained_positions
-                + sampled_positions,
+                trained_positions=progress.trained_positions + sampled_positions,
                 optimizer_steps=progress.optimizer_steps + optimizer_steps,
-                sampled_positions=progress.sampled_positions
-                + sampled_positions,
+                sampled_positions=progress.sampled_positions + sampled_positions,
             )
 
-            if (
-                train.interval_due(iteration + 1, learn_config.update_model_interval)
-            ):
+            if train.interval_due(iteration + 1, learn_config.update_model_interval):
                 if faceoff_rounds > 0:
                     logging.info("[LEARN] Model Faceoff")
                     faceoff_result = validate_model_faceoff(
@@ -517,9 +546,12 @@ def create_random_potential_clear_position() -> sj.Skyjo:
 
 
 if __name__ == "__main__":
+    experiment_name = "combined"
+    experiment = train_utils.get_auxiliary_experiment_preset(experiment_name)
     seed = 0
     debug = False
     process_count = 8
+    torch_threads_per_worker = 1
     players = 2
     games_per_task = 1
     faceoff_rounds = 0
@@ -527,13 +559,21 @@ if __name__ == "__main__":
     start_state_generator = None
     outcome_rollouts = 100
     device = torch.device("cpu")
+    initial_checkpoint_path = pathlib.Path(
+        # "models/apply_async_local/20260811_190838/checkpoint_20260812_013341_282181.pth"
+        "models/apply_async_local/20260815_113507/checkpoint_20260815_190452_416007.pth"
+    )
+    # Seed model weights only. Start a fresh replay lineage so the new search
+    # configuration is not trained alongside targets from the previous scorer.
+    initial_training_dataset_path = None
 
     np.random.seed(seed)
     torch.manual_seed(seed)
     random.seed(seed)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = pathlib.Path("logs/apply_async_local_train") / timestamp
+    run_name = f"{experiment.name}_{timestamp}"
+    log_dir = pathlib.Path("logs/apply_async_local_train") / run_name
     log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.DEBUG if debug else logging.INFO,
@@ -544,15 +584,15 @@ if __name__ == "__main__":
     )
 
     model_kwargs = {
-        "embedding_dimensions": 32,
-        "global_state_embedding_dimensions": 64,
+        "embedding_dimensions": 16,
+        "global_state_embedding_dimensions": 32,
         "num_heads": 2,
     }
     spatial_input_shape = (players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
     non_spatial_input_shape = (sj.GAME_SIZE,)
     value_output_shape = (players,)
     policy_output_shape = (sj.MASK_SIZE,)
-    model = skynet.EquivariantSkyNet(
+    model = skynet.EquivariantSkyNetWithAuxiliaryHeads(
         spatial_input_shape=spatial_input_shape,
         non_spatial_input_shape=non_spatial_input_shape,
         value_output_shape=value_output_shape,
@@ -560,13 +600,20 @@ if __name__ == "__main__":
         device=device,
         **model_kwargs,
     )
+    checkpoint.load_auxiliary_warm_start(
+        initial_checkpoint_path,
+        model=model,
+        map_location=device,
+    )
+    logging.info("Initialized model weights from %s", initial_checkpoint_path)
+    logging.info("Auxiliary experiment preset: %s", experiment)
 
     model_factory = factory.SkyNetModelFactory(
-        model_callable=skynet.EquivariantSkyNet,
+        model_callable=skynet.EquivariantSkyNetWithAuxiliaryHeads,
         players=players,
         model_kwargs=model_kwargs,
         device=device,
-        models_dir=pathlib.Path("./models") / "apply_async_local" / timestamp,
+        models_dir=pathlib.Path("./models") / "apply_async_local" / run_name,
         initial_model=model,
     )
 
@@ -575,14 +622,17 @@ if __name__ == "__main__":
         batch_size=32,
         learn_rate=1e-3,
         loss_function=functools.partial(
-            train_utils.base_loss,
+            train_utils.outcome_policy_auxiliary_loss,
             value_scale=1.0,
+            round_score_scale=experiment.round_score_scale,
+            future_clear_scale=experiment.future_clear_scale,
+            clear_positive_weight=experiment.clear_positive_weight,
         ),
     )
     learn_config = train.LearnConfig(
         torch_device=device,
-        learn_steps=2,
-        games_generated_per_iteration=8,
+        learn_steps=10,
+        games_generated_per_iteration=1024,
         loss_stats_function=train_utils.loss_details_summary,
         validation_interval=1,
         validation_function=lambda model: explain.validate_model(
@@ -594,11 +644,13 @@ if __name__ == "__main__":
     )
 
     mcts_config = mcts.MCTSConfig(
-        iterations=400,
+        iterations=100,
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
-        forced_playout_k=None,
+        c_puct=1.0,
+        fpu_reduction=0.25,
+        score_utility_weight=experiment.score_utility_weight,
     )
     model_player_config = player.ModelPlayerConfig(
         action_softmax_temperature=1.0,
@@ -609,18 +661,20 @@ if __name__ == "__main__":
         spatial_input_shape=spatial_input_shape,
         non_spatial_input_shape=non_spatial_input_shape,
         action_mask_shape=policy_output_shape,
-        path=pathlib.Path("./data/training_data") / timestamp / "dataset",
+        target_specs=buffer.auxiliary_target_specs(players, policy_output_shape),
+        path=pathlib.Path("./data/training_data") / run_name / "dataset",
     )
 
     run_apply_async_local_selfplay_learning(
         process_count=process_count,
+        torch_threads_per_worker=torch_threads_per_worker,
         players=players,
         model_factory=model_factory,
         learn_config=learn_config,
         training_config=training_config,
         training_data_buffer_config=training_data_buffer_config,
         model_player_config=model_player_config,
-        model_callable=skynet.EquivariantSkyNet,
+        model_callable=skynet.EquivariantSkyNetWithAuxiliaryHeads,
         model_kwargs=model_kwargs,
         run_seed=seed,
         games_per_task=games_per_task,
@@ -628,4 +682,5 @@ if __name__ == "__main__":
         outcome_rollouts=outcome_rollouts,
         faceoff_rounds=faceoff_rounds,
         faceoff_rounds_per_task=faceoff_rounds_per_task,
+        initial_training_dataset_path=initial_training_dataset_path,
     )

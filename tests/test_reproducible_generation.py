@@ -15,6 +15,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import distributed_main  # noqa: E402
 
 
+def test_torch_worker_uses_bounded_cpu_parallelism(monkeypatch):
+    configured_threads = []
+    configured_interop_threads = []
+    monkeypatch.setattr(torch, "set_num_threads", configured_threads.append)
+    monkeypatch.setattr(
+        torch,
+        "set_num_interop_threads",
+        configured_interop_threads.append,
+    )
+
+    distributed_main.configure_torch_worker(1)
+
+    assert configured_threads == [1]
+    assert configured_interop_threads == [1]
+
+
 def test_game_seeds_are_stable_distinct_streams():
     seed_a = distributed_main.derive_game_seed(
         7, 12, distributed_main.PLAY_SEED_STREAM
@@ -104,6 +120,37 @@ def make_buffer() -> buffer.ReplayBuffer:
         non_spatial_input_shape=(sj.GAME_SIZE,),
         action_mask_shape=(sj.MASK_SIZE,),
     )
+
+
+def test_fresh_run_can_seed_buffer_without_overwriting_source(tmp_path):
+    source_path = tmp_path / "source" / "dataset"
+    source = make_buffer()
+    state = sj.new(players=2, top=0)
+    action_mask = sj.actions(state).astype(np.float32)
+    source.add(
+        state,
+        {
+            train_utils.VALUE_TARGET_NAME: np.array([1.0, 0.0], dtype=np.float32),
+            train_utils.POLICY_TARGET_NAME: action_mask / action_mask.sum(),
+        },
+        game_index=12,
+    )
+    source.save(source_path)
+    destination_path = tmp_path / "destination" / "dataset"
+    config = buffer.Config(
+        max_size=8,
+        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=(sj.GAME_SIZE,),
+        action_mask_shape=(sj.MASK_SIZE,),
+        path=destination_path,
+    )
+
+    seeded = distributed_main.initialize_training_data_buffer(config, source_path)
+
+    assert seeded.game_indices == (12,)
+    assert seeded.path == destination_path
+    assert not destination_path.exists()
+    assert source_path.exists()
 
 
 def test_target_generation_is_seeded_and_sorted_before_buffering(monkeypatch):

@@ -18,10 +18,65 @@ class MCTSPromotionConfig(config.Config):
     seed: int = 0
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class MCTSFaceoffResult:
+    candidate_wins: int = 0
+    champion_wins: int = 0
+    candidate_score_total: float = 0.0
+    champion_score_total: float = 0.0
+    candidate_clears: float = 0.0
+    champion_clears: float = 0.0
+
+    @property
+    def games(self) -> int:
+        return self.candidate_wins + self.champion_wins
+
+    @property
+    def candidate_mean_score(self) -> float:
+        return self.candidate_score_total / self.games
+
+    @property
+    def champion_mean_score(self) -> float:
+        return self.champion_score_total / self.games
+
+    @property
+    def candidate_mean_clears(self) -> float:
+        return self.candidate_clears / self.games
+
+    @property
+    def champion_mean_clears(self) -> float:
+        return self.champion_clears / self.games
+
+    def __add__(self, other: typing.Self) -> typing.Self:
+        return type(self)(
+            candidate_wins=self.candidate_wins + other.candidate_wins,
+            champion_wins=self.champion_wins + other.champion_wins,
+            candidate_score_total=(
+                self.candidate_score_total + other.candidate_score_total
+            ),
+            champion_score_total=(
+                self.champion_score_total + other.champion_score_total
+            ),
+            candidate_clears=self.candidate_clears + other.candidate_clears,
+            champion_clears=self.champion_clears + other.champion_clears,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, tuple) and len(other) == 2:
+            return (self.candidate_wins, self.champion_wins) == other
+        if not isinstance(other, MCTSFaceoffResult):
+            return NotImplemented
+        return all(
+            getattr(self, field.name) == getattr(other, field.name)
+            for field in dataclasses.fields(self)
+        )
+
+
 def single_game_faceoff(
     players: list[player.AbstractPlayer],
     start_state: sj.Skyjo | None = None,
     debug: bool = False,
+    return_cleared_columns: bool = False,
 ):
     if start_state is None:
         start_state = sj.new(players=len(players))
@@ -47,9 +102,16 @@ def single_game_faceoff(
         logging.info(
             f"Round scores: {sj.get_fixed_perspective_round_scores(game_state)}"
         )
-    return skynet.skyjo_to_state_value(
-        game_state
-    ), sj.get_fixed_perspective_round_scores(game_state)
+    result = (
+        skynet.skyjo_to_state_value(game_state),
+        sj.get_fixed_perspective_round_scores(game_state),
+    )
+    if return_cleared_columns:
+        return (
+            *result,
+            sj.get_fixed_perspective_cleared_columns(game_state).sum(axis=1),
+        )
+    return result
 
 
 def model_policy_single_game_faceoff(
@@ -188,22 +250,53 @@ def model_mcts_faceoff(
     seed: int = 0,
     start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
     game_completed_callback: typing.Callable[[], None] | None = None,
+    champion_model_player_config: player.ModelPlayerConfig | None = None,
 ) -> tuple[int, int]:
     """Evaluate deployed MCTS agents with common seeds and swapped seats."""
+    result = model_mcts_faceoff_detailed(
+        candidate,
+        champion,
+        model_player_config=model_player_config,
+        champion_model_player_config=champion_model_player_config,
+        paired_rounds=paired_rounds,
+        seed=seed,
+        start_state_generator=start_state_generator,
+        game_completed_callback=game_completed_callback,
+    )
+    return result.candidate_wins, result.champion_wins
+
+
+def model_mcts_faceoff_detailed(
+    candidate: skynet.SkyNet,
+    champion: skynet.SkyNet,
+    model_player_config: player.ModelPlayerConfig,
+    paired_rounds: int = 100,
+    seed: int = 0,
+    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
+    game_completed_callback: typing.Callable[[], None] | None = None,
+    champion_model_player_config: player.ModelPlayerConfig | None = None,
+) -> MCTSFaceoffResult:
+    """Return win, score, and clear metrics with common seeds and swapped seats."""
     if paired_rounds < 1:
         raise ValueError("paired_rounds must be at least one")
-    evaluation_player_config = dataclasses.replace(
+    candidate_evaluation_config = dataclasses.replace(
         model_player_config, action_softmax_temperature=0.0
+    )
+    champion_evaluation_config = dataclasses.replace(
+        champion_model_player_config or model_player_config,
+        action_softmax_temperature=0.0,
     )
     candidate_player = player.ModelPlayer(
         predictor.LocalPredictorClient(candidate, max_batch_size=512),
-        **evaluation_player_config.kwargs(),
+        **candidate_evaluation_config.kwargs(),
     )
     champion_player = player.ModelPlayer(
         predictor.LocalPredictorClient(champion, max_batch_size=512),
-        **evaluation_player_config.kwargs(),
+        **champion_evaluation_config.kwargs(),
     )
     candidate_wins = champion_wins = 0
+    candidate_score_total = champion_score_total = 0.0
+    candidate_clears = champion_clears = 0.0
     for pair_index in range(paired_rounds):
         pair_seed = seed + pair_index
         for candidate_seat in (0, 1):
@@ -218,15 +311,40 @@ def model_mcts_faceoff(
                 if candidate_seat == 0
                 else [champion_player, candidate_player]
             )
-            outcome, _ = single_game_faceoff(players, start_state=start_state)
+            try:
+                outcome, round_scores, cleared_columns = single_game_faceoff(
+                    players,
+                    start_state=start_state,
+                    return_cleared_columns=True,
+                )
+            except TypeError as error:
+                if "return_cleared_columns" not in str(error):
+                    raise
+                outcome, round_scores = single_game_faceoff(
+                    players,
+                    start_state=start_state,
+                )
+                cleared_columns = np.zeros(len(players), dtype=np.float32)
             winner = int(np.argmax(outcome))
             if winner == candidate_seat:
                 candidate_wins += 1
             else:
                 champion_wins += 1
+            champion_seat = 1 - candidate_seat
+            candidate_score_total += float(round_scores[candidate_seat])
+            champion_score_total += float(round_scores[champion_seat])
+            candidate_clears += float(cleared_columns[candidate_seat])
+            champion_clears += float(cleared_columns[champion_seat])
             if game_completed_callback is not None:
                 game_completed_callback()
-    return candidate_wins, champion_wins
+    return MCTSFaceoffResult(
+        candidate_wins=candidate_wins,
+        champion_wins=champion_wins,
+        candidate_score_total=candidate_score_total,
+        champion_score_total=champion_score_total,
+        candidate_clears=candidate_clears,
+        champion_clears=champion_clears,
+    )
 
 
 def passes_mcts_promotion(

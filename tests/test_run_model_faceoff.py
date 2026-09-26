@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 
 import pytest
+import torch
 import typer
 from typer.testing import CliRunner
 
@@ -66,6 +67,30 @@ def test_resolve_model_parameter_rejects_mismatch() -> None:
         )
 
 
+def test_run_faceoff_rejects_legacy_model_architecture(tmp_path) -> None:
+    candidate = tmp_path / "candidate.pth"
+    champion = tmp_path / "champion.pth"
+    legacy_payload = {"configuration": {"model": {"name": "equivariant"}}}
+    torch.save(legacy_payload, candidate)
+    torch.save(legacy_payload, champion)
+
+    with pytest.raises(ValueError, match="Legacy EquivariantSkyNet checkpoints"):
+        faceoff_cli.run_faceoff(
+            candidate_checkpoint=candidate,
+            champion_checkpoint=champion,
+            games=2,
+            seed=0,
+            device_name="cpu",
+            mcts_iterations=1,
+            terminal_state_rollouts=1,
+            embedding_dimensions=None,
+            global_state_embedding_dimensions=None,
+            num_heads=None,
+            game_completed_callback=None,
+            workers=1,
+        )
+
+
 def test_parallel_faceoff_combines_completed_pairs(monkeypatch) -> None:
     submitted_seeds = []
 
@@ -116,3 +141,10 @@ def test_parallel_faceoff_combines_completed_pairs(monkeypatch) -> None:
     assert submitted_seeds == [10, 11, 12]
     assert wins == (4, 2)
     assert len(completed_games) == 6
+
+
+def test_missing_architecture_metadata_defers_to_strict_model_loading() -> None:
+    faceoff_cli._validate_checkpoint_architecture(
+        pathlib.Path("checkpoint-without-configuration.pth"),
+        {},
+    )

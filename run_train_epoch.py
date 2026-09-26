@@ -43,14 +43,20 @@ def build_model(
     embedding_dimensions: int,
     global_state_embedding_dimensions: int,
     num_heads: int,
-) -> skynet.EquivariantSkyNet:
+) -> skynet.SkyNet:
     value_targets = training_data_buffer.target_buffers[
         train_utils.VALUE_TARGET_NAME
     ]
     policy_targets = training_data_buffer.target_buffers[
         train_utils.POLICY_TARGET_NAME
     ]
-    return skynet.EquivariantSkyNet(
+    model_class = (
+        skynet.EquivariantSkyNetWithAuxiliaryHeads
+        if train_utils.FUTURE_CLEAR_TARGET_NAME
+        in training_data_buffer.target_buffers
+        else skynet.EquivariantSkyNet
+    )
+    return model_class(
         spatial_input_shape=training_data_buffer.spatial_input_buffer.shape[1:],
         non_spatial_input_shape=training_data_buffer.non_spatial_input_buffer.shape[
             1:
@@ -67,6 +73,29 @@ def build_model(
 def _print_loss(prefix: str, loss_details: train_utils.LossDetails) -> None:
     for name, value in sorted(loss_details.items()):
         typer.echo(f"{prefix}_{name}: {value:.8f}")
+
+
+def _select_game_indices(
+    replay_buffer: buffer.ReplayBuffer,
+    game_indices: list[int] | None,
+) -> buffer.ReplayBuffer:
+    """Select games by their persisted IDs, preserving dataset order."""
+    if not game_indices:
+        return replay_buffer
+    if len(set(game_indices)) != len(game_indices):
+        raise typer.BadParameter("--game-index values must be unique")
+
+    requested = set(game_indices)
+    missing = requested.difference(replay_buffer.game_indices)
+    if missing:
+        missing_text = ", ".join(str(game_index) for game_index in sorted(missing))
+        raise typer.BadParameter(f"unknown --game-index value(s): {missing_text}")
+    selected_positions = [
+        position
+        for position, game_index in enumerate(replay_buffer.game_indices)
+        if game_index in requested
+    ]
+    return replay_buffer.select_games(selected_positions)
 
 
 def main(
@@ -105,7 +134,12 @@ def main(
         "--validation-fraction",
         min=0.0,
         max=1.0,
-        help="Fraction of complete games reserved for validation.",
+        help="Fraction of complete games reserved for validation; zero disables validation.",
+    ),
+    game_indices: list[int] | None = typer.Option(
+        None,
+        "--game-index",
+        help="Persisted game ID to include; repeat to select multiple games.",
     ),
     device_name: str = typer.Option(
         "cpu",
@@ -148,17 +182,42 @@ def main(
         "--policy-scale",
         help="Scale for the policy loss term.",
     ),
+    experiment_arm: str = typer.Option(
+        "control",
+        "--experiment-arm",
+        help="Auxiliary experiment preset: control, score, clear, or combined.",
+    ),
 ) -> None:
-    """Train for an exact cumulative step budget and report held-out loss."""
+    """Train for an exact cumulative step budget and report evaluation loss."""
     device = torch.device(device_name)
     set_seed(seed)
 
     load_start = time.perf_counter()
     complete_buffer = buffer.ReplayBuffer.load(dataset_path)
-    training_buffer, validation_buffer = complete_buffer.split_by_game(
-        validation_fraction,
-        seed=split_seed,
+    try:
+        experiment = train_utils.get_auxiliary_experiment_preset(experiment_arm)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--experiment-arm") from error
+    has_auxiliary_targets = (
+        train_utils.ROUND_SCORE_TARGET_NAME in complete_buffer.target_buffers
+        and train_utils.FUTURE_CLEAR_TARGET_NAME in complete_buffer.target_buffers
     )
+    if (
+        experiment.round_score_scale > 0 or experiment.future_clear_scale > 0
+    ) and not has_auxiliary_targets:
+        raise typer.BadParameter(
+            "selected experiment arm requires round_score and future_clear targets",
+            param_hint="--experiment-arm",
+        )
+    complete_buffer = _select_game_indices(complete_buffer, game_indices)
+    if validation_fraction == 0.0:
+        training_buffer = complete_buffer
+        validation_buffer = None
+    else:
+        training_buffer, validation_buffer = complete_buffer.split_by_game(
+            validation_fraction,
+            seed=split_seed,
+        )
     load_seconds = time.perf_counter() - load_start
 
     model = build_model(
@@ -169,14 +228,31 @@ def main(
         num_heads=num_heads,
     )
     optimizer = train.make_optimizer(model, learn_rate)
-    loss_function = functools.partial(
-        train_utils.base_loss,
-        value_scale=value_scale,
-        policy_scale=policy_scale,
-    )
+    if has_auxiliary_targets:
+        loss_function = functools.partial(
+            train_utils.outcome_policy_auxiliary_loss,
+            value_scale=value_scale,
+            policy_scale=policy_scale,
+            round_score_scale=experiment.round_score_scale,
+            future_clear_scale=experiment.future_clear_scale,
+            clear_positive_weight=experiment.clear_positive_weight,
+        )
+    else:
+        loss_function = functools.partial(
+            train_utils.base_loss,
+            value_scale=value_scale,
+            policy_scale=policy_scale,
+        )
+    dataset_configuration = {
+        "dataset_id": complete_buffer.dataset_id,
+        "validation_fraction": validation_fraction,
+        "split_seed": split_seed,
+    }
+    if game_indices:
+        dataset_configuration["game_indices"] = list(complete_buffer.game_indices)
     resume_configuration = {
         "model": {
-            "name": "equivariant",
+            "name": getattr(model, "architecture_name", type(model).__name__),
             "embedding_dimensions": embedding_dimensions,
             "global_state_embedding_dimensions": (
                 global_state_embedding_dimensions
@@ -188,16 +264,25 @@ def main(
             "batch_size": batch_size,
             "learn_rate": learn_rate,
             "loss": {
-                "name": "base",
+                "name": "auxiliary" if has_auxiliary_targets else "base",
                 "value_scale": value_scale,
                 "policy_scale": policy_scale,
+                **(
+                    {
+                        "experiment_arm": experiment.name,
+                        "round_score_scale": experiment.round_score_scale,
+                        "future_clear_scale": experiment.future_clear_scale,
+                        "clear_positive_weight": experiment.clear_positive_weight,
+                    }
+                    if has_auxiliary_targets
+                    else {}
+                ),
             },
         },
-        "dataset": {
-            "dataset_id": complete_buffer.dataset_id,
-            "validation_fraction": validation_fraction,
-            "split_seed": split_seed,
+        "search": {
+            "score_utility_weight": experiment.score_utility_weight,
         },
+        "dataset": dataset_configuration,
     }
     progress = checkpoint.TrainingProgress()
     if resume_checkpoint is not None:
@@ -233,11 +318,15 @@ def main(
         evaluation_batch_size=batch_size,
         loss_function=loss_function,
     )
-    validation_loss = train.evaluate_loss(
-        model,
-        validation_buffer,
-        evaluation_batch_size=batch_size,
-        loss_function=loss_function,
+    validation_loss = (
+        train.evaluate_loss(
+            model,
+            validation_buffer,
+            evaluation_batch_size=batch_size,
+            loss_function=loss_function,
+        )
+        if validation_buffer is not None
+        else None
     )
     validation_seconds = time.perf_counter() - validation_start
 
@@ -262,18 +351,25 @@ def main(
 
     typer.echo(f"dataset_games: {complete_buffer.game_count}")
     typer.echo(f"dataset_positions: {len(complete_buffer)}")
+    typer.echo(
+        "selected_game_indices: "
+        + ",".join(str(game_index) for game_index in complete_buffer.game_indices)
+    )
     typer.echo(f"training_games: {training_buffer.game_count}")
     typer.echo(f"training_positions: {len(training_buffer)}")
-    typer.echo(f"validation_games: {validation_buffer.game_count}")
-    typer.echo(f"validation_positions: {len(validation_buffer)}")
+    if validation_buffer is not None:
+        typer.echo(f"validation_games: {validation_buffer.game_count}")
+        typer.echo(f"validation_positions: {len(validation_buffer)}")
     typer.echo(f"optimizer_steps: {progress.optimizer_steps}")
     typer.echo(f"sampled_position_exposures: {progress.sampled_positions}")
     typer.echo(f"load_seconds: {load_seconds:.6f}")
     typer.echo(f"train_seconds: {train_seconds:.6f}")
-    typer.echo(f"validation_seconds: {validation_seconds:.6f}")
+    if validation_buffer is not None:
+        typer.echo(f"validation_seconds: {validation_seconds:.6f}")
     typer.echo(f"save_seconds: {save_seconds:.6f}")
     _print_loss("train", training_loss)
-    _print_loss("validation", validation_loss)
+    if validation_loss is not None:
+        _print_loss("validation", validation_loss)
 
 
 if __name__ == "__main__":

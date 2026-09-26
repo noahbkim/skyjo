@@ -250,8 +250,12 @@ class CappedModelPlayer(AbstractPlayer):
         fast_mcts_terminal_state_rollouts: int,
         full_mcts_after_state_evaluate_all_children: bool,
         full_mcts_terminal_state_rollouts: int,
-        fast_mcts_forced_playout_k: float | None,
-        full_mcts_forced_playout_k: float | None,
+        fast_mcts_c_puct: float = 1.5,
+        full_mcts_c_puct: float = 1.5,
+        fast_mcts_fpu_reduction: float = 0.0,
+        full_mcts_fpu_reduction: float = 0.0,
+        fast_mcts_score_utility_weight: float = 0.0,
+        full_mcts_score_utility_weight: float = 0.0,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
@@ -268,8 +272,12 @@ class CappedModelPlayer(AbstractPlayer):
         )
         self.fast_mcts_terminal_state_rollouts = fast_mcts_terminal_state_rollouts
         self.full_mcts_terminal_state_rollouts = full_mcts_terminal_state_rollouts
-        self.fast_mcts_forced_playout_k = fast_mcts_forced_playout_k
-        self.full_mcts_forced_playout_k = full_mcts_forced_playout_k
+        self.fast_mcts_c_puct = fast_mcts_c_puct
+        self.full_mcts_c_puct = full_mcts_c_puct
+        self.fast_mcts_fpu_reduction = fast_mcts_fpu_reduction
+        self.full_mcts_fpu_reduction = full_mcts_fpu_reduction
+        self.fast_mcts_score_utility_weight = fast_mcts_score_utility_weight
+        self.full_mcts_score_utility_weight = full_mcts_score_utility_weight
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -279,27 +287,27 @@ class CappedModelPlayer(AbstractPlayer):
                 game_state,
                 self.predictor_client,
                 self.full_mcts_iterations,
-                self.full_mcts_dirichlet_epsilon,
-                self.full_mcts_after_state_evaluate_all_children,
-                self.full_mcts_terminal_state_rollouts,
-                self.full_mcts_forced_playout_k,
+                dirichlet_epsilon=self.full_mcts_dirichlet_epsilon,
+                after_state_evaluate_all_children=self.full_mcts_after_state_evaluate_all_children,
+                terminal_state_initial_rollouts=self.full_mcts_terminal_state_rollouts,
+                c_puct=self.full_mcts_c_puct,
+                fpu_reduction=self.full_mcts_fpu_reduction,
+                score_utility_weight=self.full_mcts_score_utility_weight,
             )
-            return root.policy_targets(
-                self.action_softmax_temperature, self.full_mcts_forced_playout_k
-            )
+            return root.policy_targets(self.action_softmax_temperature)
         else:
             root = mcts.run_mcts(
                 game_state,
                 self.predictor_client,
                 self.fast_mcts_iterations,
-                self.fast_mcts_dirichlet_epsilon,
-                self.fast_mcts_after_state_evaluate_all_children,
-                self.fast_mcts_terminal_state_rollouts,
-                self.fast_mcts_forced_playout_k,
+                dirichlet_epsilon=self.fast_mcts_dirichlet_epsilon,
+                after_state_evaluate_all_children=self.fast_mcts_after_state_evaluate_all_children,
+                terminal_state_initial_rollouts=self.fast_mcts_terminal_state_rollouts,
+                c_puct=self.fast_mcts_c_puct,
+                fpu_reduction=self.fast_mcts_fpu_reduction,
+                score_utility_weight=self.fast_mcts_score_utility_weight,
             )
-            return root.policy_targets(
-                self.action_softmax_temperature, self.fast_mcts_forced_playout_k
-            )
+            return root.policy_targets(self.action_softmax_temperature)
 
 
 @dataclasses.dataclass(slots=True)
@@ -309,7 +317,9 @@ class ModelPlayerConfig(config.Config):
     mcts_dirichlet_epsilon: float
     mcts_after_state_evaluate_all_children: bool
     mcts_terminal_state_initial_rollouts: int
-    mcts_forced_playout_k: float | None = None
+    mcts_c_puct: float = 1.5
+    mcts_fpu_reduction: float = 0.0
+    mcts_score_utility_weight: float = 0.0
 
 
 class ModelPlayer(AbstractPlayer):
@@ -323,7 +333,9 @@ class ModelPlayer(AbstractPlayer):
         mcts_dirichlet_epsilon: float,
         mcts_after_state_evaluate_all_children: bool,
         mcts_terminal_state_initial_rollouts: int,
-        mcts_forced_playout_k: float | None = None,
+        mcts_c_puct: float = 1.5,
+        mcts_fpu_reduction: float = 0.0,
+        mcts_score_utility_weight: float = 0.0,
     ):
         self.predictor_client = predictor_client
         self.action_softmax_temperature = action_softmax_temperature
@@ -333,15 +345,15 @@ class ModelPlayer(AbstractPlayer):
             mcts_after_state_evaluate_all_children
         )
         self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
-        self.mcts_forced_playout_k = mcts_forced_playout_k
+        self.mcts_c_puct = mcts_c_puct
+        self.mcts_fpu_reduction = mcts_fpu_reduction
+        self.mcts_score_utility_weight = mcts_score_utility_weight
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
     ) -> np.ndarray[tuple[int], np.float32]:
         node = self.run_mcts(game_state)
-        return node.policy_targets(
-            self.action_softmax_temperature, self.mcts_forced_playout_k
-        )
+        return node.policy_targets(self.action_softmax_temperature)
 
     def run_mcts(
         self,
@@ -352,11 +364,13 @@ class ModelPlayer(AbstractPlayer):
             game_state,
             self.predictor_client,
             self.mcts_iterations,
-            self.mcts_dirichlet_epsilon,
-            self.mcts_after_state_evaluate_all_children,
-            self.mcts_terminal_state_initial_rollouts,
-            self.mcts_forced_playout_k,
-            root_node,
+            dirichlet_epsilon=self.mcts_dirichlet_epsilon,
+            after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
+            terminal_state_initial_rollouts=self.mcts_terminal_state_initial_rollouts,
+            c_puct=self.mcts_c_puct,
+            fpu_reduction=self.mcts_fpu_reduction,
+            score_utility_weight=self.mcts_score_utility_weight,
+            root_node=root_node,
         )
 
 
@@ -369,7 +383,9 @@ class BatchedModelPlayerConfig(config.Config):
     mcts_terminal_state_initial_rollouts: int
     mcts_batched_leaf_count: int
     mcts_virtual_loss: float
-    mcts_forced_playout_k: float | None
+    mcts_c_puct: float = 1.5
+    mcts_fpu_reduction: float = 0.0
+    mcts_score_utility_weight: float = 0.0
 
 
 class BatchedModelPlayer(AbstractPlayer):
@@ -385,7 +401,9 @@ class BatchedModelPlayer(AbstractPlayer):
         mcts_terminal_state_initial_rollouts: int,
         mcts_batched_leaf_count: int,
         mcts_virtual_loss: float,
-        mcts_forced_playout_k: float | None,
+        mcts_c_puct: float = 1.5,
+        mcts_fpu_reduction: float = 0.0,
+        mcts_score_utility_weight: float = 0.0,
         debug: bool = False,
     ):
         self.predictor_client = predictor_client
@@ -398,7 +416,9 @@ class BatchedModelPlayer(AbstractPlayer):
         self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
         self.mcts_batched_leaf_count = mcts_batched_leaf_count
         self.mcts_virtual_loss = mcts_virtual_loss
-        self.mcts_forced_playout_k = mcts_forced_playout_k
+        self.mcts_c_puct = mcts_c_puct
+        self.mcts_fpu_reduction = mcts_fpu_reduction
+        self.mcts_score_utility_weight = mcts_score_utility_weight
         self.debug = debug
 
     def get_action_probabilities(
@@ -408,9 +428,7 @@ class BatchedModelPlayer(AbstractPlayer):
         node = self.run_mcts(game_state)
         if self.debug:
             print(node)
-        return node.policy_targets(
-            self.action_softmax_temperature, self.mcts_forced_playout_k
-        )
+        return node.policy_targets(self.action_softmax_temperature)
 
     def run_mcts(
         self,
@@ -421,13 +439,15 @@ class BatchedModelPlayer(AbstractPlayer):
             game_state,
             self.predictor_client,
             self.mcts_iterations,
-            self.mcts_dirichlet_epsilon,
-            self.mcts_after_state_evaluate_all_children,
-            self.mcts_terminal_state_initial_rollouts,
-            self.mcts_batched_leaf_count,
-            self.mcts_virtual_loss,
-            self.mcts_forced_playout_k,
-            root_node,
+            dirichlet_epsilon=self.mcts_dirichlet_epsilon,
+            after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
+            terminal_state_initial_rollouts=self.mcts_terminal_state_initial_rollouts,
+            batched_leaf_count=self.mcts_batched_leaf_count,
+            virtual_loss=self.mcts_virtual_loss,
+            c_puct=self.mcts_c_puct,
+            fpu_reduction=self.mcts_fpu_reduction,
+            score_utility_weight=self.mcts_score_utility_weight,
+            root_node=root_node,
         )
 
 

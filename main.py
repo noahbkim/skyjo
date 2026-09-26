@@ -199,7 +199,6 @@ if __name__ == "__main__":
         after_state_evaluate_all_children=False,
         terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
-        forced_playout_k=None,
     )
     model_player_config = player.ModelPlayerConfig(
         action_softmax_temperature=1.0,
@@ -212,7 +211,6 @@ if __name__ == "__main__":
         dirichlet_epsilon=0.25,
         batched_leaf_count=4,
         virtual_loss=0.5,
-        forced_playout_k=None,
     )
     batched_model_player_config = player.BatchedModelPlayerConfig(
         action_softmax_temperature=1.0,

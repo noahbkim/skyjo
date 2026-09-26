@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import random
+import types
 
 import numpy as np
+import pytest
 import torch
 
-from skyjo import game as sj
+from skyjo import explain, game as sj
 from skyjo import mcts, parallel_mcts, predictor, skynet
 
 
@@ -92,3 +94,165 @@ def test_larger_batch_changes_evaluation_scheduling() -> None:
         virtual_loss=0.5,
     )
     assert max(client.sent_batch_sizes) > 1
+
+
+def make_prediction(
+    value: tuple[float, float], policy: dict[int, float]
+) -> skynet.SkyNetPrediction:
+    probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    for action, probability in policy.items():
+        probabilities[action] = probability
+    return skynet.SkyNetPrediction(
+        value_output=np.asarray(value, dtype=np.float32),
+        policy_output=probabilities,
+    )
+
+
+def test_ucb_uses_parent_value_fpu_and_prior_on_first_selection() -> None:
+    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
+    parent = mcts.DecisionStateNode(
+        state=state,
+        parent=None,
+        action=None,
+        c_puct=1.5,
+        fpu_reduction=0.1,
+    )
+    parent.model_prediction = make_prediction(
+        (0.7, 0.3), {sj.MASK_DRAW: 0.8, sj.MASK_TAKE: 0.2}
+    )
+    parent.is_expanded = True
+    draw = types.SimpleNamespace(
+        action=sj.MASK_DRAW,
+        has_value_estimate=False,
+        visit_count=0,
+        virtual_loss=0.0,
+    )
+    take = types.SimpleNamespace(
+        action=sj.MASK_TAKE,
+        has_value_estimate=False,
+        visit_count=0,
+        virtual_loss=0.0,
+    )
+    parent.children = {sj.MASK_DRAW: draw, sj.MASK_TAKE: take}
+
+    assert mcts.ucb_score(draw, parent) == pytest.approx(1.8)
+    assert mcts.ucb_score(take, parent) == pytest.approx(0.9)
+    assert parent.select_child() is draw
+
+
+def test_terminal_rollouts_do_not_count_as_tree_visits() -> None:
+    model = make_model()
+    client = predictor.LocalPredictorClient(model, max_batch_size=64)
+    state = sj.apply_action(explain.create_obvious_clear_position(), sj.MASK_TAKE)
+    state = (*state[:6], 1)
+
+    root = mcts.run_mcts(
+        state,
+        client,
+        iterations=20,
+        terminal_state_initial_rollouts=5,
+    )
+
+    assert root.visit_count == 20
+    assert sum(child.visit_count for child in root.children.values()) == 20
+    assert all(child.outcome_count >= 1 for child in root.children.values())
+    assert any(child.outcome_count > child.visit_count for child in root.children.values())
+    assert np.isclose(root.policy_targets().sum(), 1.0)
+
+
+def test_terminal_backups_use_each_new_sample_not_running_means() -> None:
+    state = sj.new(players=2, top=sj.CARD_0)
+    root = mcts.DecisionStateNode(state=state, parent=None, action=None)
+    root.model_prediction = make_prediction((0.5, 0.5), {0: 1.0})
+    terminal = mcts.TerminalStateNode(
+        pre_terminal_state=state,
+        parent=root,
+        action=0,
+        is_random=True,
+        initial_rollouts=1,
+    )
+    terminal.outcome_total = np.array([1.0, 0.0], dtype=np.float32)
+    terminal.outcome_count = 1
+
+    samples = [
+        np.array([0.0, 1.0], dtype=np.float32),
+        np.array([1.0, 0.0], dtype=np.float32),
+        np.array([0.0, 1.0], dtype=np.float32),
+    ]
+    for sample in samples:
+        terminal.outcome_total += sample
+        terminal.outcome_count += 1
+        mcts.backpropagate([root, terminal], sample)
+
+    assert root.visit_count == terminal.visit_count == len(samples)
+    assert np.allclose(root.state_value, np.mean(samples, axis=0))
+    assert np.allclose(
+        terminal.state_value,
+        (np.array([1.0, 0.0], dtype=np.float32) + sum(samples)) / 4,
+    )
+
+
+def test_exact_chance_update_replaces_propagated_return() -> None:
+    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
+    root = mcts.DecisionStateNode(state=state, parent=None, action=None)
+    root.model_prediction = make_prediction((0.5, 0.5), {sj.MASK_DRAW: 1.0})
+    chance = mcts.AfterStateNode(state=state, action=sj.MASK_DRAW, parent=root)
+    child_state = sj.draw(sj.preordain(state, sj.CARD_P5))
+    child = mcts.DecisionStateNode(
+        state=child_state,
+        parent=chance,
+        action=sj.MASK_DRAW,
+    )
+    child.model_prediction = make_prediction((0.6, 0.4), {})
+    child.is_expanded = True
+    child_hash = sj.hash_skyjo(child_state)
+    chance.children = {child_hash: child}
+    chance.child_weights = {child_hash: 0.25}
+    chance.child_weight_total = 1.0
+    chance.state_value_total = np.array([0.45, 0.55], dtype=np.float32)
+    chance.all_children_discovered = True
+    chance.is_expanded = True
+
+    mcts.backpropagate(
+        [root, chance, child], np.array([0.8, 0.2], dtype=np.float32)
+    )
+
+    assert np.allclose(child.state_value, [0.8, 0.2])
+    assert np.allclose(chance.state_value, [0.5, 0.5])
+    assert np.allclose(root.state_value, [0.5, 0.5])
+
+
+def test_reused_root_requires_matching_scoring_and_resets_noise() -> None:
+    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
+    client = predictor.LocalPredictorClient(make_model(), max_batch_size=64)
+    root = mcts.run_mcts(
+        state,
+        client,
+        iterations=0,
+        dirichlet_epsilon=0.25,
+        c_puct=1.5,
+        fpu_reduction=0.0,
+    )
+    assert root.dirichlet_noise.sum() == pytest.approx(1.0)
+
+    reused = mcts.run_mcts(
+        state,
+        client,
+        iterations=0,
+        dirichlet_epsilon=0.0,
+        c_puct=1.5,
+        fpu_reduction=0.0,
+        root_node=root,
+    )
+    assert reused is root
+    assert root.dirichlet_epsilon == 0.0
+    assert not root.dirichlet_noise.any()
+
+    with pytest.raises(ValueError, match="scoring configuration"):
+        mcts.run_mcts(
+            state,
+            client,
+            iterations=0,
+            c_puct=1.0,
+            root_node=root,
+        )

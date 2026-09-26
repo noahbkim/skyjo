@@ -22,7 +22,9 @@ class BatchedMCTSConfig(config.Config):
     terminal_state_initial_rollouts: int
     batched_leaf_count: int
     virtual_loss: float
-    forced_playout_k: float | None
+    c_puct: float = 1.5
+    fpu_reduction: float = 0.0
+    score_utility_weight: float = 0.0
 
 
 # Compatibility names now point at the single tested node implementation.
@@ -38,6 +40,7 @@ class TerminalStateNode(mcts.TerminalStateNode):
         action,
         is_random,
         initial_outcome_realizations: int = 1,
+        score_utility_weight: float = 0.0,
         **kwargs,
     ):
         initial_rollouts = kwargs.pop("initial_rollouts", initial_outcome_realizations)
@@ -49,6 +52,7 @@ class TerminalStateNode(mcts.TerminalStateNode):
             action=action,
             is_random=is_random,
             initial_rollouts=initial_rollouts,
+            score_utility_weight=score_utility_weight,
         )
 MCTSNode = mcts.MCTSNode
 Config = BatchedMCTSConfig
@@ -61,12 +65,15 @@ def run_mcts(
     game_state: sj.Skyjo,
     predictor_client: predictor.AbstractPredictorClient,
     iterations: int,
+    *,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
     terminal_state_initial_rollouts: int = 1,
     batched_leaf_count: int = 1,
     virtual_loss: float = 0.5,
-    forced_playout_k: float | None = None,
+    c_puct: float = 1.5,
+    fpu_reduction: float = 0.0,
+    score_utility_weight: float = 0.0,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Run shared tree semantics while batching pending leaf evaluations."""
@@ -78,11 +85,13 @@ def run_mcts(
         game_state,
         predictor_client,
         0,
-        dirichlet_epsilon,
-        after_state_evaluate_all_children,
-        terminal_state_initial_rollouts,
-        forced_playout_k,
-        root_node,
+        dirichlet_epsilon=dirichlet_epsilon,
+        after_state_evaluate_all_children=after_state_evaluate_all_children,
+        terminal_state_initial_rollouts=terminal_state_initial_rollouts,
+        c_puct=c_puct,
+        fpu_reduction=fpu_reduction,
+        score_utility_weight=score_utility_weight,
+        root_node=root_node,
     )
 
     completed = 0
@@ -107,11 +116,15 @@ def run_mcts(
 
         pending: dict[int, tuple[str, list[MCTSNode], MCTSNode | None]] = {}
         after_paths: dict[int, tuple[list[MCTSNode], AfterStateNode]] = {}
-        terminal_paths: list[list[MCTSNode]] = []
+        backup_values: dict[int, skynet.StateValue] = {}
         for path in batch_paths:
             leaf = path[-1]
             if isinstance(leaf, mcts.TerminalStateNode):
-                terminal_paths.append(path)
+                backup_values[id(path)] = (
+                    leaf.realize_outcome()
+                    if leaf.is_random
+                    else leaf.state_value.copy()
+                )
             elif isinstance(leaf, mcts.DecisionStateNode):
                 prediction_id = predictor_client.put(leaf.state)
                 pending[prediction_id] = ("decision", path, None)
@@ -145,11 +158,6 @@ def run_mcts(
                         prediction,
                         terminal_state_rollouts=terminal_state_initial_rollouts,
                     )
-                    decision_child.visit_count += 1
-                    decision_child.state_value_total += skynet.to_state_value(
-                        prediction.value_output,
-                        sj.get_player(decision_child.state),
-                    )
 
         for path, after_leaf in after_paths.values():
             after_leaf.expand()
@@ -160,7 +168,10 @@ def run_mcts(
                     node.virtual_loss_total -= virtual_loss
                 else:
                     node.virtual_loss -= virtual_loss
-            mcts.backpropagate(path, path[-1].state_value)
+            mcts.backpropagate(
+                path,
+                backup_values.get(id(path), path[-1].state_value.copy()),
+            )
             completed += 1
 
         if not batch_paths:

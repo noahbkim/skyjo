@@ -243,5 +243,115 @@ def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
     assert resumed.exit_code == 0, resumed.output
     assert "optimizer_steps: 2" in resumed.output
     payload = torch.load(resumed_checkpoint, weights_only=False)
+    assert (
+        payload["configuration"]["model"]["name"]
+        == skynet.EQUIVARIANT_ARCHITECTURE_NAME
+    )
     assert payload["progress"]["optimizer_steps"] == 2
     assert payload["progress"]["sampled_positions"] == 4
+
+
+def test_offline_training_selects_games_and_runs_without_validation(tmp_path):
+    dataset = make_dataset(tmp_path / "dataset")
+    step_zero_checkpoint = tmp_path / "step_0.pth"
+    resumed_checkpoint = tmp_path / "step_2.pth"
+    app = typer.Typer()
+    app.command()(run_train_epoch.main)
+    common_arguments = [
+        str(dataset.path),
+        "--game-index",
+        "0",
+        "--game-index",
+        "1",
+        "--validation-fraction",
+        "0",
+        "--batch-size",
+        "2",
+        "--embedding-dimensions",
+        "4",
+        "--global-state-embedding-dimensions",
+        "8",
+        "--num-heads",
+        "1",
+    ]
+
+    step_zero = CliRunner().invoke(
+        app,
+        [
+            *common_arguments,
+            "--steps",
+            "0",
+            "--output-checkpoint",
+            str(step_zero_checkpoint),
+        ],
+    )
+    assert step_zero.exit_code == 0, step_zero.output
+    assert "dataset_games: 2" in step_zero.output
+    assert "dataset_positions: 4" in step_zero.output
+    assert "selected_game_indices: 0,1" in step_zero.output
+    assert "training_games: 2" in step_zero.output
+    assert "train_total_loss:" in step_zero.output
+    assert "validation_total_loss:" not in step_zero.output
+
+    resumed = CliRunner().invoke(
+        app,
+        [
+            *common_arguments,
+            "--steps",
+            "2",
+            "--checkpoint",
+            str(step_zero_checkpoint),
+            "--output-checkpoint",
+            str(resumed_checkpoint),
+        ],
+    )
+    assert resumed.exit_code == 0, resumed.output
+    payload = torch.load(resumed_checkpoint, weights_only=False)
+    assert payload["configuration"]["dataset"]["game_indices"] == [0, 1]
+    assert payload["configuration"]["dataset"]["validation_fraction"] == 0
+    assert payload["progress"]["optimizer_steps"] == 2
+    assert payload["progress"]["sampled_positions"] == 4
+
+    mismatched_selection = CliRunner().invoke(
+        app,
+        [
+            str(dataset.path),
+            "--game-index",
+            "0",
+            "--game-index",
+            "2",
+            "--validation-fraction",
+            "0",
+            "--batch-size",
+            "2",
+            "--embedding-dimensions",
+            "4",
+            "--global-state-embedding-dimensions",
+            "8",
+            "--num-heads",
+            "1",
+            "--steps",
+            "2",
+            "--checkpoint",
+            str(step_zero_checkpoint),
+        ],
+    )
+    assert mismatched_selection.exit_code != 0
+    assert isinstance(mismatched_selection.exception, ValueError)
+    assert "checkpoint configuration does not match" in str(
+        mismatched_selection.exception
+    )
+
+
+def test_offline_training_rejects_unknown_game_index(tmp_path):
+    dataset = make_dataset(tmp_path / "dataset")
+    app = typer.Typer()
+    app.command()(run_train_epoch.main)
+
+    result = CliRunner().invoke(
+        app,
+        [str(dataset.path), "--game-index", "99", "--validation-fraction", "0"],
+    )
+
+    assert result.exit_code != 0
+    assert "unknown --game-index value(s): 99" in result.output
