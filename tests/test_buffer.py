@@ -3,7 +3,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from skyjo import buffer, train_utils
+from skyjo import buffer, skynet, train_utils
 from skyjo import game as sj
 from skyjo import play
 
@@ -31,7 +31,7 @@ def make_replay_buffer(max_size: int = 32) -> buffer.ReplayBuffer:
     return buffer.ReplayBuffer(
         max_size=max_size,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
     )
 
@@ -194,7 +194,7 @@ def test_dataset_round_trip_writes_only_populated_rows(tmp_path):
         buffer.Config(
             max_size=100,
             spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-            non_spatial_input_shape=(sj.GAME_SIZE,),
+            non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
             action_mask_shape=(sj.MASK_SIZE,),
             path=path,
         )

@@ -47,6 +47,7 @@ ROUND_SCORE_TARGET_NAME = "round_score"
 FUTURE_CLEAR_TARGET_NAME = "future_clear"
 EQUIVARIANT_ARCHITECTURE_NAME = "hierarchical_equivariant_v2"
 EQUIVARIANT_AUX_ARCHITECTURE_NAME = "hierarchical_equivariant_v3_aux"
+EQUIVARIANT_SCORE_AUX_ARCHITECTURE_NAME = "hierarchical_equivariant_v3_score_aux"
 
 
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
@@ -140,10 +141,38 @@ def get_spatial_state_numpy(
     return sj.get_table(skyjo).astype(np.float32)
 
 
+def get_non_spatial_input_shape(players: int) -> tuple[int]:
+    """Return the complete non-spatial observation shape for a player count."""
+    if players < 1:
+        raise ValueError("players must be positive")
+    return (sj.GAME_SIZE + sj.CARD_SIZE + 2 + players,)
+
+
 def get_non_spatial_state_numpy(
     skyjo: sj.Skyjo,
 ) -> np.ndarray[tuple[int], np.float32]:
-    return sj.get_game(skyjo).astype(np.float32)
+    players = sj.get_player_count(skyjo)
+    turn = sj.get_turn(skyjo)
+    countdown = sj.get_countdown(skyjo)
+    turns_since_reveal = turn - sj.get_last_revealed_turns(skyjo)
+    observation = np.concatenate(
+        (
+            sj.get_game(skyjo),
+            sj.get_deck(skyjo),
+            np.array(
+                [turn, -1 if countdown is None else countdown],
+                dtype=np.int16,
+            ),
+            turns_since_reveal,
+        )
+    ).astype(np.float32)
+    expected_shape = get_non_spatial_input_shape(players)
+    if observation.shape != expected_shape:
+        raise ValueError(
+            f"non-spatial observation has shape {observation.shape}, "
+            f"expected {expected_shape}"
+        )
+    return observation
 
 
 # MARK: Policy Targets
@@ -721,7 +750,9 @@ class SimpleSkyNet(nn.Module):
         ).contiguous()
         non_spatial_tensor = einops.rearrange(
             torch.tensor(
-                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+                get_non_spatial_state_numpy(skyjo),
+                dtype=torch.float32,
+                device=self.device,
             ),
             "f -> 1 f",
         ).contiguous()
@@ -905,7 +936,7 @@ class EquivariantSkyNet(nn.Module):
     def __init__(
         self,
         spatial_input_shape: tuple[int, ...],  # (players, )
-        non_spatial_input_shape: tuple[int],  # (sj.GAME_SIZE,)
+        non_spatial_input_shape: tuple[int],
         value_output_shape: tuple[int],  # (players,)
         policy_output_shape: tuple[int],  # (mask_size,)
         device: torch.device,
@@ -1163,7 +1194,9 @@ class EquivariantSkyNet(nn.Module):
         )
         non_spatial_tensor = einops.rearrange(
             torch.tensor(
-                sj.get_non_spatial_input(skyjo), dtype=torch.float32, device=self.device
+                get_non_spatial_state_numpy(skyjo),
+                dtype=torch.float32,
+                device=self.device,
             ),
             "f -> 1 f",
         )
@@ -1236,11 +1269,61 @@ class EquivariantSkyNetWithAuxiliaryHeads(EquivariantSkyNet):
         )
 
 
-EquivariantSkyNetWithRoundScoreAux = EquivariantSkyNetWithAuxiliaryHeads
+class EquivariantSkyNetWithRoundScoreAux(EquivariantSkyNet):
+    """EquivariantSkyNet with final-round-score supervision."""
+
+    architecture_name = EQUIVARIANT_SCORE_AUX_ARCHITECTURE_NAME
+
+    def __init__(
+        self,
+        spatial_input_shape: tuple[int, ...],
+        non_spatial_input_shape: tuple[int],
+        value_output_shape: tuple[int],
+        policy_output_shape: tuple[int],
+        device: torch.device,
+        embedding_dimensions: int = 16,
+        global_state_embedding_dimensions: int = 32,
+        num_heads: int = 4,
+    ):
+        super().__init__(
+            spatial_input_shape=spatial_input_shape,
+            non_spatial_input_shape=non_spatial_input_shape,
+            value_output_shape=value_output_shape,
+            policy_output_shape=policy_output_shape,
+            device=device,
+            embedding_dimensions=embedding_dimensions,
+            global_state_embedding_dimensions=global_state_embedding_dimensions,
+            num_heads=num_heads,
+        )
+        self.round_score_tail = NormalizedRoundScoreTail(
+            input_dimensions=self.global_state_embedding_dimensions,
+            players=self.players,
+        )
+        self.set_device(device)
+
+    def forward(
+        self,
+        spatial_tensor: torch.Tensor,
+        non_spatial_tensor: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> SkyNetOutput:
+        features = self._forward_features(spatial_tensor, non_spatial_tensor)
+        return EquivariantAuxOutput(
+            value=self.value_tail(features.global_state_embedding),
+            policy_logits=self._forward_policy(features, mask),
+            auxiliary_outputs={
+                ROUND_SCORE_TARGET_NAME: self.round_score_tail(
+                    features.global_state_embedding
+                )
+            },
+        )
 
 
 SkyNet: typing.TypeAlias = (
-    SimpleSkyNet | EquivariantSkyNet | EquivariantSkyNetWithAuxiliaryHeads
+    SimpleSkyNet
+    | EquivariantSkyNet
+    | EquivariantSkyNetWithAuxiliaryHeads
+    | EquivariantSkyNetWithRoundScoreAux
 )
 
 if __name__ == "__main__":
@@ -1251,7 +1334,7 @@ if __name__ == "__main__":
     # players = game_state[3]
     # model = SimpleSkyNet(
     #     spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-    #     non_spatial_input_shape=(sj.GAME_SIZE,),
+    #     non_spatial_input_shape=get_non_spatial_input_shape(players),
     #     value_output_shape=(players,),
     #     policy_output_shape=(sj.MASK_SIZE,),
     #     hidden_layers=[32, 32],
@@ -1291,7 +1374,7 @@ if __name__ == "__main__":
     device = torch.device("mps")
     model = EquivariantSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
@@ -1305,7 +1388,7 @@ if __name__ == "__main__":
     nonspatial_tensor = torch.rand(
         (
             batch_size,
-            sj.GAME_SIZE,
+            get_non_spatial_input_shape(2)[0],
         ),
         dtype=torch.float32,
         device=device,

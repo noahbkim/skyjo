@@ -20,7 +20,7 @@ def make_dataset(path):
     replay_buffer = buffer.ReplayBuffer(
         max_size=32,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
     )
     for game_index in range(4):
@@ -59,7 +59,7 @@ def make_model() -> skynet.EquivariantSkyNet:
             sj.COLUMN_COUNT,
             sj.FINGER_SIZE,
         ),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),

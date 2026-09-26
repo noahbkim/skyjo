@@ -96,7 +96,7 @@ if __name__ == "__main__":
     players = 2
     model = skynet.EquivariantSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     # model = skynet.SimpleSkyNet(
     #     [256, 256, 256],
     #     spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-    #     non_spatial_input_shape=(sj.GAME_SIZE,),
+    #     non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
     #     value_output_shape=(2,),
     #     policy_output_shape=(sj.MASK_SIZE,),
     # )
@@ -224,7 +224,7 @@ if __name__ == "__main__":
             sj.COLUMN_COUNT,
             sj.FINGER_SIZE,
         ),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
         action_mask_shape=(sj.MASK_SIZE,),
         path=pathlib.Path(
             f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/dataset"

@@ -175,6 +175,7 @@ def future_clear_target_for_state(
 def game_history_to_game_data(
     game_history: GameHistory,
     terminal_rollouts: int = 1,
+    include_future_clear_target: bool = True,
 ) -> tuple[GameData, GameStats]:
     """Convert self-play history into training rows and aggregate game stats.
 
@@ -220,27 +221,26 @@ def game_history_to_game_data(
         assert action is not None, "expected non-terminal action"
         assert mcts_probs is not None, "expected non-terminal action probabilities"
         player = sj.get_player(game_state)
-        future_clear_target = future_clear_target_for_state(
-            game_state,
-            fixed_perspective_cleared_columns,
-        )
+        targets = {
+            "value": np.roll(outcome_state_value, -player),
+            skynet.ROUND_SCORE_TARGET_NAME: np.roll(
+                normalized_round_score_state_value, -player
+            ),
+            "policy": skynet.symmetrize_policy_target(
+                game_state,
+                mcts_probs,
+            ),
+        }
+        if include_future_clear_target:
+            targets[skynet.FUTURE_CLEAR_TARGET_NAME] = future_clear_target_for_state(
+                game_state,
+                fixed_perspective_cleared_columns,
+            )
         training_data.append(
             GameDataPoint(
                 game_state,  # game
                 action,  # realized action
-                {
-                    "value": np.roll(
-                        outcome_state_value, -sj.get_player(game_state)
-                    ),
-                    skynet.ROUND_SCORE_TARGET_NAME: np.roll(
-                        normalized_round_score_state_value, -player
-                    ),
-                    skynet.FUTURE_CLEAR_TARGET_NAME: future_clear_target,
-                    "policy": skynet.symmetrize_policy_target(
-                        game_state,
-                        mcts_probs,
-                    ),
-                },
+                targets,
             )
         )
         action_counts[action] += 1
@@ -638,10 +638,11 @@ if __name__ == "__main__":
     import torch
 
     device = torch.device("cpu")
+    players = 2
     model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(2,),
+        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
+        value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
         embedding_dimensions=16,

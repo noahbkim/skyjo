@@ -15,7 +15,7 @@ def make_model() -> skynet.SimpleSkyNet:
     torch.manual_seed(0)
     return skynet.SimpleSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         hidden_layers=[8],

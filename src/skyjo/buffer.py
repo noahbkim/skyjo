@@ -74,6 +74,20 @@ def auxiliary_target_specs(
     )
 
 
+def round_score_target_specs(
+    players: int,
+    action_mask_shape: tuple[int, ...],
+) -> TargetSpecs:
+    """Target schema for outcome, policy, and final-round-score training."""
+    return (
+        *core_target_specs(players, action_mask_shape),
+        TargetShapeSpec(
+            name=train_utils.ROUND_SCORE_TARGET_NAME,
+            shape=(players,),
+        ),
+    )
+
+
 def default_target_specs(
     spatial_input_shape: tuple[int, ...],
     action_mask_shape: tuple[int, ...],

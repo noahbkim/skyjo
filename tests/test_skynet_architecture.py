@@ -16,7 +16,7 @@ def make_model(players: int = 2) -> skynet.EquivariantSkyNet:
             sj.COLUMN_COUNT,
             sj.FINGER_SIZE,
         ),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -30,7 +30,7 @@ def test_board_permutations_preserve_value_and_permute_masked_policy() -> None:
     torch.manual_seed(7)
     model = make_model(players=3).eval()
     spatial = torch.randn(1, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
-    non_spatial = torch.randn(1, sj.GAME_SIZE)
+    non_spatial = torch.randn(1, *skynet.get_non_spatial_input_shape(2))
     mask = torch.tensor(
         [[1, 0, 1, 1, *([1, 0, 1, 1] * 3), *([0, 1, 1, 1] * 3)]],
         dtype=torch.float32,
@@ -109,6 +109,7 @@ def test_board_permutations_preserve_value_and_permute_masked_policy() -> None:
 def test_positional_ranking_uses_other_columns_and_opponents() -> None:
     torch.manual_seed(7)
     model = make_model()
+    torch.manual_seed(0)
     spatial = torch.randn(
         1,
         2,
@@ -119,7 +120,7 @@ def test_positional_ranking_uses_other_columns_and_opponents() -> None:
     )
     output = model(
         spatial,
-        torch.randn(1, sj.GAME_SIZE),
+        torch.randn(1, *skynet.get_non_spatial_input_shape(2)),
         torch.ones(1, sj.MASK_SIZE),
     )
     replace_logit_difference = (
@@ -137,7 +138,7 @@ def test_relative_player_order_affects_global_and_value_outputs() -> None:
     model = make_model(players=3).eval()
     spatial = torch.randn(1, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
     swapped_spatial = spatial[:, [0, 2, 1]].clone()
-    non_spatial = torch.randn(1, sj.GAME_SIZE)
+    non_spatial = torch.randn(1, *skynet.get_non_spatial_input_shape(2))
     mask = torch.ones(1, sj.MASK_SIZE)
 
     with torch.inference_mode():
@@ -161,7 +162,7 @@ def test_three_player_outputs_masking_and_backward_contract() -> None:
     mask[:, [5, 18]] = 0
     output = model(
         torch.randn(2, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        torch.randn(2, sj.GAME_SIZE),
+        torch.randn(2, *skynet.get_non_spatial_input_shape(2)),
         mask,
     )
 

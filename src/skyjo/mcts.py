@@ -664,7 +664,7 @@ if __name__ == "__main__":
     players = 2
     model = skynet.SimpleSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         hidden_layers=[64, 64],

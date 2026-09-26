@@ -35,6 +35,22 @@ class TrainConfig(config.Config):
     learn_rate: float
 
 
+@dataclasses.dataclass(slots=True)
+class ReplayRatioTrainConfig(config.Config):
+    """Training budget expressed as sampled positions per new position."""
+
+    batch_size: int
+    replay_ratio: float
+    loss_function: train_utils.LossFunction
+    learn_rate: float
+
+    def __post_init__(self) -> None:
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be at least one")
+        if self.replay_ratio <= 0:
+            raise ValueError("replay_ratio must be positive")
+
+
 def train_step(
     model: skynet.SkyNet,
     batch: train_utils.TrainingBatch,

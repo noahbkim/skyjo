@@ -24,7 +24,7 @@ class InferenceCheckingSkyNet(skynet.SimpleSkyNet):
 def test_direct_predict_has_guaranteed_inference_mode() -> None:
     model = InferenceCheckingSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         hidden_layers=[8],

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from skyjo import buffer, play, train_utils
+from skyjo import buffer, play, skynet, train_utils
 from skyjo import game as sj
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -117,7 +117,7 @@ def make_buffer() -> buffer.ReplayBuffer:
     return buffer.ReplayBuffer(
         max_size=8,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
     )
 
@@ -140,7 +140,7 @@ def test_fresh_run_can_seed_buffer_without_overwriting_source(tmp_path):
     config = buffer.Config(
         max_size=8,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
         path=destination_path,
     )
@@ -158,8 +158,8 @@ def test_target_generation_is_seeded_and_sorted_before_buffering(monkeypatch):
     action_mask = sj.actions(state).astype(np.float32)
     policy = action_mask / action_mask.sum()
 
-    def fake_conversion(history, terminal_rollouts):
-        del history, terminal_rollouts
+    def fake_conversion(history, terminal_rollouts, include_future_clear_target=True):
+        del history, terminal_rollouts, include_future_clear_target
         marker = (
             random.random()
             + float(np.random.random())

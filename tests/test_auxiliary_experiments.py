@@ -22,7 +22,7 @@ from skyjo import (
 def make_aux_model() -> skynet.EquivariantSkyNetWithAuxiliaryHeads:
     return skynet.EquivariantSkyNetWithAuxiliaryHeads(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -125,7 +125,7 @@ def test_auxiliary_heads_preserve_column_symmetry() -> None:
     spatial = torch.rand(
         2, 2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE
     )
-    non_spatial = torch.rand(2, sj.GAME_SIZE)
+    non_spatial = torch.rand(2, *skynet.get_non_spatial_input_shape(2))
     mask = torch.ones(2, sj.MASK_SIZE)
     permutation = torch.tensor([2, 0, 3, 1])
 
@@ -236,7 +236,7 @@ def test_predictor_output_queue_round_trips_score_predictions() -> None:
 def test_auxiliary_warm_start_loads_backbone_only(tmp_path: pathlib.Path) -> None:
     baseline = skynet.EquivariantSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -272,7 +272,7 @@ def test_replay_dataset_round_trips_auxiliary_targets(tmp_path: pathlib.Path) ->
     replay = buffer.ReplayBuffer(
         max_size=4,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
         target_specs=buffer.auxiliary_target_specs(2, (sj.MASK_SIZE,)),
     )

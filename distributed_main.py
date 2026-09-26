@@ -9,6 +9,7 @@ import dataclasses
 import datetime
 import functools
 import logging
+import math
 import pathlib
 import random
 import typing
@@ -72,7 +73,7 @@ def build_local_model(
     model_state_dict: dict[str, torch.Tensor] | None = None,
 ) -> skynet.SkyNet:
     spatial_input_shape = (players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
-    non_spatial_input_shape = (sj.GAME_SIZE,)
+    non_spatial_input_shape = skynet.get_non_spatial_input_shape(players)
     value_output_shape = (players,)
     policy_output_shape = (sj.MASK_SIZE,)
     model = model_callable(
@@ -177,6 +178,10 @@ def add_generated_games_to_buffer(
         game_data, game_stats = play.game_history_to_game_data(
             generated_game.history,
             terminal_rollouts=outcome_rollouts,
+            include_future_clear_target=(
+                skynet.FUTURE_CLEAR_TARGET_NAME
+                in training_data_buffer.target_names
+            ),
         )
         training_data_buffer.add_game_data(
             game_data,
@@ -306,7 +311,7 @@ def run_apply_async_local_selfplay_learning(
     players: int,
     model_factory: factory.SkyNetModelFactory,
     learn_config: train.LearnConfig,
-    training_config: train.TrainConfig,
+    training_config: train.ReplayRatioTrainConfig,
     training_data_buffer_config: buffer.Config,
     model_player_config: player.ModelPlayerConfig,
     model_callable: typing.Callable[..., skynet.SkyNet],
@@ -332,6 +337,7 @@ def run_apply_async_local_selfplay_learning(
     run_configuration = {
         "model": {
             "name": getattr(model, "architecture_name", type(model).__name__),
+            "non_spatial_input_shape": model.non_spatial_input_shape,
             **model_kwargs,
         },
         "player": model_player_config,
@@ -343,8 +349,8 @@ def run_apply_async_local_selfplay_learning(
             "update_model_interval": learn_config.update_model_interval,
         },
         "training": {
-            "epochs": training_config.epochs,
             "batch_size": training_config.batch_size,
+            "replay_ratio": training_config.replay_ratio,
             "learn_rate": training_config.learn_rate,
             "loss_function": training_config.loss_function,
         },
@@ -412,11 +418,14 @@ def run_apply_async_local_selfplay_learning(
                 training_data_buffer,
                 outcome_rollouts=outcome_rollouts,
             )
+            new_position_count = sum(
+                game_stats.game_length for game_stats in game_stats_list
+            )
 
             logging.info(
                 "[LEARN] Added %s games and %s positions to the replay buffer",
                 len(game_stats_list),
-                sum(game_stats.game_length for game_stats in game_stats_list),
+                new_position_count,
             )
             logging.info("[LEARN] Replay buffer size: %s", len(training_data_buffer))
             logging.info(
@@ -437,19 +446,6 @@ def run_apply_async_local_selfplay_learning(
                 ),
             )
 
-            if len(training_data_buffer) < training_config.batch_size:
-                progress = dataclasses.replace(
-                    progress,
-                    iteration=iteration + 1,
-                    epoch=0,
-                    generated_games=progress.generated_games + len(game_stats_list),
-                )
-                logging.info(
-                    "[LEARN] Skipping training until buffer has at least %s positions",
-                    training_config.batch_size,
-                )
-                continue
-
             previous_model_state_dict = {
                 name: value.detach().cpu().clone()
                 for name, value in model.state_dict().items()
@@ -460,29 +456,35 @@ def run_apply_async_local_selfplay_learning(
                 configuration=run_configuration,
                 progress=progress,
             )
-            optimizer_steps_per_epoch = (
-                len(training_data_buffer) // training_config.batch_size + 1
+            optimizer_steps = math.ceil(
+                new_position_count
+                * training_config.replay_ratio
+                / training_config.batch_size
             )
-            for epoch in range(training_config.epochs):
-                loss_details = train.train_epoch(
-                    model,
-                    training_data_buffer,
-                    training_batch_size=training_config.batch_size,
-                    optimizer=optimizer,
-                    loss_function=training_config.loss_function,
-                )
-                if learn_config.loss_stats_function is not None:
-                    logging.info(
-                        "[LEARN] Training epoch %s stats:\n%s",
-                        epoch,
-                        learn_config.loss_stats_function(loss_details),
-                    )
-
-            optimizer_steps = optimizer_steps_per_epoch * training_config.epochs
             sampled_positions = optimizer_steps * training_config.batch_size
+            loss_details = train.train_steps(
+                model,
+                training_data_buffer,
+                training_batch_size=training_config.batch_size,
+                optimizer_steps=optimizer_steps,
+                optimizer=optimizer,
+                loss_function=training_config.loss_function,
+            )
+            logging.info(
+                "[LEARN] Trained for %s optimizer steps over %s sampled positions "
+                "(realized replay ratio %.4f)",
+                optimizer_steps,
+                sampled_positions,
+                sampled_positions / new_position_count,
+            )
+            if learn_config.loss_stats_function is not None:
+                logging.info(
+                    "[LEARN] Training stats:\n%s",
+                    learn_config.loss_stats_function(loss_details),
+                )
             progress = checkpoint.TrainingProgress(
                 iteration=iteration + 1,
-                epoch=training_config.epochs,
+                epoch=0,
                 generated_games=progress.generated_games + len(game_stats_list),
                 trained_positions=progress.trained_positions + sampled_positions,
                 optimizer_steps=progress.optimizer_steps + optimizer_steps,
@@ -546,8 +548,6 @@ def create_random_potential_clear_position() -> sj.Skyjo:
 
 
 if __name__ == "__main__":
-    experiment_name = "combined"
-    experiment = train_utils.get_auxiliary_experiment_preset(experiment_name)
     seed = 0
     debug = False
     process_count = 8
@@ -559,12 +559,6 @@ if __name__ == "__main__":
     start_state_generator = None
     outcome_rollouts = 100
     device = torch.device("cpu")
-    initial_checkpoint_path = pathlib.Path(
-        # "models/apply_async_local/20260811_190838/checkpoint_20260812_013341_282181.pth"
-        "models/apply_async_local/20260815_113507/checkpoint_20260815_190452_416007.pth"
-    )
-    # Seed model weights only. Start a fresh replay lineage so the new search
-    # configuration is not trained alongside targets from the previous scorer.
     initial_training_dataset_path = None
 
     np.random.seed(seed)
@@ -572,7 +566,7 @@ if __name__ == "__main__":
     random.seed(seed)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = f"{experiment.name}_{timestamp}"
+    run_name = f"score_{timestamp}"
     log_dir = pathlib.Path("logs/apply_async_local_train") / run_name
     log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -589,10 +583,10 @@ if __name__ == "__main__":
         "num_heads": 2,
     }
     spatial_input_shape = (players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
-    non_spatial_input_shape = (sj.GAME_SIZE,)
+    non_spatial_input_shape = skynet.get_non_spatial_input_shape(players)
     value_output_shape = (players,)
     policy_output_shape = (sj.MASK_SIZE,)
-    model = skynet.EquivariantSkyNetWithAuxiliaryHeads(
+    model = skynet.EquivariantSkyNetWithRoundScoreAux(
         spatial_input_shape=spatial_input_shape,
         non_spatial_input_shape=non_spatial_input_shape,
         value_output_shape=value_output_shape,
@@ -600,16 +594,11 @@ if __name__ == "__main__":
         device=device,
         **model_kwargs,
     )
-    checkpoint.load_auxiliary_warm_start(
-        initial_checkpoint_path,
-        model=model,
-        map_location=device,
-    )
-    logging.info("Initialized model weights from %s", initial_checkpoint_path)
-    logging.info("Auxiliary experiment preset: %s", experiment)
+    logging.info("Initialized model from random weights")
+    logging.info("Using final-round-score auxiliary supervision")
 
     model_factory = factory.SkyNetModelFactory(
-        model_callable=skynet.EquivariantSkyNetWithAuxiliaryHeads,
+        model_callable=skynet.EquivariantSkyNetWithRoundScoreAux,
         players=players,
         model_kwargs=model_kwargs,
         device=device,
@@ -617,16 +606,16 @@ if __name__ == "__main__":
         initial_model=model,
     )
 
-    training_config = train.TrainConfig(
-        epochs=2,
-        batch_size=32,
+    training_config = train.ReplayRatioTrainConfig(
+        replay_ratio=4.0,
+        batch_size=256,
         learn_rate=1e-3,
         loss_function=functools.partial(
             train_utils.outcome_policy_auxiliary_loss,
             value_scale=1.0,
-            round_score_scale=experiment.round_score_scale,
-            future_clear_scale=experiment.future_clear_scale,
-            clear_positive_weight=experiment.clear_positive_weight,
+            policy_scale=1.0,
+            round_score_scale=1.0,
+            future_clear_scale=0.0,
         ),
     )
     learn_config = train.LearnConfig(
@@ -640,7 +629,10 @@ if __name__ == "__main__":
         ),
         update_model_interval=1,
         model_faceoff_function=None,
-        **training_config.kwargs("training"),
+        training_epochs=0,
+        training_batch_size=training_config.batch_size,
+        training_learn_rate=training_config.learn_rate,
+        training_loss_function=training_config.loss_function,
     )
 
     mcts_config = mcts.MCTSConfig(
@@ -650,7 +642,7 @@ if __name__ == "__main__":
         dirichlet_epsilon=0.25,
         c_puct=1.0,
         fpu_reduction=0.25,
-        score_utility_weight=experiment.score_utility_weight,
+        score_utility_weight=0.0,
     )
     model_player_config = player.ModelPlayerConfig(
         action_softmax_temperature=1.0,
@@ -661,7 +653,7 @@ if __name__ == "__main__":
         spatial_input_shape=spatial_input_shape,
         non_spatial_input_shape=non_spatial_input_shape,
         action_mask_shape=policy_output_shape,
-        target_specs=buffer.auxiliary_target_specs(players, policy_output_shape),
+        target_specs=buffer.round_score_target_specs(players, policy_output_shape),
         path=pathlib.Path("./data/training_data") / run_name / "dataset",
     )
 
@@ -674,7 +666,7 @@ if __name__ == "__main__":
         training_config=training_config,
         training_data_buffer_config=training_data_buffer_config,
         model_player_config=model_player_config,
-        model_callable=skynet.EquivariantSkyNetWithAuxiliaryHeads,
+        model_callable=skynet.EquivariantSkyNetWithRoundScoreAux,
         model_kwargs=model_kwargs,
         run_seed=seed,
         games_per_task=games_per_task,
