@@ -12,6 +12,7 @@ import logging
 import math
 import pathlib
 import random
+import time
 import typing
 
 import numpy as np
@@ -167,13 +168,18 @@ def add_generated_games_to_buffer(
     training_data_buffer: buffer.ReplayBuffer,
     *,
     outcome_rollouts: int,
+    log_progress: bool = False,
 ) -> list[play.GameStats]:
     """Convert generated histories in global game order using target seeds."""
-    game_stats_list = []
-    for generated_game in sorted(
+    ordered_games = sorted(
         generated_games,
         key=lambda game: game.global_game_index,
-    ):
+    )
+    progress_interval = max(1, math.ceil(len(ordered_games) / 10))
+    started_at = time.perf_counter()
+    converted_positions = 0
+    game_stats_list = []
+    for completed_games, generated_game in enumerate(ordered_games, start=1):
         set_seed(generated_game.target_seed)
         game_data, game_stats = play.game_history_to_game_data(
             generated_game.history,
@@ -190,6 +196,21 @@ def add_generated_games_to_buffer(
             target_seed=generated_game.target_seed,
         )
         game_stats_list.append(game_stats)
+        converted_positions += len(game_data)
+        if log_progress and (
+            completed_games % progress_interval == 0
+            or completed_games == len(ordered_games)
+        ):
+            elapsed_seconds = time.perf_counter() - started_at
+            logging.info(
+                "[TARGETS] Converted %s/%s games and %s positions in %.1fs "
+                "(%.1f positions/s)",
+                completed_games,
+                len(ordered_games),
+                converted_positions,
+                elapsed_seconds,
+                converted_positions / elapsed_seconds,
+            )
     return game_stats_list
 
 
@@ -325,8 +346,12 @@ def run_apply_async_local_selfplay_learning(
     faceoff_rounds_per_task: int = 1,
     initial_training_dataset_path: pathlib.Path | None = None,
 ) -> None:
+    if process_count < 1:
+        raise ValueError("process_count must be positive")
     if torch_threads_per_worker < 1:
         raise ValueError("torch_threads_per_worker must be positive")
+    if games_per_task < 1:
+        raise ValueError("games_per_task must be positive")
     training_data_buffer = initialize_training_data_buffer(
         training_data_buffer_config,
         initial_training_dataset_path,
@@ -365,18 +390,48 @@ def run_apply_async_local_selfplay_learning(
 
     starting_iteration = progress.iteration
     first_new_game_index = max(training_data_buffer.game_indices, default=-1) + 1
+    tasks_per_iteration = len(
+        game_batch_sizes(
+            learn_config.games_generated_per_iteration,
+            games_per_task,
+        )
+    )
+    logging.info(
+        "[LEARN] Starting distributed run: iterations=%s starting_iteration=%s "
+        "games_per_iteration=%s workers=%s games_per_task=%s "
+        "tasks_per_iteration=%s outcome_rollouts=%s replay_positions=%s/%s",
+        learn_config.learn_steps,
+        starting_iteration,
+        learn_config.games_generated_per_iteration,
+        process_count,
+        games_per_task,
+        tasks_per_iteration,
+        outcome_rollouts,
+        len(training_data_buffer),
+        training_data_buffer.max_size,
+    )
     with mp.Pool(
         processes=process_count,
         initializer=configure_torch_worker,
         initargs=(torch_threads_per_worker,),
     ) as pool:
         for iteration in range(starting_iteration, learn_config.learn_steps):
-            logging.info("[LEARN] Starting iteration %s", iteration)
+            iteration_started_at = time.perf_counter()
+            logging.info(
+                "[LEARN] Starting iteration %s/%s",
+                iteration + 1,
+                learn_config.learn_steps,
+            )
 
             if learn_config.validation_function is not None and train.interval_due(
                 iteration, learn_config.validation_interval
             ):
+                validation_started_at = time.perf_counter()
                 learn_config.validation_function(model)
+                logging.info(
+                    "[VALIDATION] Completed in %.1fs",
+                    time.perf_counter() - validation_started_at,
+                )
 
             model_state_dict = {
                 name: value.detach().cpu() for name, value in model.state_dict().items()
@@ -389,6 +444,15 @@ def run_apply_async_local_selfplay_learning(
             first_iteration_game = first_new_game_index + (
                 (iteration - starting_iteration)
                 * learn_config.games_generated_per_iteration
+            )
+            generation_started_at = time.perf_counter()
+            logging.info(
+                "[SELF-PLAY] Dispatching %s games across %s tasks "
+                "(%s workers, up to %s games/task)",
+                learn_config.games_generated_per_iteration,
+                len(batch_sizes),
+                process_count,
+                games_per_task,
             )
             async_results = [
                 pool.apply_async(
@@ -411,39 +475,91 @@ def run_apply_async_local_selfplay_learning(
             ]
 
             generated_games = []
-            for result in async_results:
+            progress_interval = max(1, math.ceil(len(async_results) / 10))
+            for completed_tasks, result in enumerate(async_results, start=1):
                 generated_games.extend(result.get())
+                if (
+                    completed_tasks % progress_interval == 0
+                    or completed_tasks == len(async_results)
+                ):
+                    generation_seconds = time.perf_counter() - generation_started_at
+                    logging.info(
+                        "[SELF-PLAY] Completed %s/%s tasks and %s/%s games in %.1fs "
+                        "(%.2f games/s)",
+                        completed_tasks,
+                        len(async_results),
+                        len(generated_games),
+                        learn_config.games_generated_per_iteration,
+                        generation_seconds,
+                        len(generated_games) / generation_seconds,
+                    )
+            generation_seconds = time.perf_counter() - generation_started_at
+            buffer_positions_before = len(training_data_buffer)
+            buffer_games_before = training_data_buffer.game_count
+            target_started_at = time.perf_counter()
             game_stats_list = add_generated_games_to_buffer(
                 generated_games,
                 training_data_buffer,
                 outcome_rollouts=outcome_rollouts,
+                log_progress=True,
             )
+            target_seconds = time.perf_counter() - target_started_at
             new_position_count = sum(
                 game_stats.game_length for game_stats in game_stats_list
             )
+            evicted_positions = max(
+                0,
+                buffer_positions_before
+                + new_position_count
+                - len(training_data_buffer),
+            )
+            evicted_games = max(
+                0,
+                buffer_games_before
+                + len(game_stats_list)
+                - training_data_buffer.game_count,
+            )
 
             logging.info(
-                "[LEARN] Added %s games and %s positions to the replay buffer",
+                "[LEARN] Added %s games and %s positions to the replay buffer; "
+                "evicted %s games and %s positions",
                 len(game_stats_list),
                 new_position_count,
+                evicted_games,
+                evicted_positions,
             )
-            logging.info("[LEARN] Replay buffer size: %s", len(training_data_buffer))
+            logging.info(
+                "[LEARN] Replay buffer: %s games, %s/%s positions (%.1f%% full)",
+                training_data_buffer.game_count,
+                len(training_data_buffer),
+                training_data_buffer.max_size,
+                100 * len(training_data_buffer) / training_data_buffer.max_size,
+            )
+            logging.info(
+                "[LEARN] Generation timing: self-play=%.1fs targets=%.1fs total=%.1fs",
+                generation_seconds,
+                target_seconds,
+                generation_seconds + target_seconds,
+            )
             logging.info(
                 "[LEARN] Generated game stats:\n%s",
                 train_utils.game_stats_summary(game_stats_list),
             )
+            replay_save_started_at = time.perf_counter()
+            replay_path = training_data_buffer.save(
+                generation_metadata={
+                    "run_seed": run_seed,
+                    "players": players,
+                    "model": run_configuration["model"],
+                    "model_player": model_player_config,
+                    "outcome_rollouts": outcome_rollouts,
+                },
+                source_checkpoint=model_factory.get_latest_checkpoint_path(),
+            )
             logging.info(
-                "[LEARN] Saved replay buffer to %s",
-                training_data_buffer.save(
-                    generation_metadata={
-                        "run_seed": run_seed,
-                        "players": players,
-                        "model": run_configuration["model"],
-                        "model_player": model_player_config,
-                        "outcome_rollouts": outcome_rollouts,
-                    },
-                    source_checkpoint=model_factory.get_latest_checkpoint_path(),
-                ),
+                "[LEARN] Saved replay buffer to %s in %.1fs",
+                replay_path,
+                time.perf_counter() - replay_save_started_at,
             )
 
             previous_model_state_dict = {
@@ -462,6 +578,7 @@ def run_apply_async_local_selfplay_learning(
                 / training_config.batch_size
             )
             sampled_positions = optimizer_steps * training_config.batch_size
+            training_started_at = time.perf_counter()
             loss_details = train.train_steps(
                 model,
                 training_data_buffer,
@@ -470,11 +587,14 @@ def run_apply_async_local_selfplay_learning(
                 optimizer=optimizer,
                 loss_function=training_config.loss_function,
             )
+            training_seconds = time.perf_counter() - training_started_at
             logging.info(
                 "[LEARN] Trained for %s optimizer steps over %s sampled positions "
-                "(realized replay ratio %.4f)",
+                "in %.1fs (%.2f steps/s, realized replay ratio %.4f)",
                 optimizer_steps,
                 sampled_positions,
+                training_seconds,
+                optimizer_steps / training_seconds,
                 sampled_positions / new_position_count,
             )
             if learn_config.loss_stats_function is not None:
@@ -530,6 +650,13 @@ def run_apply_async_local_selfplay_learning(
                     ),
                 )
 
+            logging.info(
+                "[LEARN] Completed iteration %s/%s in %.1fs",
+                iteration + 1,
+                learn_config.learn_steps,
+                time.perf_counter() - iteration_started_at,
+            )
+
     logging.info(
         "[LEARN] Saved final model to %s",
         model_factory.save_model(
@@ -553,7 +680,7 @@ if __name__ == "__main__":
     process_count = 8
     torch_threads_per_worker = 1
     players = 2
-    games_per_task = 1
+    games_per_task = 8
     faceoff_rounds = 0
     faceoff_rounds_per_task = 1
     start_state_generator = None
