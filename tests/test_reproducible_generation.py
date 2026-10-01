@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 from skyjo import buffer, play, skynet, train_utils
@@ -13,6 +14,41 @@ from skyjo import game as sj
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import distributed_main  # noqa: E402
+
+
+@pytest.mark.parametrize("rounds_per_task", [1, 2, 4])
+@pytest.mark.parametrize("wins_per_pair,passed", [((1, 1), False), ((2, 0), True)])
+def test_faceoff_batching_preserves_pair_seeds_and_strict_win_rule(
+    rounds_per_task, wins_per_pair, passed
+):
+    seeds = []
+
+    class Pool:
+        def apply_async(self, function, args):
+            # Worker input defines a consecutive range of paired-game seeds.
+            count, first_seed = args[5:7]
+            seeds.extend(range(first_seed, first_seed + count))
+            return types.SimpleNamespace(
+                get=lambda: tuple(count * wins for wins in wins_per_pair)
+            )
+
+    result = distributed_main.validate_model_faceoff(
+        pool=Pool(),
+        model=types.SimpleNamespace(state_dict=lambda: {}),
+        players=2,
+        previous_model_state_dict={},
+        model_callable=None,
+        model_kwargs={},
+        rounds=10,
+        rounds_per_task=rounds_per_task,
+        model_player_config=None,
+    )
+    assert seeds == list(range(10))
+    assert result == {
+        "candidate_wins": 10 * wins_per_pair[0],
+        "champion_wins": 10 * wins_per_pair[1],
+        "passed": passed,
+    }
 
 
 def test_torch_worker_uses_bounded_cpu_parallelism(monkeypatch):

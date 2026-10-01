@@ -1,12 +1,11 @@
 """Status: manual
-Purpose: Run multiprocessing Skyjo self-play, training, and model validation.
-Promote when: The distributed training orchestration becomes a maintained CLI.
+Purpose: Launch recorded, config-driven distributed self-play experiments.
+Promote when: Multiple experiment entrypoints need this orchestration recipe.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import functools
 import logging
 import math
@@ -18,10 +17,26 @@ import typing
 import numpy as np
 import torch
 import torch.multiprocessing as mp
+import typer
 
-from skyjo import buffer, checkpoint, explain, faceoff, factory
+from skyjo import (
+    buffer,
+    checkpoint,
+    experiment_config,
+    experiment_training,
+    explain,
+    faceoff,
+    factory,
+    mcts,
+    play,
+    player,
+    predictor,
+    runs,
+    skynet,
+    train,
+    train_utils,
+)
 from skyjo import game as sj
-from skyjo import mcts, play, player, predictor, skynet, train, train_utils
 
 StartStateGenerator: typing.TypeAlias = typing.Callable[[], sj.Skyjo | None]
 PLAY_SEED_STREAM = 0
@@ -185,8 +200,7 @@ def add_generated_games_to_buffer(
             generated_game.history,
             terminal_rollouts=outcome_rollouts,
             include_future_clear_target=(
-                skynet.FUTURE_CLEAR_TARGET_NAME
-                in training_data_buffer.target_names
+                skynet.FUTURE_CLEAR_TARGET_NAME in training_data_buffer.target_names
             ),
         )
         training_data_buffer.add_game_data(
@@ -285,7 +299,9 @@ def validate_model_faceoff(
     rounds_per_task: int,
     model_player_config: player.ModelPlayerConfig,
     start_state_generator: StartStateGenerator | None = None,
-) -> bool:
+) -> dict[str, int | bool]:
+    batch_sizes = game_batch_sizes(rounds, rounds_per_task)
+    first_pair_indices = np.cumsum([0, *batch_sizes]).tolist()[:-1]
     model_state_dict = {
         name: value.detach().cpu() for name, value in model.state_dict().items()
     }
@@ -299,16 +315,13 @@ def validate_model_faceoff(
                 model_kwargs,
                 players,
                 batch_size,
-                task_index,
+                first_pair_index,
                 model_player_config,
                 start_state_generator,
             ),
         )
-        for task_index, batch_size in enumerate(
-            game_batch_sizes(
-                rounds,
-                rounds_per_task,
-            )
+        for first_pair_index, batch_size in zip(
+            first_pair_indices, batch_sizes, strict=True
         )
     ]
 
@@ -324,7 +337,46 @@ def validate_model_faceoff(
         trained_model_wins,
         previous_model_wins,
     )
-    return trained_model_wins > previous_model_wins
+    return {
+        "candidate_wins": trained_model_wins,
+        "champion_wins": previous_model_wins,
+        "passed": trained_model_wins > previous_model_wins,
+    }
+
+
+def generate_iteration(
+    pool,
+    *,
+    total_games: int,
+    games_per_task: int,
+    first_game_index: int,
+    worker_kwargs: dict,
+) -> list[GeneratedGameHistory]:
+    """Dispatch one generation batch and collect its complete game histories."""
+    sizes = game_batch_sizes(total_games, games_per_task)
+    starts = np.cumsum([0, *sizes[:-1]]).tolist()
+    results = [
+        pool.apply_async(
+            play_games_locally,
+            kwds={
+                **worker_kwargs,
+                "number_of_games": size,
+                "first_game_index": first_game_index + offset,
+            },
+        )
+        for size, offset in zip(sizes, starts, strict=True)
+    ]
+    generated = []
+    for completed, result in enumerate(results, start=1):
+        generated.extend(result.get())
+        logging.info(
+            "[SELF-PLAY] Completed %s/%s tasks and %s/%s games",
+            completed,
+            len(results),
+            len(generated),
+            total_games,
+        )
+    return generated
 
 
 def run_apply_async_local_selfplay_learning(
@@ -345,7 +397,11 @@ def run_apply_async_local_selfplay_learning(
     faceoff_rounds: int = 100,
     faceoff_rounds_per_task: int = 1,
     initial_training_dataset_path: pathlib.Path | None = None,
+    recorder: runs.RunRecorder | None = None,
 ) -> None:
+    checkpoint_interval = learn_config.update_model_interval
+    if checkpoint_interval is None or checkpoint_interval < 1:
+        raise ValueError("checkpoint interval must be positive")
     if process_count < 1:
         raise ValueError("process_count must be positive")
     if torch_threads_per_worker < 1:
@@ -370,8 +426,8 @@ def run_apply_async_local_selfplay_learning(
             "games_generated_per_iteration": (
                 learn_config.games_generated_per_iteration
             ),
-            "validation_interval": learn_config.validation_interval,
-            "update_model_interval": learn_config.update_model_interval,
+            "validation_enabled": learn_config.validation_function is not None,
+            "checkpoint_interval": checkpoint_interval,
         },
         "training": {
             "batch_size": training_config.batch_size,
@@ -388,237 +444,148 @@ def run_apply_async_local_selfplay_learning(
         map_location=learn_config.torch_device,
     )
 
-    starting_iteration = progress.iteration
-    first_new_game_index = max(training_data_buffer.game_indices, default=-1) + 1
-    tasks_per_iteration = len(
-        game_batch_sizes(
-            learn_config.games_generated_per_iteration,
-            games_per_task,
+    state = experiment_training.TrainingState(progress)
+    recording = experiment_training.RecipeRecording(
+        recorder,
+        training_data_buffer,
+        initial_dataset_path=initial_training_dataset_path,
+    )
+    # Complete the factory's bootstrap checkpoint before registering it. The
+    # recorded launcher always starts in a fresh directory; no extra raw model
+    # checkpoint is left behind without optimizer or configuration metadata.
+    initial_path = checkpoint.save_checkpoint(
+        model_factory.get_latest_checkpoint_path(),
+        model=model,
+        optimizer=optimizer,
+        configuration=run_configuration,
+        progress=progress,
+    )
+    reference = recording.register_snapshot(initial_path, state, role="initial")
+    state = dataclasses.replace(state, snapshot=reference)
+    if learn_config.validation_function is not None:
+        recording.validation(
+            model, learn_config.validation_function, state, initial=True
         )
-    )
-    logging.info(
-        "[LEARN] Starting distributed run: iterations=%s starting_iteration=%s "
-        "games_per_iteration=%s workers=%s games_per_task=%s "
-        "tasks_per_iteration=%s outcome_rollouts=%s replay_positions=%s/%s",
-        learn_config.learn_steps,
-        starting_iteration,
-        learn_config.games_generated_per_iteration,
-        process_count,
-        games_per_task,
-        tasks_per_iteration,
-        outcome_rollouts,
-        len(training_data_buffer),
-        training_data_buffer.max_size,
-    )
+    next_game = max(training_data_buffer.game_indices, default=-1) + 1
+
     with mp.Pool(
         processes=process_count,
         initializer=configure_torch_worker,
         initargs=(torch_threads_per_worker,),
     ) as pool:
-        for iteration in range(starting_iteration, learn_config.learn_steps):
-            iteration_started_at = time.perf_counter()
+        for iteration in range(progress.iteration, learn_config.learn_steps):
+            iteration_started = time.perf_counter()
+            timings = {}
             logging.info(
                 "[LEARN] Starting iteration %s/%s",
                 iteration + 1,
                 learn_config.learn_steps,
             )
 
-            if learn_config.validation_function is not None and train.interval_due(
-                iteration, learn_config.validation_interval
-            ):
-                validation_started_at = time.perf_counter()
-                learn_config.validation_function(model)
-                logging.info(
-                    "[VALIDATION] Completed in %.1fs",
-                    time.perf_counter() - validation_started_at,
-                )
-
-            model_state_dict = {
-                name: value.detach().cpu() for name, value in model.state_dict().items()
-            }
-            batch_sizes = game_batch_sizes(
-                learn_config.games_generated_per_iteration,
-                games_per_task,
+            generation = state.snapshot
+            started = time.perf_counter()
+            generated = generate_iteration(
+                pool,
+                total_games=learn_config.games_generated_per_iteration,
+                games_per_task=games_per_task,
+                first_game_index=next_game,
+                worker_kwargs={
+                    "model_callable": model_callable,
+                    "model_kwargs": model_kwargs,
+                    "model_state_dict": {
+                        name: value.detach().cpu()
+                        for name, value in model.state_dict().items()
+                    },
+                    "model_player_config": model_player_config,
+                    "players": players,
+                    "run_seed": run_seed,
+                    "start_state_generator": start_state_generator,
+                },
             )
-            batch_starts = np.cumsum([0, *batch_sizes[:-1]]).tolist()
-            first_iteration_game = first_new_game_index + (
-                (iteration - starting_iteration)
-                * learn_config.games_generated_per_iteration
-            )
-            generation_started_at = time.perf_counter()
-            logging.info(
-                "[SELF-PLAY] Dispatching %s games across %s tasks "
-                "(%s workers, up to %s games/task)",
-                learn_config.games_generated_per_iteration,
-                len(batch_sizes),
-                process_count,
-                games_per_task,
-            )
-            async_results = [
-                pool.apply_async(
-                    play_games_locally,
-                    (
-                        model_callable,
-                        model_state_dict,
-                        model_kwargs,
-                        model_player_config,
-                        players,
-                        batch_size,
-                        run_seed,
-                        first_iteration_game + batch_start,
-                        start_state_generator,
-                    ),
-                )
-                for batch_size, batch_start in zip(
-                    batch_sizes, batch_starts, strict=True
-                )
-            ]
-
-            generated_games = []
-            progress_interval = max(1, math.ceil(len(async_results) / 10))
-            for completed_tasks, result in enumerate(async_results, start=1):
-                generated_games.extend(result.get())
-                if (
-                    completed_tasks % progress_interval == 0
-                    or completed_tasks == len(async_results)
-                ):
-                    generation_seconds = time.perf_counter() - generation_started_at
-                    logging.info(
-                        "[SELF-PLAY] Completed %s/%s tasks and %s/%s games in %.1fs "
-                        "(%.2f games/s)",
-                        completed_tasks,
-                        len(async_results),
-                        len(generated_games),
-                        learn_config.games_generated_per_iteration,
-                        generation_seconds,
-                        len(generated_games) / generation_seconds,
-                    )
-            generation_seconds = time.perf_counter() - generation_started_at
-            buffer_positions_before = len(training_data_buffer)
-            buffer_games_before = training_data_buffer.game_count
-            target_started_at = time.perf_counter()
-            game_stats_list = add_generated_games_to_buffer(
-                generated_games,
+            timings["generation"] = time.perf_counter() - started
+            before = (training_data_buffer.game_count, len(training_data_buffer))
+            started = time.perf_counter()
+            games = add_generated_games_to_buffer(
+                generated,
                 training_data_buffer,
                 outcome_rollouts=outcome_rollouts,
                 log_progress=True,
             )
-            target_seconds = time.perf_counter() - target_started_at
-            new_position_count = sum(
-                game_stats.game_length for game_stats in game_stats_list
-            )
-            evicted_positions = max(
-                0,
-                buffer_positions_before
-                + new_position_count
-                - len(training_data_buffer),
-            )
-            evicted_games = max(
-                0,
-                buffer_games_before
-                + len(game_stats_list)
-                - training_data_buffer.game_count,
-            )
-
-            logging.info(
-                "[LEARN] Added %s games and %s positions to the replay buffer; "
-                "evicted %s games and %s positions",
-                len(game_stats_list),
-                new_position_count,
-                evicted_games,
-                evicted_positions,
-            )
-            logging.info(
-                "[LEARN] Replay buffer: %s games, %s/%s positions (%.1f%% full)",
-                training_data_buffer.game_count,
-                len(training_data_buffer),
-                training_data_buffer.max_size,
-                100 * len(training_data_buffer) / training_data_buffer.max_size,
-            )
-            logging.info(
-                "[LEARN] Generation timing: self-play=%.1fs targets=%.1fs total=%.1fs",
-                generation_seconds,
-                target_seconds,
-                generation_seconds + target_seconds,
-            )
+            timings["target"] = time.perf_counter() - started
+            new_positions = sum(stats.game_length for stats in games)
+            state = state.generated(games=len(games), positions=new_positions)
             logging.info(
                 "[LEARN] Generated game stats:\n%s",
-                train_utils.game_stats_summary(game_stats_list),
+                train_utils.game_stats_summary(games),
             )
-            replay_save_started_at = time.perf_counter()
-            replay_path = training_data_buffer.save(
-                generation_metadata={
+            started = time.perf_counter()
+            recording.save_replay(
+                training_data_buffer,
+                state=state,
+                generation=generation,
+                generation_iteration=iteration + 1,
+                game_count=len(games),
+                generation_settings={
                     "run_seed": run_seed,
                     "players": players,
                     "model": run_configuration["model"],
-                    "model_player": model_player_config,
+                    "model_player": dataclasses.asdict(model_player_config),
                     "outcome_rollouts": outcome_rollouts,
                 },
-                source_checkpoint=model_factory.get_latest_checkpoint_path(),
             )
-            logging.info(
-                "[LEARN] Saved replay buffer to %s in %.1fs",
-                replay_path,
-                time.perf_counter() - replay_save_started_at,
-            )
+            timings["replay_save"] = time.perf_counter() - started
+            next_game += len(games)
 
-            previous_model_state_dict = {
-                name: value.detach().cpu().clone()
-                for name, value in model.state_dict().items()
-            }
-            champion_checkpoint_path = model_factory.save_model(
-                model,
-                optimizer=optimizer,
-                configuration=run_configuration,
-                progress=progress,
-            )
-            optimizer_steps = math.ceil(
-                new_position_count
+            # Training is continuous, regardless of evaluation results.
+            steps = math.ceil(
+                new_positions
                 * training_config.replay_ratio
                 / training_config.batch_size
             )
-            sampled_positions = optimizer_steps * training_config.batch_size
-            training_started_at = time.perf_counter()
-            loss_details = train.train_steps(
+            started = time.perf_counter()
+            losses = train.train_steps(
                 model,
                 training_data_buffer,
                 training_batch_size=training_config.batch_size,
-                optimizer_steps=optimizer_steps,
+                optimizer_steps=steps,
                 optimizer=optimizer,
                 loss_function=training_config.loss_function,
             )
-            training_seconds = time.perf_counter() - training_started_at
-            logging.info(
-                "[LEARN] Trained for %s optimizer steps over %s sampled positions "
-                "in %.1fs (%.2f steps/s, realized replay ratio %.4f)",
-                optimizer_steps,
-                sampled_positions,
-                training_seconds,
-                optimizer_steps / training_seconds,
-                sampled_positions / new_position_count,
+            timings["training"] = time.perf_counter() - started
+            state = state.trained(
+                iteration=iteration + 1,
+                steps=steps,
+                batch_size=training_config.batch_size,
             )
+            recording.training(state, losses)
             if learn_config.loss_stats_function is not None:
                 logging.info(
                     "[LEARN] Training stats:\n%s",
-                    learn_config.loss_stats_function(loss_details),
+                    learn_config.loss_stats_function(losses),
                 )
-            progress = checkpoint.TrainingProgress(
-                iteration=iteration + 1,
-                epoch=0,
-                generated_games=progress.generated_games + len(game_stats_list),
-                trained_positions=progress.trained_positions + sampled_positions,
-                optimizer_steps=progress.optimizer_steps + optimizer_steps,
-                sampled_positions=progress.sampled_positions + sampled_positions,
-            )
 
-            if train.interval_due(iteration + 1, learn_config.update_model_interval):
+            is_final = iteration + 1 == learn_config.learn_steps
+            if is_final or train.interval_due(iteration + 1, checkpoint_interval):
+                saved = recording.save_snapshot(
+                    model_factory,
+                    model,
+                    optimizer,
+                    run_configuration,
+                    state,
+                    role="final" if is_final else "periodic",
+                )
+                state = dataclasses.replace(state, snapshot=saved)
+                if learn_config.validation_function is not None:
+                    recording.validation(model, learn_config.validation_function, state)
                 if faceoff_rounds > 0:
-                    logging.info("[LEARN] Model Faceoff")
-                    faceoff_result = validate_model_faceoff(
+                    reference_weights = torch.load(
+                        reference.path, map_location="cpu", weights_only=False
+                    )["model_state_dict"]
+                    result = validate_model_faceoff(
                         pool=pool,
                         model=model,
                         players=players,
-                        previous_model_state_dict=previous_model_state_dict,
+                        previous_model_state_dict=reference_weights,
                         model_callable=model_callable,
                         model_kwargs=model_kwargs,
                         rounds=faceoff_rounds,
@@ -626,46 +593,41 @@ def run_apply_async_local_selfplay_learning(
                         model_player_config=model_player_config,
                         start_state_generator=start_state_generator,
                     )
-                    if faceoff_result:
-                        logging.info("[LEARN] New Model Faceoff Passed")
-                    else:
-                        logging.info(
-                            "[LEARN] Model Faceoff Failed, reverting to previous model"
-                        )
-                        checkpoint.load_checkpoint(
-                            champion_checkpoint_path,
-                            model=model,
-                            optimizer=optimizer,
-                            expected_configuration=run_configuration,
-                            map_location=learn_config.torch_device,
-                        )
-
-                logging.info(
-                    "[LEARN] Saved model to %s",
-                    model_factory.save_model(
-                        model,
-                        optimizer=optimizer,
-                        configuration=run_configuration,
-                        progress=progress,
-                    ),
-                )
-
-            logging.info(
-                "[LEARN] Completed iteration %s/%s in %.1fs",
-                iteration + 1,
-                learn_config.learn_steps,
-                time.perf_counter() - iteration_started_at,
+                    recording.faceoff(
+                        state,
+                        reference,
+                        result,
+                        protocol={
+                            "paired_rounds": faceoff_rounds,
+                            "interval": checkpoint_interval,
+                            "rounds_per_task": faceoff_rounds_per_task,
+                            "seed_rule": "global pair index, starting at zero",
+                            "acceptance_rule": "candidate_wins > champion_wins",
+                            "player": dataclasses.asdict(
+                                dataclasses.replace(
+                                    model_player_config, action_softmax_temperature=0.0
+                                )
+                            ),
+                            "start_state": "standard"
+                            if start_state_generator is None
+                            else start_state_generator.__qualname__,
+                        },
+                    )
+                    if result["passed"]:
+                        reference = saved
+            timings["iteration"] = time.perf_counter() - iteration_started
+            recording.iteration(
+                state,
+                games=games,
+                replay=training_data_buffer,
+                before=before,
+                timings=timings,
             )
-
-    logging.info(
-        "[LEARN] Saved final model to %s",
-        model_factory.save_model(
-            model,
-            optimizer=optimizer,
-            configuration=run_configuration,
-            progress=progress,
-        ),
-    )
+            logging.info(
+                "[LEARN] Completed iteration %s in %.1fs",
+                iteration + 1,
+                timings["iteration"],
+            )
 
 
 def create_random_potential_clear_position() -> sj.Skyjo:
@@ -674,132 +636,173 @@ def create_random_potential_clear_position() -> sj.Skyjo:
     )
 
 
+MODEL_TYPES = {
+    "equivariant": skynet.EquivariantSkyNet,
+    "round_score": skynet.EquivariantSkyNetWithRoundScoreAux,
+    "auxiliary": skynet.EquivariantSkyNetWithAuxiliaryHeads,
+}
+LOSS_TYPES = {
+    "base": train_utils.base_loss,
+    "auxiliary": train_utils.outcome_policy_auxiliary_loss,
+}
+
+
+def launch(
+    config: typing.Annotated[pathlib.Path, typer.Option("--config")],
+    runs_dir: typing.Annotated[pathlib.Path, typer.Option("--runs-dir")] = pathlib.Path(
+        ".runs"
+    ),
+    allow_dirty: typing.Annotated[bool, typer.Option("--allow-dirty")] = False,
+) -> pathlib.Path:
+    """Start a fresh experiment and return its run directory."""
+    config = config.resolve()
+    input_bytes, resolved = experiment_config.load_configuration(config)
+    repository = pathlib.Path(__file__).resolve().parent
+    recorder = runs.RunRecorder.create(
+        root=runs_dir,
+        repository=repository,
+        input_path=config,
+        input_bytes=input_bytes,
+        configuration=resolved,
+        entrypoint="distributed_main.py:launch",
+        invocation=[
+            "--config",
+            str(config),
+            "--runs-dir",
+            str(runs_dir),
+            *(["--allow-dirty"] if allow_dirty else []),
+        ],
+        allow_dirty=allow_dirty,
+    )
+    typer.echo(f"Run directory: {recorder.path}")
+    handler = logging.FileHandler(
+        recorder.path / "logs" / "train.log", encoding="utf-8"
+    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger = logging.getLogger()
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG if resolved["execution"]["debug"] else logging.INFO)
+    logger.addHandler(handler)
+    try:
+        with recorder:
+            set_seed(resolved["seed"])
+            execution, model_settings, training_settings = (
+                resolved[key] for key in ("execution", "model", "training")
+            )
+            torch.set_num_threads(execution["threads_per_worker"])
+            device = torch.device(execution["device"])
+            model_callable = MODEL_TYPES[model_settings["type"]]
+            model_kwargs = {
+                key: value for key, value in model_settings.items() if key != "type"
+            }
+            model_factory = factory.SkyNetModelFactory(
+                model_callable=model_callable,
+                players=resolved["players"],
+                device=device,
+                models_dir=recorder.path / "checkpoints",
+                model_kwargs=model_kwargs,
+            )
+            loss_keys = ["value_scale", "policy_scale"]
+            if training_settings["loss"] == "auxiliary":
+                loss_keys += [
+                    "round_score_scale",
+                    "future_clear_scale",
+                    "clear_positive_weight",
+                ]
+            loss = functools.partial(
+                LOSS_TYPES[training_settings["loss"]],
+                **{key: training_settings[key] for key in loss_keys},
+            )
+            training_config = train.ReplayRatioTrainConfig(
+                batch_size=training_settings["batch_size"],
+                replay_ratio=training_settings["replay_ratio"],
+                learn_rate=training_settings["learn_rate"],
+                loss_function=loss,
+            )
+            validation = resolved["validation"]
+            validation_function = (
+                functools.partial(
+                    explain.validate_model,
+                    value_loss_scale=validation["value_loss_scale"],
+                    policy_loss_scale=validation["policy_loss_scale"],
+                )
+                if validation["enabled"]
+                else None
+            )
+            learn_config = train.LearnConfig(
+                torch_device=device,
+                learn_steps=resolved["budget"]["iterations"],
+                games_generated_per_iteration=resolved["selfplay"][
+                    "games_per_iteration"
+                ],
+                training_epochs=0,
+                training_batch_size=training_config.batch_size,
+                training_learn_rate=training_config.learn_rate,
+                training_loss_function=loss,
+                loss_stats_function=train_utils.loss_details_summary,
+                validation_interval=validation["interval"]
+                if validation["enabled"]
+                else None,
+                validation_function=validation_function,
+                update_model_interval=resolved["budget"]["checkpoint_interval"],
+                model_faceoff_function=None,
+            )
+            search = dict(resolved["search"])
+            temperature = search.pop("action_softmax_temperature")
+            player_config = player.ModelPlayerConfig(
+                action_softmax_temperature=temperature,
+                **mcts.MCTSConfig(**search).kwargs("mcts"),
+            )
+            shapes = resolved["derived"]
+            buffer_config = buffer.Config(
+                max_size=resolved["replay"]["capacity"],
+                spatial_input_shape=tuple(shapes["spatial_input_shape"]),
+                non_spatial_input_shape=tuple(shapes["non_spatial_input_shape"]),
+                action_mask_shape=tuple(shapes["action_mask_shape"]),
+                target_specs=tuple(
+                    buffer.TargetShapeSpec(spec["name"], tuple(spec["shape"]))
+                    for spec in shapes["target_specs"]
+                ),
+                path=recorder.path / "data" / "replay",
+            )
+            start_state = (
+                create_random_potential_clear_position
+                if resolved["selfplay"]["start_state"] == "potential_clear"
+                else None
+            )
+            initial_dataset = resolved["replay"]["initial_dataset"]
+            run_apply_async_local_selfplay_learning(
+                process_count=execution["workers"],
+                torch_threads_per_worker=execution["threads_per_worker"],
+                players=resolved["players"],
+                model_factory=model_factory,
+                learn_config=learn_config,
+                training_config=training_config,
+                training_data_buffer_config=buffer_config,
+                model_player_config=player_config,
+                model_callable=model_callable,
+                model_kwargs=model_kwargs,
+                run_seed=resolved["seed"],
+                games_per_task=resolved["selfplay"]["games_per_task"],
+                start_state_generator=start_state,
+                outcome_rollouts=resolved["selfplay"]["outcome_rollouts"],
+                faceoff_rounds=resolved["faceoff"]["paired_rounds"],
+                faceoff_rounds_per_task=resolved["faceoff"]["rounds_per_task"],
+                initial_training_dataset_path=pathlib.Path(initial_dataset)
+                if initial_dataset
+                else None,
+                recorder=recorder,
+            )
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+        logger.setLevel(previous_level)
+    return recorder.path
+
+
+def main() -> None:
+    typer.run(launch)
+
+
 if __name__ == "__main__":
-    seed = 0
-    debug = False
-    process_count = 8
-    torch_threads_per_worker = 1
-    players = 2
-    games_per_task = 8
-    faceoff_rounds = 0
-    faceoff_rounds_per_task = 1
-    start_state_generator = None
-    outcome_rollouts = 100
-    device = torch.device("cpu")
-    initial_training_dataset_path = None
-
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    random.seed(seed)
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = f"score_{timestamp}"
-    log_dir = pathlib.Path("logs/apply_async_local_train") / run_name
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filename=log_dir / "main.log",
-        filemode="w",
-    )
-
-    model_kwargs = {
-        "embedding_dimensions": 16,
-        "global_state_embedding_dimensions": 32,
-        "num_heads": 2,
-    }
-    spatial_input_shape = (players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
-    non_spatial_input_shape = skynet.get_non_spatial_input_shape(players)
-    value_output_shape = (players,)
-    policy_output_shape = (sj.MASK_SIZE,)
-    model = skynet.EquivariantSkyNetWithRoundScoreAux(
-        spatial_input_shape=spatial_input_shape,
-        non_spatial_input_shape=non_spatial_input_shape,
-        value_output_shape=value_output_shape,
-        policy_output_shape=policy_output_shape,
-        device=device,
-        **model_kwargs,
-    )
-    logging.info("Initialized model from random weights")
-    logging.info("Using final-round-score auxiliary supervision")
-
-    model_factory = factory.SkyNetModelFactory(
-        model_callable=skynet.EquivariantSkyNetWithRoundScoreAux,
-        players=players,
-        model_kwargs=model_kwargs,
-        device=device,
-        models_dir=pathlib.Path("./models") / "apply_async_local" / run_name,
-        initial_model=model,
-    )
-
-    training_config = train.ReplayRatioTrainConfig(
-        replay_ratio=4.0,
-        batch_size=256,
-        learn_rate=1e-3,
-        loss_function=functools.partial(
-            train_utils.outcome_policy_auxiliary_loss,
-            value_scale=1.0,
-            policy_scale=1.0,
-            round_score_scale=1.0,
-            future_clear_scale=0.0,
-        ),
-    )
-    learn_config = train.LearnConfig(
-        torch_device=device,
-        learn_steps=10,
-        games_generated_per_iteration=1024,
-        loss_stats_function=train_utils.loss_details_summary,
-        validation_interval=1,
-        validation_function=lambda model: explain.validate_model(
-            model, value_loss_scale=1.0
-        ),
-        update_model_interval=1,
-        model_faceoff_function=None,
-        training_epochs=0,
-        training_batch_size=training_config.batch_size,
-        training_learn_rate=training_config.learn_rate,
-        training_loss_function=training_config.loss_function,
-    )
-
-    mcts_config = mcts.MCTSConfig(
-        iterations=100,
-        after_state_evaluate_all_children=False,
-        terminal_state_initial_rollouts=10,
-        dirichlet_epsilon=0.25,
-        c_puct=1.0,
-        fpu_reduction=0.25,
-        score_utility_weight=0.0,
-    )
-    model_player_config = player.ModelPlayerConfig(
-        action_softmax_temperature=1.0,
-        **mcts_config.kwargs("mcts"),
-    )
-    training_data_buffer_config = buffer.Config(
-        max_size=2_000_000,
-        spatial_input_shape=spatial_input_shape,
-        non_spatial_input_shape=non_spatial_input_shape,
-        action_mask_shape=policy_output_shape,
-        target_specs=buffer.round_score_target_specs(players, policy_output_shape),
-        path=pathlib.Path("./data/training_data") / run_name / "dataset",
-    )
-
-    run_apply_async_local_selfplay_learning(
-        process_count=process_count,
-        torch_threads_per_worker=torch_threads_per_worker,
-        players=players,
-        model_factory=model_factory,
-        learn_config=learn_config,
-        training_config=training_config,
-        training_data_buffer_config=training_data_buffer_config,
-        model_player_config=model_player_config,
-        model_callable=skynet.EquivariantSkyNetWithRoundScoreAux,
-        model_kwargs=model_kwargs,
-        run_seed=seed,
-        games_per_task=games_per_task,
-        start_state_generator=start_state_generator,
-        outcome_rollouts=outcome_rollouts,
-        faceoff_rounds=faceoff_rounds,
-        faceoff_rounds_per_task=faceoff_rounds_per_task,
-        initial_training_dataset_path=initial_training_dataset_path,
-    )
+    main()

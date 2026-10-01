@@ -445,7 +445,7 @@ def validate_model_on_validation_examples(
     model: skynet.SkyNet,
     value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
-):
+) -> dict[str, float]:
     game_data = []
     for description, game_state, targets in VALIDATION_EXAMPLES:
         game_data.append(
@@ -461,6 +461,12 @@ def validate_model_on_validation_examples(
     logging.info("[VALIDATION] VALIDATION SET LOSS")
     logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
     logging.info(f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}")
+
+    metrics = {
+        "value_loss": value_loss_scale * value_loss.item(),
+        "policy_loss": policy_loss_scale * policy_loss.item(),
+        "example_count": len(VALIDATION_EXAMPLES),
+    }
 
     logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
     for description, game_state, targets in VALIDATION_EXAMPLES:
@@ -480,6 +486,7 @@ def validate_model_on_validation_examples(
         logging.info(f"[VALIDATION] model prediction:\n{model_prediction}")
         logging.info(f"[VALIDATION] value target: {targets.value}")
         logging.info(f"[VALIDATION] policy target:\n{targets.policy}")
+    return metrics
 
 
 def validate_model_with_games_data(
@@ -535,10 +542,15 @@ def validate_model(
     validation_batch: train_utils.TrainingBatch | None = None,
     value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
-):
-    validate_model_on_validation_examples(model, value_loss_scale, policy_loss_scale)
+) -> dict[str, float]:
+    metrics = validate_model_on_validation_examples(
+        model, value_loss_scale, policy_loss_scale
+    )
     if validation_batch is not None:
-        validate_model_with_games_data(model, validation_batch, value_loss_scale)
+        metrics["batch_total_loss"] = float(
+            validate_model_with_games_data(model, validation_batch, value_loss_scale)
+        )
+    return metrics
 
 
 if __name__ == "__main__":

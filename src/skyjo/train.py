@@ -211,7 +211,7 @@ class LearnConfig(config.Config):
     training_loss_function: train_utils.LossFunction
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None
     validation_interval: int | None
-    validation_function: typing.Callable[[skynet.SkyNet], None] | None
+    validation_function: typing.Callable[[skynet.SkyNet], dict[str, float] | None] | None
     update_model_interval: int | None
     model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
 
@@ -230,7 +230,7 @@ def learn(
     training_loss_function: train_utils.LossFunction,
     loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None,
     validation_interval: int | None,
-    validation_function: typing.Callable[[skynet.SkyNet], None] | None,
+    validation_function: typing.Callable[[skynet.SkyNet], dict[str, float] | None] | None,
     update_model_interval: int | None,
     model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
     | None,
