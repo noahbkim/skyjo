@@ -1,9 +1,17 @@
-"""Module to evaluate and understand current model behaivor"""
+"""Handcrafted positions and standalone checks of learned Skyjo concepts.
 
+The target values are heuristic round-level expectations, not calibrated full-game
+win probabilities. These examples are for qualitative inspection and are not
+part of the pool training loop or its replay targets.
+"""
+
+import logging
 
 import numpy as np
+import torch
 
 from . import game as sj
+from . import play, skynet, train_utils
 
 # MARK: Game state creation
 
@@ -310,3 +318,177 @@ def create_potential_clear_equal_position(top_card: int = sj.CARD_P10) -> sj.Sky
 
 
 # MARK: Targets
+
+
+def almost_surely_winning_position_targets():
+    value_target = np.array([1.0, 0.0], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_TAKE] = 1.0
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def almost_surely_winning_take_position_targets():
+    value_target = np.array([1.0, 0.0], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 11] = 1.0
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def almost_surely_losing_position_targets():
+    value_target = np.array([0.0, 1.0], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_DRAW] = 1.0
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def obvious_clear_position_targets():
+    value_target = np.array([0.7, 0.3], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_TAKE] = 1.0
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def obvious_clear_take_position_targets():
+    value_target = np.array([0.7, 0.3], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 8] = 1.0
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def almost_clear_position_targets():
+    value_target = np.array([0.55, 0.45], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_DRAW] = 1.0
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def almost_clear_draw_low_position_targets():
+    value_target = np.array([0.6, 0.4], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 1] = 1
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def early_flip_position_targets():
+    value_target = np.array([0.3, 0.7], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_FLIP + 2 : sj.MASK_FLIP + 12] = 1 / 10
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def negative_clear_position_targets():
+    value_target = np.array([0.6, 0.4], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_TAKE] = 1
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+def negative_clear_take_position_targets():
+    value_target = np.array([0.6, 0.4], dtype=np.float32)
+    policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
+    policy_target[sj.MASK_REPLACE + 1] = 1
+    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+
+
+# MARK: Evaluation
+
+VALIDATION_EXAMPLES = [
+    (
+        "almost surely winning position",
+        create_almost_surely_winning_position(),
+        almost_surely_winning_position_targets(),
+    ),
+    (
+        "almost surely winning after take",
+        sj.apply_action(create_almost_surely_winning_position(), sj.MASK_TAKE),
+        almost_surely_winning_take_position_targets(),
+    ),
+    (
+        "almost surely losing position",
+        create_almost_surely_losing_position(),
+        almost_surely_losing_position_targets(),
+    ),
+    (
+        "early flip position",
+        create_early_flip_position(),
+        early_flip_position_targets(),
+    ),
+    (
+        "obvious clear position",
+        create_obvious_clear_position(),
+        obvious_clear_position_targets(),
+    ),
+    (
+        "obvious clear take position",
+        sj.apply_action(create_obvious_clear_position(), sj.MASK_TAKE),
+        obvious_clear_take_position_targets(),
+    ),
+    (
+        "almost clear position",
+        create_almost_clear_position(),
+        almost_clear_position_targets(),
+    ),
+    (
+        "leave clear option open",
+        create_almost_clear_draw_low_position(),
+        almost_clear_draw_low_position_targets(),
+    ),
+    (
+        "negative clear position",
+        create_negative_clear_position(),
+        negative_clear_position_targets(),
+    ),
+    (
+        "negative clear take position",
+        create_negative_clear_take_position(),
+        negative_clear_take_position_targets(),
+    ),
+]
+
+
+def validate_model_on_validation_examples(
+    model: skynet.SkyNet,
+    value_loss_scale: float = 1.0,
+    policy_loss_scale: float = 1.0,
+) -> dict[str, float]:
+    game_data = []
+    for description, game_state, targets in VALIDATION_EXAMPLES:
+        game_data.append(
+            play.GameDataPoint(
+                game_state,
+                None,
+                targets,
+            )
+        )
+    value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
+        model, game_data, train_utils.policy_value_losses
+    )
+    logging.info("[VALIDATION] VALIDATION SET LOSS")
+    logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
+    logging.info(f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}")
+
+    metrics = {
+        "value_loss": value_loss_scale * value_loss.item(),
+        "policy_loss": policy_loss_scale * policy_loss.item(),
+        "example_count": len(VALIDATION_EXAMPLES),
+    }
+
+    logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
+    for description, game_state, targets in VALIDATION_EXAMPLES:
+        model_prediction = model.predict(game_state)
+        tensor_targets = train_utils.TensorTrainingTargets(
+            torch.tensor(np.expand_dims(targets.value, 0), dtype=torch.float32),
+            torch.tensor(np.expand_dims(targets.policy, 0), dtype=torch.float32),
+        )
+        value_loss, policy_loss = train_utils.policy_value_losses(
+            model_prediction.to_output(), tensor_targets
+        )
+        logging.info(f"[VALIDATION] validation example: {description}")
+        logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
+        logging.info(
+            f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}"
+        )
+        logging.info(f"[VALIDATION] model prediction:\n{model_prediction}")
+        logging.info(f"[VALIDATION] value target: {targets.value}")
+        logging.info(f"[VALIDATION] policy target:\n{targets.policy}")
+    return metrics

@@ -213,6 +213,13 @@ The recipe exposes only its model dimensions, base loss scales, replay budget,
 self-play/search settings, checkpoint schedule, and execution settings in
 `configs/baseline.toml` and `configs/smoke.toml`.
 
+Handcrafted concept-check positions and their expected policies remain in
+`skyjo.explain.VALIDATION_EXAMPLES`. For a standalone inspection of a loaded model,
+call `explain.validate_model_on_validation_examples(model)` with INFO logging
+enabled to see predictions and target comparisons. Their value targets are
+heuristic round-level expectations, not calibrated full-game win probabilities.
+These checks run independently of the training loop.
+
 ## Offline training
 
 Replay buffers are saved as versioned NumPy dataset directories containing only
