@@ -44,7 +44,7 @@ def test_future_clear_target_rotates_players_and_masks_existing_columns() -> Non
         dtype=np.float32,
     )
 
-    target = play.future_clear_target_for_state(tuple(state), fixed_final)
+    target = train_utils.future_clear_target_for_state(tuple(state), fixed_final)
 
     assert np.array_equal(
         target,
@@ -194,26 +194,9 @@ def test_mcts_node_uses_score_utility_but_zero_weight_is_win_only() -> None:
     assert np.array_equal(baseline_node.state_value, prediction.value_output)
 
 
-def test_batched_mcts_forwards_score_utility_configuration() -> None:
-    client = predictor.LocalPredictorClient(make_aux_model(), max_batch_size=4)
-    state = sj.new(players=2, top=0)
-
-    root = parallel_mcts.run_mcts(
-        state,
-        client,
-        iterations=0,
-        score_utility_weight=0.05,
-    )
-
-    assert root.score_utility_weight == 0.05
-    assert root.model_prediction is not None
-    assert np.allclose(
-        root.state_value,
-        skynet.to_state_value(
-            root.model_prediction.search_value(0.05),
-            sj.get_player(state),
-        ),
-    )
+def test_full_game_search_rejects_round_score_utility() -> None:
+    with pytest.raises(ValueError, match="score_utility_weight=0"):
+        parallel_mcts.run_mcts(sj.new(players=2), None, iterations=0, score_utility_weight=0.05)
 
 
 def test_predictor_output_queue_round_trips_score_predictions() -> None:

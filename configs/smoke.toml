@@ -5,7 +5,6 @@ seed = 0
 players = 2
 
 [model]
-type = "round_score"
 embedding_dimensions = 8
 global_state_embedding_dimensions = 16
 num_heads = 1
@@ -14,31 +13,18 @@ num_heads = 1
 batch_size = 16
 replay_ratio = 0.1
 learn_rate = 0.001
-loss = "auxiliary"
 value_scale = 1.0
 policy_scale = 1.0
-round_score_scale = 1.0
-future_clear_scale = 0.0
 
 [selfplay]
 games_per_iteration = 2
 games_per_task = 1
-outcome_rollouts = 1
 
 [search]
 iterations = 1
-terminal_state_initial_rollouts = 1
 
 [replay]
 capacity = 4096
-targets = "round_score"
-
-[validation]
-enabled = false
-
-[faceoff]
-paired_rounds = 0
-interval = 1
 
 [budget]
 iterations = 1

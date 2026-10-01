@@ -21,7 +21,6 @@ class MCTSConfig(config.Config):
     iterations: int
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
-    terminal_state_initial_rollouts: int
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
     score_utility_weight: float = 0.0
@@ -140,7 +139,6 @@ class DecisionStateNode:
     def expand(
         self,
         model_prediction: skynet.SkyNetPrediction,
-        terminal_state_rollouts: int = 1,
     ) -> None:
         """Expand node by evaluating state with model"""
         assert not self.is_expanded, "Node already expanded"
@@ -149,7 +147,7 @@ class DecisionStateNode:
         self.is_expanded = True
         for action in sj.get_actions(self.state):
             self.children[action] = self.create_child_node(
-                action, terminal_state_initial_rollouts=terminal_state_rollouts
+                action
             )
 
     def select_child(self, **kwargs) -> MCTSNode:
@@ -158,16 +156,12 @@ class DecisionStateNode:
     def create_child_node(
         self,
         action: sj.SkyjoAction,
-        terminal_state_initial_rollouts: int = 1,
     ) -> MCTSNode:
         if sj.get_round_about_to_end(self.state):
-            return TerminalStateNode(
+            return RoundBoundaryNode(
                 pre_terminal_state=self.state,
                 parent=self,
                 action=action,
-                is_random=sj.is_action_random(action, self.state),
-                initial_rollouts=terminal_state_initial_rollouts,
-                score_utility_weight=self.score_utility_weight,
             )
 
         if sj.is_action_random(action, self.state):
@@ -215,7 +209,7 @@ class AfterStateNode:
     action: sj.SkyjoAction
     parent: DecisionStateNode
     state_value_total: skynet.StateValue | None = None
-    children: dict[int, DecisionStateNode | TerminalStateNode] = dataclasses.field(
+    children: dict[int, DecisionStateNode | RoundBoundaryNode] = dataclasses.field(
         default_factory=dict
     )
     child_weights: dict[int, float] = dataclasses.field(default_factory=dict)
@@ -271,7 +265,7 @@ class AfterStateNode:
 
     def _create_child(self, state: sj.Skyjo) -> MCTSNode:
         assert not sj.get_round_over(state), (
-            "Create terminal state node explicitly instead"
+            "Create a round boundary node explicitly instead"
         )
         return DecisionStateNode(
             state=state,
@@ -289,7 +283,7 @@ class AfterStateNode:
     def _realize_outcome(self) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
         assert not sj.get_round_over(outcome_state), (
-            "Create terminal state node explicitly instead"
+            "Create a round boundary node explicitly instead"
         )
         outcome_state_hash = sj.hash_skyjo(outcome_state)
         if outcome_state_hash not in self.children:
@@ -359,7 +353,7 @@ class AfterStateNode:
 
     def select_child(
         self, update_child_weights: bool = True
-    ) -> DecisionStateNode | TerminalStateNode:
+    ) -> DecisionStateNode | RoundBoundaryNode:
         """Realize next state by applying action. Returns node in game tree that represents realized next state."""
         realized_next_state = self._realize_outcome()
         next_state_hash = sj.hash_skyjo(realized_next_state)
@@ -388,36 +382,17 @@ class AfterStateNode:
 
 
 @dataclasses.dataclass(slots=True)
-class TerminalStateNode:
+class RoundBoundaryNode:
+    """A round boundary with one cached sample; never expanded into another round."""
+
     pre_terminal_state: sj.Skyjo
     parent: AfterStateNode | DecisionStateNode
     action: sj.SkyjoAction
-    is_random: bool
-    initial_rollouts: int = 1
-    outcome_count: int = 0
     visit_count: int = 0
     virtual_loss: float = 0.0
     is_expanded: bool = False
-    are_children_discovered: bool = False
-    outcome_total: skynet.StateValue | None = None
-    latest_outcome: skynet.StateValue | None = None
-    score_utility_weight: float = 0.0
-
-    def __str__(self) -> str:
-        return (
-            f"TerminalStateNode\n"
-            f"{sj.visualize_state(self.pre_terminal_state)}\n"
-            f"action: {sj.get_action_name(self.action)}\n"
-            f"state value: {self.state_value}\n"
-            f"outcome count: {self.outcome_count}\n"
-            f"is random: {self.is_random}\n"
-        )
-
-    def __post_init__(self):
-        self.outcome_total = np.zeros(
-            sj.get_player_count(self.pre_terminal_state), dtype=np.float32
-        )
-        self.realize_outcomes(self.initial_rollouts)
+    next_round_state: sj.Skyjo | None = None
+    value: skynet.StateValue | None = None
 
     @property
     def child_count(self) -> int:
@@ -425,7 +400,7 @@ class TerminalStateNode:
 
     @property
     def has_value_estimate(self) -> bool:
-        return self.outcome_count > 0
+        return self.value is not None
 
     @property
     def state(self) -> sj.Skyjo:
@@ -433,28 +408,27 @@ class TerminalStateNode:
 
     @property
     def state_value(self) -> skynet.StateValue:
-        return self.outcome_total / self.outcome_count
+        if self.value is None:
+            return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
+        return self.value
 
-    def realize_outcome(self) -> skynet.StateValue:
-        terminal_state = sj.apply_action(self.pre_terminal_state, self.action)
-        outcome = skynet.skyjo_to_search_state_value(
-            terminal_state,
-            self.score_utility_weight,
-        )
-        self.outcome_total += outcome
-        self.outcome_count += 1
-        self.latest_outcome = outcome
-        return outcome
+    def prepare(self) -> sj.Skyjo | None:
+        """Sample the boundary once, returning a playable state if inference is needed."""
+        if self.value is not None:
+            return None
+        if self.next_round_state is None:
+            completed = sj.apply_action(self.state, self.action)
+            if sj.get_game_over(completed):
+                self.value = skynet.skyjo_to_game_state_value(completed)
+                return None
+            self.next_round_state = sj.start_next_round(completed)
+        return self.next_round_state
 
-    def realize_outcomes(self, n: int) -> None:
-        if self.is_random:
-            for _ in range(n):
-                self.realize_outcome()
-        else:
-            self.realize_outcome()
-
-    def expand(self):
-        raise ValueError("Terminal nodes should not need to be expanded")
+    def set_prediction(self, prediction: skynet.SkyNetPrediction) -> None:
+        assert self.next_round_state is not None and self.value is None
+        self.value = skynet.to_state_value(
+            prediction.value_output, sj.get_player(self.next_round_state)
+        ).copy()
 
 
 # MARK: MCTS Algorithm
@@ -501,50 +475,22 @@ def run_mcts(
     *,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
-    terminal_state_initial_rollouts: int = 1,
     c_puct: float = 1.5,
     fpu_reduction: float = 0.0,
     score_utility_weight: float = 0.0,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
-    """Runs a batched MCTS using virtual loss evaluation.
+    """Search within a round, using one cached game-value sample at its boundary.
 
-    This is not truly parallel an actually is just a single process and thread.
-    However, it delays the model inference until there are max_parall_evaluation
-    leaves pending.
-
-    Description of algorithm:
-
-    Starting at the root node, we inject a dirichlet noise with
-    alpha = 10 / # of  valid actions.
-
-    For every iteration we select a leaf node. A leaf node is just a node that
-    we haven't discovered the children of. Generally, we call prexpand on the
-    node to discover the children. This is a little different than the standard
-    MCTS which considers a node expanded after a model prediction is ready and
-    the children are discovered. This was done due to the batched nature of the
-    evaluation. While the virtual loss does discourage exploring the same exact
-    path to the leaf. This will guarantee that each iteration will reach a "new"
-    leaf even if we don't have much information on the value of that path since
-    the model prediction of the nodes along the path might not be ready yet.
-
-    Once we have a leaf node, we can pre-expand the node and if necessary add it
-    to the queue for model prediction. If we have after state realizations we
-    will add all possible child states to the queue as well. Otherwise, we just
-    realize a single child state and add it to the queue. Note, that each time
-    that the after state is selected during the search, we will re-realize a
-    child state.
-
-    Once the pending leaf prediction queue is at the limit, we send them off
-    for network inference throught the predictor client. Once the results are
-    ready we process them.
+    A continuing round bootstraps from the model's value of the next deal.
+    Ordinary in-round chance nodes retain their existing sampling behavior.
     """
     if c_puct <= 0:
         raise ValueError("c_puct must be positive")
     if fpu_reduction < 0:
         raise ValueError("fpu_reduction cannot be negative")
-    if score_utility_weight < 0:
-        raise ValueError("score_utility_weight cannot be negative")
+    if score_utility_weight != 0:
+        raise ValueError("Full-game search requires score_utility_weight=0")
 
     # Get model prediction for root state
     if root_node is None:
@@ -559,10 +505,7 @@ def run_mcts(
             fpu_reduction=fpu_reduction,
             score_utility_weight=score_utility_weight,
         )
-        root_node.expand(
-            model_prediction=prediction,
-            terminal_state_rollouts=terminal_state_initial_rollouts,
-        )
+        root_node.expand(model_prediction=prediction)
 
     else:
         if not isinstance(root_node, DecisionStateNode):
@@ -593,20 +536,22 @@ def run_mcts(
         search_depths.append(len(search_path))
         leaf = search_path[-1]
 
-        if isinstance(leaf, TerminalStateNode):
-            backup_value = (
-                leaf.realize_outcome() if leaf.is_random else leaf.state_value.copy()
-            )
-
-        # if isinstance(leaf, TerminalStateNode):
-        #     leaf.realize_outcomes(terminal_state_initial_rollouts)
+        if isinstance(leaf, RoundBoundaryNode):
+            next_round = leaf.prepare()
+            if next_round is not None:
+                prediction_id = predictor_client.put(next_round)
+                predictor_client.send()
+                returned_id, prediction = predictor_client.get()
+                assert prediction_id == returned_id
+                leaf.set_prediction(prediction)
+            backup_value = leaf.state_value.copy()
 
         # AFTER STATE LEAF
         # We want to pre-expand the afterstate and either realize all potential
         # outcomes or just roll a single next state based on parameter
         #
         # We also need to queue all the children decision state for model prediction
-        if isinstance(leaf, AfterStateNode):
+        elif isinstance(leaf, AfterStateNode):
             leaf.discover(discover_all_children=after_state_evaluate_all_children)
 
             afterstate_prediction_ids = {}
@@ -639,10 +584,7 @@ def run_mcts(
                 f"Returned prediction id: {returned_prediction_id} "
                 f"does NOT match given prediction id: {prediction_id}"
             )
-            leaf.expand(
-                model_prediction=prediction,
-                terminal_state_rollouts=terminal_state_initial_rollouts,
-            )
+            leaf.expand(model_prediction=prediction)
             backup_value = leaf.state_value.copy()
         else:
             backup_value = leaf.state_value.copy()
@@ -653,7 +595,7 @@ def run_mcts(
 
 # MARK: TYPES
 
-MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | TerminalStateNode
+MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | RoundBoundaryNode
 
 
 if __name__ == "__main__":
@@ -683,7 +625,7 @@ if __name__ == "__main__":
 
 
 def visualize_children(node: MCTSNode):
-    assert not isinstance(node, TerminalStateNode), (
+    assert not isinstance(node, RoundBoundaryNode), (
         "Terminal state nodes have no children"
     )
     if isinstance(node, DecisionStateNode):

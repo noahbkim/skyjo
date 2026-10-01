@@ -10,14 +10,14 @@ the reusable `skyjo.runs.RunRecorder` accepts arbitrary JSON-compatible metrics,
 progress counters, context, and artifact metadata. New diagnostics do not require
 a metric registry or changes to the recorder.
 
-Run the small pipeline check first, then the full score-auxiliary recipe:
+Run the small pipeline check first, then the full-game baseline recipe:
 
 ```sh
 uv run python distributed_main.py --config configs/smoke.toml
-uv run python distributed_main.py --config configs/score_aux.toml
+uv run python distributed_main.py --config configs/baseline.toml
 ```
 
-The smoke configuration performs two real self-play games and optimizer updates
+The smoke configuration performs two complete self-play games and optimizer updates
 on CPU, then saves checkpoints and replay data. It checks the pipeline, not model
 quality. The full configuration preserves the existing 10-iteration, 1024-games-
 per-iteration recipe and is substantially more expensive.
@@ -48,35 +48,37 @@ Each launch prints a fresh `.runs/<run-id>/` directory (gitignored). Use
 | `data/replay/` | Latest replay dataset in the existing NumPy format |
 | `logs/train.log` | Verbose training diagnostics and failure tracebacks |
 
-Config sections cover model, training, self-play, search, replay, validation,
-faceoff, budget, and execution settings. Supported model types are `equivariant`,
-`round_score`, and `auxiliary`; loss types are `base` and `auxiliary`; replay
-target selections are `core`, `round_score`, and `auxiliary`. Set both auxiliary
-scales to zero for base loss. The recipe validates incompatible heads and targets
-before allocating replay arrays or starting workers. Built-in validation and
-faceoff are two-player recipes. `selfplay.start_state` can be `standard` or
-`potential_clear` (two players).
+The baseline uses `EquivariantSkyNet`, the policy/game-win base loss, and core
+replay targets. These are fixed by the pool runner. All decisions across a
+game receive its observed final winner label, with ties shared equally. Cumulative
+scores are already part of the model observation. Round-score and future-clear
+auxiliaries are disabled.
 
-Training continues from the current model regardless of evaluation results.
-The initial model is saved with optimizer state, configuration, and progress.
-After training, a checkpoint is saved every `budget.checkpoint_interval`
-iterations and at the final iteration. A final iteration already on the schedule
-is saved and evaluated once.
+MCTS searches within the current round. On first reaching a round boundary, it
+applies the final action once. A finished game supplies its exact outcome;
+otherwise it deals the next round once and uses the model's prediction there.
+That value is cached for subsequent visits to the same boundary node. This is a
+single-sample baseline approximation: there are no terminal outcome rollouts or
+target resampling. Ordinary chance-node sampling during a round is unchanged.
+Search utility is game-win probability alone.
 
-Built-in validation runs on the initial checkpoint as `initial_validation`, then
-on each saved checkpoint as `validation` when enabled. In this recorded recipe,
-`validation.interval` remains accepted but the checkpoint schedule controls
-validation timing. Existing validation loss scales still apply.
+Every generated/replayed game count refers to a complete game, not a round.
+Replay retains and evicts complete games, and dataset splits keep all rounds of
+a game together. Existing action statistics are aggregated across rounds; scores
+and outcomes describe the final game. Losses, timing, and progress continue to be
+recorded. Per-round monitoring and new evaluation suites are deferred.
 
-With faceoffs enabled (`faceoff.paired_rounds > 0`), `faceoff.interval` must match
-`budget.checkpoint_interval`. Each saved trained model plays against the last
-passing checkpoint, initially the starting model. More candidate wins than
-reference wins is a pass; ties fail. A pass advances the evaluation reference.
-A failure records the result and training continues without restoring weights or
-optimizer state. Faceoff events identify both checkpoints, the protocol, win
-counts, and `passed`. Setting paired rounds to zero disables faceoffs, while
-saving and enabled built-in validation still run. Paired-game seeds are global
-pair indices, starting at zero, independent of `faceoff.rounds_per_task`.
+Checkpoints are saved initially, every `budget.checkpoint_interval` iterations,
+and at the final iteration. A final iteration on the periodic schedule is saved
+once.
+
+The pool runner is full-game-only. Single-round gameplay helpers remain available.
+Optional `selfplay.start_state = "potential_clear"` starts a two-player game from that
+position, then continues through later rounds; `standard` starts a fresh game.
+
+Replay and checkpoint loading check artifact format, configuration, and tensor
+shapes. They do not identify or guard against older training objectives; use fresh
+artifacts for this baseline.
 
 An optional `replay.initial_dataset` path is relative to the input config file.
 The resolved config stores its absolute path and dataset ID; reruns reject a
@@ -98,11 +100,9 @@ Only committed implementation changes can be recovered from the recorded commit.
 
 An iteration generates games, adds their positions to replay, and trains for a
 replay-ratio budget of optimizer steps. One cumulative progress record counts
-iterations, generated games, optimizer steps, and sampled positions. Since
-evaluation never rolls back training, the saved counters describe the saved
+iterations, generated games, optimizer steps, and sampled positions. The saved counters describe the saved
 model's continuous training history. The shared checkpoint format is unchanged.
-A snapshot reference contains only a checkpoint path and artifact ID; the last
-passing reference is separate from the current model. A null checkpoint reference
+A snapshot reference contains only a checkpoint path and artifact ID. A null checkpoint reference
 means the in-memory model has no exact saved checkpoint at that point. Loss means
 are over optimizer steps; game statistics are means over the generated games.
 Compare their definitions, data, and budgets before interpreting similarly named
@@ -175,13 +175,11 @@ or more**. The lowest cumulative total wins, with shared winners for ties.
 Player zero starts the first round; the player who ends a round starts the
 next one. Existing round penalties still apply.
 
-`play.play_round(players)` plays just one round. `play.play(players)` remains
-a compatibility alias, and existing training, search, and faceoff routines
-continue to operate on individual rounds. `RoundHistory` names that history
-format explicitly; the legacy `GameHistory` name remains available. Each
-`RoundResult.history` can be passed to `play.game_history_to_game_data()` for
-existing round statistics and targets. AI objectives and model formats have
-not changed.
+`play.play_round(players)` plays one round and returns a `RoundHistory` of
+`RoundHistoryEntry` decisions followed by a terminal snapshot. Both gameplay
+functions accept an optional `start_state`. Use
+`play.game_result_to_game_data(result)` for observed full-game win/policy labels;
+every round's terminal snapshot is excluded from training rows.
 
 For direct state control, `sj.get_round_over(state)` identifies a completed
 round, while **`sj.get_game_over(state)` now checks the full-game threshold**.
@@ -197,27 +195,30 @@ include the current round's penalized points. Reading them never mutates the
 state. The stored `GAME_SCORES` slots always exclude the current round.
 
 `sj.get_round_about_to_end(state)` indicates that the next action ends the
-round. The old `sj.get_game_about_to_end()` name remains a compatibility alias
-for that round condition. Existing winner helpers still report round winners;
-use `GameResult.winners` for full-game winners.
+round. Existing winner helpers report round winners; use `GameResult.winners`
+for full-game winners.
 
-## Model checkpoint faceoffs
-
-Run an even number of games so each checkpoint plays both seats from the same
-seeded starting conditions:
+The separate interactive gameplay application is also available:
 
 ```sh
-uv run skyjo-faceoff \
-  models/run_a/checkpoint_a.pth \
-  models/run_b/checkpoint_b.pth \
-  --games 20 \
-  --mcts-iterations 100 \
-  --workers 4
+uv run python -m skyjo2 interactive random
 ```
 
-The command reads the `EquivariantSkyNet` architecture settings stored in the
-checkpoints. Use `uv run skyjo-faceoff --help` to see model-setting overrides,
-the random seed, device, terminal-rollout, progress, and worker options.
+## Reusable components
+
+The shared scalar and batched MCTS implementations, player implementations,
+auxiliary models and losses, replay datasets, optimizer primitives, checkpoint
+persistence, and run recorder remain available independently of the pool recipe.
+The recipe exposes only its model dimensions, base loss scales, replay budget,
+self-play/search settings, checkpoint schedule, and execution settings in
+`configs/baseline.toml` and `configs/smoke.toml`.
+
+Handcrafted concept-check positions and their expected policies remain in
+`skyjo.explain.VALIDATION_EXAMPLES`. For a standalone inspection of a loaded model,
+call `explain.validate_model_on_validation_examples(model)` with INFO logging
+enabled to see predictions and target comparisons. Their value targets are
+heuristic round-level expectations, not calibrated full-game win probabilities.
+These checks run independently of the training loop.
 
 ## Offline training
 
@@ -229,7 +230,7 @@ Train to an exact cumulative optimizer-step target with a deterministic
 game-level validation split:
 
 ```sh
-uv run python run_train_epoch.py data/training_data/RUN/dataset \
+uv run python run_train_epoch.py .runs/RUN_ID/data/replay \
   --steps 100 \
   --output-checkpoint models/offline/step_100.pth
 ```
@@ -237,7 +238,7 @@ uv run python run_train_epoch.py data/training_data/RUN/dataset \
 Resume by passing the prior checkpoint and a larger cumulative target:
 
 ```sh
-uv run python run_train_epoch.py data/training_data/RUN/dataset \
+uv run python run_train_epoch.py .runs/RUN_ID/data/replay \
   --checkpoint models/offline/step_100.pth \
   --steps 200 \
   --output-checkpoint models/offline/step_200.pth

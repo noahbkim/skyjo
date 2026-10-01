@@ -1,4 +1,9 @@
-"""Module to evaluate and understand current model behaivor"""
+"""Handcrafted positions and standalone checks of learned Skyjo concepts.
+
+The target values are heuristic round-level expectations, not calibrated full-game
+win probabilities. These examples are for qualitative inspection and are not
+part of the pool training loop or its replay targets.
+"""
 
 import logging
 
@@ -487,91 +492,3 @@ def validate_model_on_validation_examples(
         logging.info(f"[VALIDATION] value target: {targets.value}")
         logging.info(f"[VALIDATION] policy target:\n{targets.policy}")
     return metrics
-
-
-def validate_model_with_games_data(
-    model: skynet.SkyNet,
-    validation_batch: train_utils.TrainingBatch,
-    value_loss_scale: float = 1.0,
-):
-    model.eval()
-    with torch.inference_mode():
-        spatial_inputs_tensor = torch.tensor(
-            validation_batch.spatial_inputs, dtype=torch.float32, device=model.device
-        )
-        non_spatial_inputs_tensor = torch.tensor(
-            validation_batch.non_spatial_inputs,
-            dtype=torch.float32,
-            device=model.device,
-        )
-        masks_tensor = torch.tensor(
-            validation_batch.action_masks, dtype=torch.float32, device=model.device
-        )
-        value_targets_tensor = torch.tensor(
-            validation_batch.value_targets, dtype=torch.float32, device=model.device
-        )
-        policy_targets_tensor = torch.tensor(
-            validation_batch.policy_targets, dtype=torch.float32, device=model.device
-        )
-        model_output = model(
-            spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor
-        )
-        value_loss, policy_loss = train_utils.policy_value_losses(
-            model_output,
-            train_utils.TensorTrainingTargets(
-                value_targets_tensor,
-                policy_targets_tensor,
-            ),
-        )
-        total_loss = value_loss_scale * value_loss + policy_loss
-        base_policy_entropies = -(
-            policy_targets_tensor * torch.log(policy_targets_tensor + 1e-12)
-        ).sum(dim=1)
-        logging.info(
-            f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()} "
-            # f"points loss: {points_loss_scale * points_loss.item()} "
-            f"policy loss: {policy_loss.item()} "
-            f"policy entropy: {base_policy_entropies.mean()} "
-            f"total loss: {total_loss.item()} "
-        )
-        return total_loss
-
-
-def validate_model(
-    model: skynet.SkyNet,
-    validation_batch: train_utils.TrainingBatch | None = None,
-    value_loss_scale: float = 1.0,
-    policy_loss_scale: float = 1.0,
-) -> dict[str, float]:
-    metrics = validate_model_on_validation_examples(
-        model, value_loss_scale, policy_loss_scale
-    )
-    if validation_batch is not None:
-        metrics["batch_total_loss"] = float(
-            validate_model_with_games_data(model, validation_batch, value_loss_scale)
-        )
-    return metrics
-
-
-if __name__ == "__main__":
-    import pathlib
-
-    logging.basicConfig(level=logging.INFO)
-    model = skynet.SimpleSkyNet(
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
-        value_output_shape=(2,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        hidden_layers=[64, 64],
-        device=torch.device("cpu"),
-    )
-    saved_model_path = pathlib.Path("./models/model_20250423_141907.pth")
-    model.load_state_dict(torch.load(saved_model_path, weights_only=True))
-    validate_model_on_validation_examples(model)
-    # node = mcts.run_mcts(
-    #     create_almost_surely_losing_position(),
-    #     model,
-    #     iterations=100,
-    #     num_afterstate_outcomes=10,
-    # )
-    # print(node.sample_child_visit_probabilities(temperature=1.0))

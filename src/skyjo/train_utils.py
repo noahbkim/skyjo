@@ -80,9 +80,6 @@ class TensorTrainingTargets(typing.NamedTuple):
         return tuple.__getitem__(self, key)
 
 
-TrainingTargets: typing.TypeAlias = TensorTrainingTargets
-
-
 class TrainingDataPoint(typing.NamedTuple):
     spatial_input: SpatialInput
     non_spatial_input: NonSpatialInput
@@ -339,24 +336,6 @@ def outcome_policy_auxiliary_loss(
     return total, details
 
 
-def outcome_policy_round_score_loss(
-    model_output: skynet.SupportsCoreSkyNetOutput,
-    targets: TensorTrainingTargets,
-    value_scale: float = 1.0,
-    policy_scale: float = 1.0,
-    round_score_scale: float = 0.1,
-) -> tuple[torch.Tensor, LossDetails]:
-    """Backward-compatible score-only auxiliary loss."""
-    return outcome_policy_auxiliary_loss(
-        model_output,
-        targets,
-        value_scale=value_scale,
-        policy_scale=policy_scale,
-        round_score_scale=round_score_scale,
-        future_clear_scale=0.0,
-    )
-
-
 def compute_model_loss_on_game_data(
     model: skynet.SkyNet,
     game_data: play.GameData,
@@ -387,3 +366,29 @@ def compute_model_loss_on_game_data(
 
 def loss_details_summary(loss_details_list: list[LossDetails]) -> pd.DataFrame:
     return pd.DataFrame.from_records(loss_details_list).describe().T
+
+
+def future_clear_target_for_state(
+    state: sj.Skyjo,
+    fixed_perspective_final_clears: np.ndarray[tuple[int, int], np.float32],
+) -> np.ndarray[tuple[int, int], np.float32]:
+    """Return active-relative future-clear labels, masking existing clears."""
+    expected_shape = (sj.get_player_count(state), sj.COLUMN_COUNT)
+    if fixed_perspective_final_clears.shape == (
+        expected_shape[0] * expected_shape[1],
+    ):
+        fixed_perspective_final_clears = fixed_perspective_final_clears.reshape(
+            expected_shape
+        )
+    if fixed_perspective_final_clears.shape != expected_shape:
+        raise ValueError(
+            "fixed_perspective_final_clears must have shape "
+            f"{expected_shape}, got {fixed_perspective_final_clears.shape}"
+        )
+    target = np.roll(
+        fixed_perspective_final_clears,
+        -sj.get_player(state),
+        axis=0,
+    ).astype(np.float32, copy=True)
+    target[sj.get_cleared_columns(state).astype(bool)] = -1.0
+    return target

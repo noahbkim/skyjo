@@ -13,9 +13,6 @@ dependencies = [
     "typer>=0.25.1",
 ]
 
-[project.scripts]
-skyjo-faceoff = "skyjo.faceoff_cli:main"
-
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"

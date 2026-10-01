@@ -58,6 +58,15 @@ def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
     return outcome
 
 
+def skyjo_to_game_state_value(skyjo: sj.Skyjo) -> StateValue:
+    """Exact full-game outcome in fixed player order, sharing tied wins equally."""
+    if not sj.get_game_over(skyjo):
+        raise ValueError("Full-game outcomes require a completed game")
+    scores = sj.get_fixed_perspective_game_scores(skyjo)
+    winners = (scores == scores.min()).astype(np.float32)
+    return winners / winners.sum()
+
+
 def scores_to_score_differential_value(
     scores: np.ndarray[tuple[int], np.float32] | np.ndarray[tuple[int], np.int16],
 ) -> StateValue:

@@ -5,10 +5,8 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 import time
-from collections.abc import Callable
 
 import numpy as np
-import torch
 
 from . import checkpoint, runs
 
@@ -129,56 +127,6 @@ class RecipeRecording:
                 metadata={"role": role},
             )
         return Snapshot(path, artifact_id)
-
-    def validation(
-        self,
-        model,
-        validate: Callable,
-        state: TrainingState,
-        *,
-        initial: bool = False,
-    ) -> None:
-        """Measure a saved model without changing training mode or randomness."""
-        started = time.perf_counter()
-        rng = checkpoint.capture_rng_state()
-        was_training = model.training
-        try:
-            model.eval()
-            with torch.inference_mode():
-                metrics = validate(model)
-        finally:
-            model.train(was_training)
-            checkpoint.restore_rng_state(rng)
-        self.event(
-            "initial_validation" if initial else "validation",
-            state,
-            metrics=metrics or {},
-            context={
-                "suite": "built_in_examples",
-                "seconds": time.perf_counter() - started,
-            },
-        )
-
-    def faceoff(
-        self,
-        state: TrainingState,
-        reference: Snapshot,
-        result: dict,
-        protocol: dict,
-    ) -> None:
-        self.event(
-            "faceoff",
-            state,
-            metrics={
-                "candidate_wins": result["candidate_wins"],
-                "champion_wins": result["champion_wins"],
-            },
-            context={
-                **protocol,
-                "passed": result["passed"],
-                "reference_artifact_id": reference.artifact_id,
-            },
-        )
 
     def save_replay(
         self,

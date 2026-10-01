@@ -3,7 +3,7 @@ import pytest
 import torch
 
 import skyjo as sj
-from skyjo import mcts, parallel_mcts, skynet, train_utils
+from skyjo import skynet, train_utils
 
 
 def test_scores_to_score_differential_value_two_players():
@@ -134,47 +134,3 @@ def test_base_loss_uses_outcome_mse():
     expected = torch.tensor(0.5625)
     assert loss == pytest.approx(expected.item())
     assert details["outcome_value_loss"] == pytest.approx(expected.item())
-
-
-def test_mcts_terminal_node_uses_outcome_value(monkeypatch):
-    expected = np.array([1.0, 0.0], dtype=np.float32)
-    pre_terminal_state = sj.new(players=2)
-
-    monkeypatch.setattr(mcts.sj, "apply_action", lambda state, action: state)
-    monkeypatch.setattr(
-        mcts.skynet,
-        "skyjo_to_state_value",
-        lambda terminal_state: expected,
-    )
-
-    node = mcts.TerminalStateNode(
-        pre_terminal_state=pre_terminal_state,
-        parent=None,
-        action=0,
-        is_random=False,
-        initial_rollouts=1,
-    )
-
-    assert np.array_equal(node.state_value, expected)
-
-
-def test_parallel_mcts_terminal_node_uses_outcome_value(monkeypatch):
-    expected = np.array([1.0, 0.0], dtype=np.float32)
-    pre_terminal_state = sj.new(players=2)
-
-    monkeypatch.setattr(parallel_mcts.sj, "apply_action", lambda state, action: state)
-    monkeypatch.setattr(
-        parallel_mcts.skynet,
-        "skyjo_to_state_value",
-        lambda terminal_state: expected,
-    )
-
-    node = parallel_mcts.TerminalStateNode(
-        pre_terminal_state=pre_terminal_state,
-        parent=None,
-        action=0,
-        is_random=False,
-        initial_outcome_realizations=1,
-    )
-
-    assert np.array_equal(node.state_value, expected)

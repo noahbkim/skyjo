@@ -247,9 +247,7 @@ class CappedModelPlayer(AbstractPlayer):
         fast_mcts_dirichlet_epsilon: float,
         full_mcts_dirichlet_epsilon: float,
         fast_mcts_after_state_evaluate_all_children: bool,
-        fast_mcts_terminal_state_rollouts: int,
         full_mcts_after_state_evaluate_all_children: bool,
-        full_mcts_terminal_state_rollouts: int,
         fast_mcts_c_puct: float = 1.5,
         full_mcts_c_puct: float = 1.5,
         fast_mcts_fpu_reduction: float = 0.0,
@@ -270,8 +268,6 @@ class CappedModelPlayer(AbstractPlayer):
         self.full_mcts_after_state_evaluate_all_children = (
             full_mcts_after_state_evaluate_all_children
         )
-        self.fast_mcts_terminal_state_rollouts = fast_mcts_terminal_state_rollouts
-        self.full_mcts_terminal_state_rollouts = full_mcts_terminal_state_rollouts
         self.fast_mcts_c_puct = fast_mcts_c_puct
         self.full_mcts_c_puct = full_mcts_c_puct
         self.fast_mcts_fpu_reduction = fast_mcts_fpu_reduction
@@ -289,7 +285,6 @@ class CappedModelPlayer(AbstractPlayer):
                 self.full_mcts_iterations,
                 dirichlet_epsilon=self.full_mcts_dirichlet_epsilon,
                 after_state_evaluate_all_children=self.full_mcts_after_state_evaluate_all_children,
-                terminal_state_initial_rollouts=self.full_mcts_terminal_state_rollouts,
                 c_puct=self.full_mcts_c_puct,
                 fpu_reduction=self.full_mcts_fpu_reduction,
                 score_utility_weight=self.full_mcts_score_utility_weight,
@@ -302,7 +297,6 @@ class CappedModelPlayer(AbstractPlayer):
                 self.fast_mcts_iterations,
                 dirichlet_epsilon=self.fast_mcts_dirichlet_epsilon,
                 after_state_evaluate_all_children=self.fast_mcts_after_state_evaluate_all_children,
-                terminal_state_initial_rollouts=self.fast_mcts_terminal_state_rollouts,
                 c_puct=self.fast_mcts_c_puct,
                 fpu_reduction=self.fast_mcts_fpu_reduction,
                 score_utility_weight=self.fast_mcts_score_utility_weight,
@@ -316,7 +310,6 @@ class ModelPlayerConfig(config.Config):
     mcts_iterations: int
     mcts_dirichlet_epsilon: float
     mcts_after_state_evaluate_all_children: bool
-    mcts_terminal_state_initial_rollouts: int
     mcts_c_puct: float = 1.5
     mcts_fpu_reduction: float = 0.0
     mcts_score_utility_weight: float = 0.0
@@ -332,7 +325,6 @@ class ModelPlayer(AbstractPlayer):
         mcts_iterations: int,
         mcts_dirichlet_epsilon: float,
         mcts_after_state_evaluate_all_children: bool,
-        mcts_terminal_state_initial_rollouts: int,
         mcts_c_puct: float = 1.5,
         mcts_fpu_reduction: float = 0.0,
         mcts_score_utility_weight: float = 0.0,
@@ -344,7 +336,6 @@ class ModelPlayer(AbstractPlayer):
         self.mcts_after_state_evaluate_all_children = (
             mcts_after_state_evaluate_all_children
         )
-        self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
         self.mcts_c_puct = mcts_c_puct
         self.mcts_fpu_reduction = mcts_fpu_reduction
         self.mcts_score_utility_weight = mcts_score_utility_weight
@@ -366,7 +357,6 @@ class ModelPlayer(AbstractPlayer):
             self.mcts_iterations,
             dirichlet_epsilon=self.mcts_dirichlet_epsilon,
             after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
-            terminal_state_initial_rollouts=self.mcts_terminal_state_initial_rollouts,
             c_puct=self.mcts_c_puct,
             fpu_reduction=self.mcts_fpu_reduction,
             score_utility_weight=self.mcts_score_utility_weight,
@@ -380,7 +370,6 @@ class BatchedModelPlayerConfig(config.Config):
     mcts_iterations: int
     mcts_dirichlet_epsilon: float
     mcts_after_state_evaluate_all_children: bool
-    mcts_terminal_state_initial_rollouts: int
     mcts_batched_leaf_count: int
     mcts_virtual_loss: float
     mcts_c_puct: float = 1.5
@@ -398,7 +387,6 @@ class BatchedModelPlayer(AbstractPlayer):
         mcts_iterations: int,
         mcts_dirichlet_epsilon: float,
         mcts_after_state_evaluate_all_children: bool,
-        mcts_terminal_state_initial_rollouts: int,
         mcts_batched_leaf_count: int,
         mcts_virtual_loss: float,
         mcts_c_puct: float = 1.5,
@@ -413,7 +401,6 @@ class BatchedModelPlayer(AbstractPlayer):
         self.mcts_after_state_evaluate_all_children = (
             mcts_after_state_evaluate_all_children
         )
-        self.mcts_terminal_state_initial_rollouts = mcts_terminal_state_initial_rollouts
         self.mcts_batched_leaf_count = mcts_batched_leaf_count
         self.mcts_virtual_loss = mcts_virtual_loss
         self.mcts_c_puct = mcts_c_puct
@@ -441,7 +428,6 @@ class BatchedModelPlayer(AbstractPlayer):
             self.mcts_iterations,
             dirichlet_epsilon=self.mcts_dirichlet_epsilon,
             after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
-            terminal_state_initial_rollouts=self.mcts_terminal_state_initial_rollouts,
             batched_leaf_count=self.mcts_batched_leaf_count,
             virtual_loss=self.mcts_virtual_loss,
             c_puct=self.mcts_c_puct,

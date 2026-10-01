@@ -2,7 +2,7 @@
 
 All tree rules and node implementations live in :mod:`skyjo.mcts`.  Predictor
 clients remain responsible for coalescing queued evaluations; this module only
-retains the historical batched configuration and call surface.
+schedules batches of leaf evaluations.
 """
 
 from __future__ import annotations
@@ -19,46 +19,11 @@ class BatchedMCTSConfig(config.Config):
     iterations: int
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
-    terminal_state_initial_rollouts: int
     batched_leaf_count: int
     virtual_loss: float
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
     score_utility_weight: float = 0.0
-
-
-# Compatibility names now point at the single tested node implementation.
-DecisionStateNode = mcts.DecisionStateNode
-AfterStateNode = mcts.AfterStateNode
-class TerminalStateNode(mcts.TerminalStateNode):
-    """Compatibility constructor for the former batched terminal node."""
-
-    def __init__(
-        self,
-        pre_terminal_state,
-        parent,
-        action,
-        is_random,
-        initial_outcome_realizations: int = 1,
-        score_utility_weight: float = 0.0,
-        **kwargs,
-    ):
-        initial_rollouts = kwargs.pop("initial_rollouts", initial_outcome_realizations)
-        if kwargs:
-            raise TypeError(f"unexpected arguments: {sorted(kwargs)}")
-        super().__init__(
-            pre_terminal_state=pre_terminal_state,
-            parent=parent,
-            action=action,
-            is_random=is_random,
-            initial_rollouts=initial_rollouts,
-            score_utility_weight=score_utility_weight,
-        )
-MCTSNode = mcts.MCTSNode
-Config = BatchedMCTSConfig
-ucb_score = mcts.ucb_score
-find_leaf = mcts.find_leaf
-backpropagate = mcts.backpropagate
 
 
 def run_mcts(
@@ -68,14 +33,13 @@ def run_mcts(
     *,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
-    terminal_state_initial_rollouts: int = 1,
     batched_leaf_count: int = 1,
     virtual_loss: float = 0.5,
     c_puct: float = 1.5,
     fpu_reduction: float = 0.0,
     score_utility_weight: float = 0.0,
-    root_node: MCTSNode | None = None,
-) -> MCTSNode:
+    root_node: mcts.MCTSNode | None = None,
+) -> mcts.MCTSNode:
     """Run shared tree semantics while batching pending leaf evaluations."""
     if batched_leaf_count < 1:
         raise ValueError("batched_leaf_count must be at least one")
@@ -87,7 +51,6 @@ def run_mcts(
         0,
         dirichlet_epsilon=dirichlet_epsilon,
         after_state_evaluate_all_children=after_state_evaluate_all_children,
-        terminal_state_initial_rollouts=terminal_state_initial_rollouts,
         c_puct=c_puct,
         fpu_reduction=fpu_reduction,
         score_utility_weight=score_utility_weight,
@@ -96,7 +59,7 @@ def run_mcts(
 
     completed = 0
     while completed < iterations:
-        batch_paths: list[list[MCTSNode]] = []
+        batch_paths: list[list[mcts.MCTSNode]] = []
         seen_leaves: set[int] = set()
         for _ in range(min(batched_leaf_count, iterations - completed)):
             path = mcts.find_leaf(
@@ -114,17 +77,18 @@ def run_mcts(
                     node.virtual_loss += virtual_loss
             batch_paths.append(path)
 
-        pending: dict[int, tuple[str, list[MCTSNode], MCTSNode | None]] = {}
-        after_paths: dict[int, tuple[list[MCTSNode], AfterStateNode]] = {}
+        pending: dict[int, tuple[str, list[mcts.MCTSNode], mcts.MCTSNode | None]] = {}
+        after_paths: dict[int, tuple[list[mcts.MCTSNode], mcts.AfterStateNode]] = {}
         backup_values: dict[int, skynet.StateValue] = {}
         for path in batch_paths:
             leaf = path[-1]
-            if isinstance(leaf, mcts.TerminalStateNode):
-                backup_values[id(path)] = (
-                    leaf.realize_outcome()
-                    if leaf.is_random
-                    else leaf.state_value.copy()
-                )
+            if isinstance(leaf, mcts.RoundBoundaryNode):
+                next_round = leaf.prepare()
+                if next_round is not None:
+                    prediction_id = predictor_client.put(next_round)
+                    pending[prediction_id] = ("boundary", path, None)
+                else:
+                    backup_values[id(path)] = leaf.state_value.copy()
             elif isinstance(leaf, mcts.DecisionStateNode):
                 prediction_id = predictor_client.put(leaf.state)
                 pending[prediction_id] = ("decision", path, None)
@@ -146,18 +110,15 @@ def run_mcts(
                 )
             for prediction_id, prediction in results:
                 kind, path, child = pending[prediction_id]
-                if kind == "decision":
+                if kind == "boundary":
+                    leaf = typing.cast(mcts.RoundBoundaryNode, path[-1])
+                    leaf.set_prediction(prediction)
+                elif kind == "decision":
                     leaf = typing.cast(mcts.DecisionStateNode, path[-1])
-                    leaf.expand(
-                        prediction,
-                        terminal_state_rollouts=terminal_state_initial_rollouts,
-                    )
+                    leaf.expand(prediction)
                 else:
                     decision_child = typing.cast(mcts.DecisionStateNode, child)
-                    decision_child.expand(
-                        prediction,
-                        terminal_state_rollouts=terminal_state_initial_rollouts,
-                    )
+                    decision_child.expand(prediction)
 
         for path, after_leaf in after_paths.values():
             after_leaf.expand()
@@ -178,7 +139,3 @@ def run_mcts(
             raise RuntimeError("batched search could not schedule a leaf")
 
     return root
-
-
-def visualize_children(node: MCTSNode) -> None:
-    mcts.visualize_children(node)
