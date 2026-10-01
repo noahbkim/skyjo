@@ -1,12 +1,12 @@
-name = "score-auxiliary"
-description = "Final-round-score auxiliary supervision with the existing distributed self-play recipe."
-tags = ["auxiliary", "score"]
+name = "full-game-baseline"
+description = "Full-game win and policy baseline without terminal rollouts."
+tags = ["baseline", "full-game"]
 notes = "Record the research question, comparison baseline, observations, and limitations here."
 seed = 0
 players = 2
 
 [model]
-type = "round_score"
+type = "equivariant"
 embedding_dimensions = 16
 global_state_embedding_dimensions = 32
 num_heads = 2
@@ -15,22 +15,20 @@ num_heads = 2
 batch_size = 256
 replay_ratio = 4.0
 learn_rate = 0.001
-loss = "auxiliary"
+loss = "base"
 value_scale = 1.0
 policy_scale = 1.0
-round_score_scale = 1.0
+round_score_scale = 0.0
 future_clear_scale = 0.0
 clear_positive_weight = 10.0
 
 [selfplay]
 games_per_iteration = 1024
 games_per_task = 8
-outcome_rollouts = 100
 start_state = "standard"
 
 [search]
 iterations = 100
-terminal_state_initial_rollouts = 10
 dirichlet_epsilon = 0.25
 after_state_evaluate_all_children = false
 c_puct = 1.0
@@ -40,10 +38,10 @@ action_softmax_temperature = 1.0
 
 [replay]
 capacity = 2000000
-targets = "round_score"
+targets = "core"
 
 [validation]
-enabled = true
+enabled = false
 interval = 1
 value_loss_scale = 1.0
 policy_loss_scale = 1.0

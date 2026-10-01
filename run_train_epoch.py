@@ -251,6 +251,7 @@ def main(
     if game_indices:
         dataset_configuration["game_indices"] = list(complete_buffer.game_indices)
     resume_configuration = {
+        "training_semantics": complete_buffer.training_semantics,
         "model": {
             "name": getattr(model, "architecture_name", type(model).__name__),
             "embedding_dimensions": embedding_dimensions,
@@ -291,6 +292,7 @@ def main(
             model=model,
             optimizer=optimizer,
             expected_configuration=resume_configuration,
+            required_training_semantics=complete_buffer.training_semantics,
             map_location=device,
         )
     if optimizer_steps < progress.optimizer_steps:

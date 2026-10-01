@@ -35,7 +35,6 @@ def run(search, *, batched_leaf_count: int | None = None):
         state,
         client,
         iterations=8,
-        terminal_state_initial_rollouts=2,
         **kwargs,
     )
 
@@ -138,58 +137,6 @@ def test_ucb_uses_parent_value_fpu_and_prior_on_first_selection() -> None:
     assert mcts.ucb_score(draw, parent) == pytest.approx(1.8)
     assert mcts.ucb_score(take, parent) == pytest.approx(0.9)
     assert parent.select_child() is draw
-
-
-def test_terminal_rollouts_do_not_count_as_tree_visits() -> None:
-    model = make_model()
-    client = predictor.LocalPredictorClient(model, max_batch_size=64)
-    state = sj.apply_action(explain.create_obvious_clear_position(), sj.MASK_TAKE)
-    state = (*state[:6], 1)
-
-    root = mcts.run_mcts(
-        state,
-        client,
-        iterations=20,
-        terminal_state_initial_rollouts=5,
-    )
-
-    assert root.visit_count == 20
-    assert sum(child.visit_count for child in root.children.values()) == 20
-    assert all(child.outcome_count >= 1 for child in root.children.values())
-    assert any(child.outcome_count > child.visit_count for child in root.children.values())
-    assert np.isclose(root.policy_targets().sum(), 1.0)
-
-
-def test_terminal_backups_use_each_new_sample_not_running_means() -> None:
-    state = sj.new(players=2, top=sj.CARD_0)
-    root = mcts.DecisionStateNode(state=state, parent=None, action=None)
-    root.model_prediction = make_prediction((0.5, 0.5), {0: 1.0})
-    terminal = mcts.TerminalStateNode(
-        pre_terminal_state=state,
-        parent=root,
-        action=0,
-        is_random=True,
-        initial_rollouts=1,
-    )
-    terminal.outcome_total = np.array([1.0, 0.0], dtype=np.float32)
-    terminal.outcome_count = 1
-
-    samples = [
-        np.array([0.0, 1.0], dtype=np.float32),
-        np.array([1.0, 0.0], dtype=np.float32),
-        np.array([0.0, 1.0], dtype=np.float32),
-    ]
-    for sample in samples:
-        terminal.outcome_total += sample
-        terminal.outcome_count += 1
-        mcts.backpropagate([root, terminal], sample)
-
-    assert root.visit_count == terminal.visit_count == len(samples)
-    assert np.allclose(root.state_value, np.mean(samples, axis=0))
-    assert np.allclose(
-        terminal.state_value,
-        (np.array([1.0, 0.0], dtype=np.float32) + sum(samples)) / 4,
-    )
 
 
 def test_exact_chance_update_replaces_propagated_return() -> None:

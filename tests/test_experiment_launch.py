@@ -19,7 +19,7 @@ def events(path):
 
 
 def test_delivered_configs_resolve_and_round_trip(tmp_path):
-    for name in ("smoke", "score_aux"):
+    for name in ("smoke", "baseline"):
         _, config = experiment_config.load_configuration(
             REPOSITORY / "configs" / f"{name}.toml"
         )
@@ -33,7 +33,7 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
 def test_invalid_config_fails_before_creating_run(tmp_path):
     config = tmp_path / "bad.toml"
     config.write_text("[training]\nfuture_clear_scale = 1.0\n")
-    with pytest.raises(ValueError, match="Future-clear"):
+    with pytest.raises(ValueError, match="auxiliary losses"):
         distributed_main.launch(config, tmp_path / "runs", allow_dirty=True)
     assert not (tmp_path / "runs").exists()
 
@@ -41,7 +41,7 @@ def test_invalid_config_fails_before_creating_run(tmp_path):
 def test_faceoff_requires_shared_checkpoint_interval(tmp_path):
     source = tmp_path / "mismatched.toml"
     source.write_text("[faceoff]\npaired_rounds = 1\ninterval = 2\n")
-    with pytest.raises(ValueError, match="faceoff.interval must match"):
+    with pytest.raises(ValueError, match="Round validation and faceoffs"):
         distributed_main.launch(source, tmp_path / "runs", allow_dirty=True)
     assert not (tmp_path / "runs").exists()
     source.write_text("[faceoff]\npaired_rounds = 0\ninterval = 2\n")
@@ -78,7 +78,7 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         assert "Not suitable" in (run_path / "notes.md").read_text()
         trace = events(run_path / "trajectory.jsonl")
         assert any(
-            e["kind"] == "training" and "loss/total_loss" in e["metrics"] for e in trace
+            e["kind"] == "training" and "loss/outcome_value_loss" in e["metrics"] for e in trace
         )
         artifacts = events(run_path / "artifacts.jsonl")
         checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
@@ -90,8 +90,15 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         replay = buffer.ReplayBuffer.load(run_path / data_record["path"])
         assert replay.dataset_id == data_record["metadata"]["dataset_id"]
         assert replay.game_count == 2
+        assert replay.training_semantics == buffer.FULL_GAME_TRAINING_SEMANTICS
+        assert set(replay.target_names) == {"value", "policy"}
+        initial_payload = torch.load(run_path / checkpoints[0]["path"], weights_only=False)
+        final_payload = torch.load(run_path / checkpoints[-1]["path"], weights_only=False)
+        assert any(not torch.equal(initial_payload["model_state_dict"][k], v)
+                   for k, v in final_payload["model_state_dict"].items())
+        assert final_payload["configuration"]["training_semantics"] == buffer.FULL_GAME_TRAINING_SEMANTICS
         final = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"][-1]
-        model = skynet.EquivariantSkyNetWithRoundScoreAux(
+        model = skynet.EquivariantSkyNet(
             spatial_input_shape=replay.spatial_input_buffer.shape[1:],
             non_spatial_input_shape=replay.non_spatial_input_buffer.shape[1:],
             value_output_shape=(2,),
@@ -128,7 +135,7 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
 
 
 @pytest.mark.parametrize("iterations,interval", [(1, 1), (3, 1), (3, 2), (4, 2)])
-def test_continuous_training_records_exact_snapshots_and_evaluations(
+def test_continuous_training_records_exact_snapshots(
     tmp_path, monkeypatch, iterations, interval
 ):
     _, config = experiment_config.load_configuration(
@@ -136,12 +143,10 @@ def test_continuous_training_records_exact_snapshots_and_evaluations(
     )
     config["budget"].update(iterations=iterations, checkpoint_interval=interval)
     config["selfplay"]["games_per_iteration"] = 1
-    config["validation"].update(enabled=True, interval=7)
-    config["faceoff"].update(paired_rounds=1, interval=interval)
     source = tmp_path / "small.json"
     source.write_text(json.dumps(config))
 
-    # Real generation and optimizer updates; control only the evaluation outcome.
+    # Real generation and optimizer updates.
     # Capture training outputs so checkpoint assertions detect any later rollback.
     trained = []
     original_train = distributed_main.train.train_steps
@@ -157,19 +162,7 @@ def test_continuous_training_records_exact_snapshots_and_evaluations(
         trained.append(copy.deepcopy((model.state_dict(), optimizer.state_dict())))
         return losses
 
-    evaluated_references = []
-
-    def evaluate(**kwargs):
-        evaluated_references.append(copy.deepcopy(kwargs["previous_model_state_dict"]))
-        passed = len(evaluated_references) == 2
-        return {
-            "candidate_wins": 2 if passed else 0,
-            "champion_wins": 0 if passed else 2,
-            "passed": passed,
-        }
-
     monkeypatch.setattr(distributed_main.train, "train_steps", capture_training)
-    monkeypatch.setattr(distributed_main, "validate_model_faceoff", evaluate)
     path = distributed_main.launch(source, tmp_path / "runs", allow_dirty=True)
     trace = events(path / "trajectory.jsonl")
     artifacts = events(path / "artifacts.jsonl")
@@ -195,28 +188,7 @@ def test_continuous_training_records_exact_snapshots_and_evaluations(
             for s in optimizer_state["state"].values()
         )
 
-    baseline = [e for e in trace if e["kind"] == "initial_validation"]
-    assert len(baseline) == 1
-    assert baseline[0]["context"]["checkpoint_artifact_id"] == checkpoints[0]["artifact_id"]
-    validations = [e for e in trace if e["kind"] == "validation"]
-    assert [e["progress"]["iteration"] for e in validations] == boundaries
-    for event, saved in zip(validations, checkpoints[1:], strict=True):
-        assert "value_loss" in event["metrics"]
-        assert event["context"]["checkpoint_artifact_id"] == saved["artifact_id"]
-    assert not any(e["kind"] == "rollback" for e in trace)
-    faceoffs = [e for e in trace if e["kind"] == "faceoff"]
-    assert [e["progress"]["iteration"] for e in faceoffs] == boundaries
-    reference_id = checkpoints[0]["artifact_id"]
-    for event, actual_reference in zip(faceoffs, evaluated_references, strict=True):
-        assert event["context"]["reference_artifact_id"] == reference_id
-        reference_payload = torch.load(
-            path / checkpoint_by_id[reference_id]["path"], weights_only=False
-        )
-        torch.testing.assert_close(
-            actual_reference, reference_payload["model_state_dict"], rtol=0, atol=0
-        )
-        if event["context"]["passed"]:
-            reference_id = event["context"]["checkpoint_artifact_id"]
+    assert not any(e["kind"] in ("validation", "initial_validation", "faceoff", "rollback") for e in trace)
 
     replays = [e for e in artifacts if e.get("artifact_kind") == "replay_data"]
     superseded = [e for e in artifacts if e["kind"] == "superseded"]

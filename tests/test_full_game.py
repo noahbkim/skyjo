@@ -4,7 +4,7 @@ from itertools import cycle
 import numpy as np
 import pytest
 
-import skyjo as sj
+from skyjo import game as sj
 from skyjo import play, player
 
 
@@ -172,3 +172,151 @@ def test_round_runners_stop_before_the_game_ends(runner, equal_hands):
     assert not sj.get_game_over(history[-1].state)
     assert history[-1].action is None
     assert history[-1].action_probabilities is None
+
+
+def test_full_game_targets_use_final_shared_winners_without_resampling(monkeypatch):
+    from skyjo import skynet
+
+    first = completed_round(((0, 1, 2), (1, 2, 3), (2, 3, 4)), (30, 0, 0))
+    final = completed_round(((11, 12, 12), (-1, 1, 3), (-1, 0, 1)), (33, 6, 9))
+    # Player zero wins the first round but loses the game; players 1 and 2 tie.
+    assert sj.get_fixed_perspective_winner(first) == 0
+    initial = sj.start_round(sj.new(players=3), rng=random.Random(3))
+    second_seat = sj.apply_action(initial, sj.MASK_FLIP_SECOND_BELOW, rng=random.Random(4))
+    later = sj.start_next_round(first, rng=random.Random(5))
+
+    def history(states, terminal):
+        entries = []
+        for state in states:
+            mask = sj.actions(state).astype(np.float32)
+            entries.append(play.GameHistoryEntry(state, int(np.flatnonzero(mask)[0]), mask / mask.sum()))
+        return entries + [play.GameHistoryEntry(terminal, None, None)]
+
+    result = play.GameResult((
+        play.RoundResult(history([initial, second_seat], first), (3, 6, 9), (33, 6, 9), 0),
+        play.RoundResult(history([later], final), (70, 3, 0), (103, 9, 9), 0),
+    ))
+
+    def no_simulation(*args, **kwargs):
+        raise AssertionError("Target conversion must use observed results")
+
+    monkeypatch.setattr(sj, "apply_action", no_simulation)
+    monkeypatch.setattr(sj, "start_next_round", no_simulation)
+    monkeypatch.setattr(random, "random", no_simulation)
+    data, stats = play.game_result_to_game_data(result)
+
+    assert len(data) == stats.game_length == 3
+    np.testing.assert_array_equal(data[0].targets["value"], [0, 0.5, 0.5])
+    np.testing.assert_array_equal(data[1].targets["value"], [0.5, 0.5, 0])
+    np.testing.assert_array_equal(data[2].targets["value"], [0, 0.5, 0.5])
+    for row in data:
+        assert set(row.targets) == {"value", "policy"}
+        assert sj.actions(row.state)[row.action]
+        assert row.targets["policy"].sum() == pytest.approx(1)
+    np.testing.assert_array_equal(stats.scores_state_value, [103, 9, 9])
+    np.testing.assert_array_equal(skynet.skyjo_to_game_state_value(final), [0, 0.5, 0.5])
+    assert stats.action_counts.sum() == 3
+
+
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("finishes_game", [False, True])
+def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
+    monkeypatch, batched, finishes_game
+):
+    from skyjo import mcts, parallel_mcts, skynet
+
+    # All replacement choices are deterministic. Ending the turn moves to seat 1.
+    completed = completed_round(
+        ((0, 1, 2), (3, 4, 5), (6, 7, 8)),
+        (200, 0, 0) if finishes_game else (10, 20, 30),
+    )
+    state = sj.apply_action((*completed[:6], 2), sj.MASK_TAKE)
+    assert sj.get_round_about_to_end(state)
+    assert all(not sj.is_action_random(int(action), state) for action in sj.get_actions(state))
+
+    class FixedPredictor:
+        def __init__(self):
+            self.states = []
+            self.pending = []
+
+        def put(self, state):
+            identifier = len(self.states)
+            self.states.append(state)
+            mask = sj.actions(state).astype(np.float32)
+            assert mask.any(), "Never send a completed round to the model"
+            self.pending.append((identifier, skynet.SkyNetPrediction(
+                value_output=np.array([0.1, 0.2, 0.7], dtype=np.float32),
+                policy_output=mask / mask.sum(),
+            )))
+            return identifier
+
+        def send(self):
+            pass
+
+        def get(self):
+            return self.pending.pop(0)
+
+        def get_all(self):
+            pending, self.pending = self.pending, []
+            return pending
+
+    client = FixedPredictor()
+    applications = []
+    apply = sj.apply_action
+
+    def record_apply(state, action, **kwargs):
+        applications.append(action)
+        return apply(state, action, **kwargs)
+
+    monkeypatch.setattr(sj, "apply_action", record_apply)
+    search = parallel_mcts.run_mcts if batched else mcts.run_mcts
+    kwargs = {"batched_leaf_count": 3} if batched else {}
+    root = search(state, client, iterations=100, **kwargs)
+    assert len(applications) == 3  # Exactly one per legal boundary action.
+    assert root.visit_count == sum(child.visit_count for child in root.children.values()) == 100
+    expected = [0, 1, 0] if finishes_game else [0.7, 0.1, 0.2]
+    np.testing.assert_allclose(root.state_value, expected, atol=1e-6)
+    for child in root.children.values():
+        np.testing.assert_allclose(child.state_value, expected, atol=1e-6)
+        if not finishes_game:
+            assert sj.get_player(child.next_round_state) == 1
+            assert sj.get_game_scores(child.next_round_state).any()
+    prediction_count = len(client.states)
+    assert prediction_count == (1 if finishes_game else 4)
+    search(state, client, iterations=10, root_node=root, **kwargs)
+    assert len(applications) == 3
+    assert len(client.states) == prediction_count
+    assert root.visit_count == 110
+
+
+def test_full_game_replay_keeps_rounds_together_and_preserves_semantics(tmp_path, equal_hands):
+    from skyjo import buffer, skynet
+
+    result = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    assert len(result.rounds) == 3
+    data, _ = play.game_result_to_game_data(result)
+    game_length = sum(len(round_result.history) - 1 for round_result in result.rounds)
+    assert len(data) == game_length
+    replay = buffer.ReplayBuffer(
+        max_size=game_length * 2,
+        spatial_input_shape=(3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(3),
+        action_mask_shape=(sj.MASK_SIZE,),
+        training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
+    )
+    for game_index in (4, 5, 6):
+        replay.add_game_data(data, game_index=game_index)
+    assert replay.game_indices == (5, 6)
+    assert len(replay) == game_length * 2
+    loaded = buffer.ReplayBuffer.load(replay.save(tmp_path / "all-games"))
+    training, validation = loaded.split_by_game(0.5, seed=0)
+    assert set(training.game_indices).isdisjoint(validation.game_indices)
+    assert set(training.game_indices + validation.game_indices) == {5, 6}
+    for number, selected in enumerate((training, validation)):
+        assert len(selected) == game_length
+        assert selected.training_semantics == buffer.FULL_GAME_TRAINING_SEMANTICS
+        batch = selected.ordered_batch()
+        assert batch.non_spatial_inputs[:, sj.GAME_SCORES:sj.GAME_SCORES + 3].any()
+        resaved = buffer.ReplayBuffer.load(selected.save(tmp_path / f"split-{number}"))
+        assert resaved.training_semantics == buffer.FULL_GAME_TRAINING_SEMANTICS
+        np.testing.assert_array_equal(resaved.ordered_batch().value_targets, batch.value_targets)

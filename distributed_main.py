@@ -40,7 +40,6 @@ from skyjo import game as sj
 
 StartStateGenerator: typing.TypeAlias = typing.Callable[[], sj.Skyjo | None]
 PLAY_SEED_STREAM = 0
-TARGET_SEED_STREAM = 1
 
 
 def configure_torch_worker(torch_thread_count: int) -> None:
@@ -55,8 +54,7 @@ def configure_torch_worker(torch_thread_count: int) -> None:
 class GeneratedGameHistory:
     global_game_index: int
     play_seed: int
-    target_seed: int
-    history: play.GameHistory
+    result: play.GameResult
 
 
 def derive_game_seed(
@@ -148,24 +146,14 @@ def play_games_locally(
             global_game_index,
             PLAY_SEED_STREAM,
         )
-        target_seed = derive_game_seed(
-            run_seed,
-            global_game_index,
-            TARGET_SEED_STREAM,
-        )
         set_seed(play_seed)
         start_state = None if start_state_generator is None else start_state_generator()
-        history = play.distributed_play(
-            model_players,
-            start_state=start_state,
-            number_of_games=1,
-        )[0]
+        result = play.play_game(model_players, start_state=start_state)
         generated_games.append(
             GeneratedGameHistory(
                 global_game_index=global_game_index,
                 play_seed=play_seed,
-                target_seed=target_seed,
-                history=history,
+                result=result,
             )
         )
     return generated_games
@@ -182,10 +170,9 @@ def add_generated_games_to_buffer(
     generated_games: typing.Iterable[GeneratedGameHistory],
     training_data_buffer: buffer.ReplayBuffer,
     *,
-    outcome_rollouts: int,
     log_progress: bool = False,
 ) -> list[play.GameStats]:
-    """Convert generated histories in global game order using target seeds."""
+    """Convert observed full-game results in global game order."""
     ordered_games = sorted(
         generated_games,
         key=lambda game: game.global_game_index,
@@ -195,19 +182,11 @@ def add_generated_games_to_buffer(
     converted_positions = 0
     game_stats_list = []
     for completed_games, generated_game in enumerate(ordered_games, start=1):
-        set_seed(generated_game.target_seed)
-        game_data, game_stats = play.game_history_to_game_data(
-            generated_game.history,
-            terminal_rollouts=outcome_rollouts,
-            include_future_clear_target=(
-                skynet.FUTURE_CLEAR_TARGET_NAME in training_data_buffer.target_names
-            ),
-        )
+        game_data, game_stats = play.game_result_to_game_data(generated_game.result)
         training_data_buffer.add_game_data(
             game_data,
             game_index=generated_game.global_game_index,
             play_seed=generated_game.play_seed,
-            target_seed=generated_game.target_seed,
         )
         game_stats_list.append(game_stats)
         converted_positions += len(game_data)
@@ -233,6 +212,9 @@ def initialize_training_data_buffer(
     initial_dataset_path: pathlib.Path | None = None,
 ) -> buffer.ReplayBuffer:
     """Load the destination dataset, or seed a fresh destination from a snapshot."""
+    config = dataclasses.replace(
+        config, training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS
+    )
     destination_manifest = (
         None if config.path is None else config.path / buffer.MANIFEST_FILE
     )
@@ -393,12 +375,21 @@ def run_apply_async_local_selfplay_learning(
     run_seed: int = 0,
     games_per_task: int = 1,
     start_state_generator: StartStateGenerator | None = None,
-    outcome_rollouts: int = 1,
-    faceoff_rounds: int = 100,
-    faceoff_rounds_per_task: int = 1,
+    faceoff_rounds: int = 0,
     initial_training_dataset_path: pathlib.Path | None = None,
     recorder: runs.RunRecorder | None = None,
 ) -> None:
+    if learn_config.validation_function is not None or faceoff_rounds != 0:
+        raise ValueError("Round validation and faceoffs are disabled for full-game training")
+    if model_player_config.mcts_score_utility_weight != 0:
+        raise ValueError("Full-game training requires score_utility_weight=0")
+    expected_specs = buffer.core_target_specs(players, (sj.MASK_SIZE,))
+    if buffer.resolve_target_specs(
+        training_data_buffer_config.target_specs,
+        spatial_input_shape=training_data_buffer_config.spatial_input_shape,
+        action_mask_shape=training_data_buffer_config.action_mask_shape,
+    ) != expected_specs:
+        raise ValueError("Full-game baseline requires core replay targets")
     checkpoint_interval = learn_config.update_model_interval
     if checkpoint_interval is None or checkpoint_interval < 1:
         raise ValueError("checkpoint interval must be positive")
@@ -416,6 +407,7 @@ def run_apply_async_local_selfplay_learning(
     model.set_device(learn_config.torch_device)
     optimizer = train.make_optimizer(model, training_config.learn_rate)
     run_configuration = {
+        "training_semantics": buffer.FULL_GAME_TRAINING_SEMANTICS,
         "model": {
             "name": getattr(model, "architecture_name", type(model).__name__),
             "non_spatial_input_shape": model.non_spatial_input_shape,
@@ -436,13 +428,17 @@ def run_apply_async_local_selfplay_learning(
             "loss_function": training_config.loss_function,
         },
     }
-    progress = checkpoint.load_checkpoint(
-        model_factory.get_latest_checkpoint_path(),
-        model=model,
-        optimizer=optimizer,
-        expected_configuration=run_configuration,
-        map_location=learn_config.torch_device,
-    )
+    if model_factory.created_initial_checkpoint:
+        progress = checkpoint.TrainingProgress()
+    else:
+        progress = checkpoint.load_checkpoint(
+            model_factory.get_latest_checkpoint_path(),
+            model=model,
+            optimizer=optimizer,
+            expected_configuration=run_configuration,
+            required_training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
+            map_location=learn_config.torch_device,
+        )
 
     state = experiment_training.TrainingState(progress)
     recording = experiment_training.RecipeRecording(
@@ -460,12 +456,9 @@ def run_apply_async_local_selfplay_learning(
         configuration=run_configuration,
         progress=progress,
     )
-    reference = recording.register_snapshot(initial_path, state, role="initial")
-    state = dataclasses.replace(state, snapshot=reference)
-    if learn_config.validation_function is not None:
-        recording.validation(
-            model, learn_config.validation_function, state, initial=True
-        )
+    model_factory.created_initial_checkpoint = False
+    initial = recording.register_snapshot(initial_path, state, role="initial")
+    state = dataclasses.replace(state, snapshot=initial)
     next_game = max(training_data_buffer.game_indices, default=-1) + 1
 
     with mp.Pool(
@@ -508,7 +501,6 @@ def run_apply_async_local_selfplay_learning(
             games = add_generated_games_to_buffer(
                 generated,
                 training_data_buffer,
-                outcome_rollouts=outcome_rollouts,
                 log_progress=True,
             )
             timings["target"] = time.perf_counter() - started
@@ -530,13 +522,12 @@ def run_apply_async_local_selfplay_learning(
                     "players": players,
                     "model": run_configuration["model"],
                     "model_player": dataclasses.asdict(model_player_config),
-                    "outcome_rollouts": outcome_rollouts,
                 },
             )
             timings["replay_save"] = time.perf_counter() - started
             next_game += len(games)
 
-            # Training is continuous, regardless of evaluation results.
+            # Train in proportion to newly generated decisions.
             steps = math.ceil(
                 new_positions
                 * training_config.replay_ratio
@@ -575,46 +566,6 @@ def run_apply_async_local_selfplay_learning(
                     role="final" if is_final else "periodic",
                 )
                 state = dataclasses.replace(state, snapshot=saved)
-                if learn_config.validation_function is not None:
-                    recording.validation(model, learn_config.validation_function, state)
-                if faceoff_rounds > 0:
-                    reference_weights = torch.load(
-                        reference.path, map_location="cpu", weights_only=False
-                    )["model_state_dict"]
-                    result = validate_model_faceoff(
-                        pool=pool,
-                        model=model,
-                        players=players,
-                        previous_model_state_dict=reference_weights,
-                        model_callable=model_callable,
-                        model_kwargs=model_kwargs,
-                        rounds=faceoff_rounds,
-                        rounds_per_task=faceoff_rounds_per_task,
-                        model_player_config=model_player_config,
-                        start_state_generator=start_state_generator,
-                    )
-                    recording.faceoff(
-                        state,
-                        reference,
-                        result,
-                        protocol={
-                            "paired_rounds": faceoff_rounds,
-                            "interval": checkpoint_interval,
-                            "rounds_per_task": faceoff_rounds_per_task,
-                            "seed_rule": "global pair index, starting at zero",
-                            "acceptance_rule": "candidate_wins > champion_wins",
-                            "player": dataclasses.asdict(
-                                dataclasses.replace(
-                                    model_player_config, action_softmax_temperature=0.0
-                                )
-                            ),
-                            "start_state": "standard"
-                            if start_state_generator is None
-                            else start_state_generator.__qualname__,
-                        },
-                    )
-                    if result["passed"]:
-                        reference = saved
             timings["iteration"] = time.perf_counter() - iteration_started
             recording.iteration(
                 state,
@@ -634,17 +585,6 @@ def create_random_potential_clear_position() -> sj.Skyjo:
     return explain.create_potential_clear_equal_position(
         np.random.randint(0, sj.CARD_SIZE)
     )
-
-
-MODEL_TYPES = {
-    "equivariant": skynet.EquivariantSkyNet,
-    "round_score": skynet.EquivariantSkyNetWithRoundScoreAux,
-    "auxiliary": skynet.EquivariantSkyNetWithAuxiliaryHeads,
-}
-LOSS_TYPES = {
-    "base": train_utils.base_loss,
-    "auxiliary": train_utils.outcome_policy_auxiliary_loss,
-}
 
 
 def launch(
@@ -691,7 +631,7 @@ def launch(
             )
             torch.set_num_threads(execution["threads_per_worker"])
             device = torch.device(execution["device"])
-            model_callable = MODEL_TYPES[model_settings["type"]]
+            model_callable = skynet.EquivariantSkyNet
             model_kwargs = {
                 key: value for key, value in model_settings.items() if key != "type"
             }
@@ -702,32 +642,16 @@ def launch(
                 models_dir=recorder.path / "checkpoints",
                 model_kwargs=model_kwargs,
             )
-            loss_keys = ["value_scale", "policy_scale"]
-            if training_settings["loss"] == "auxiliary":
-                loss_keys += [
-                    "round_score_scale",
-                    "future_clear_scale",
-                    "clear_positive_weight",
-                ]
             loss = functools.partial(
-                LOSS_TYPES[training_settings["loss"]],
-                **{key: training_settings[key] for key in loss_keys},
+                train_utils.base_loss,
+                value_scale=training_settings["value_scale"],
+                policy_scale=training_settings["policy_scale"],
             )
             training_config = train.ReplayRatioTrainConfig(
                 batch_size=training_settings["batch_size"],
                 replay_ratio=training_settings["replay_ratio"],
                 learn_rate=training_settings["learn_rate"],
                 loss_function=loss,
-            )
-            validation = resolved["validation"]
-            validation_function = (
-                functools.partial(
-                    explain.validate_model,
-                    value_loss_scale=validation["value_loss_scale"],
-                    policy_loss_scale=validation["policy_loss_scale"],
-                )
-                if validation["enabled"]
-                else None
             )
             learn_config = train.LearnConfig(
                 torch_device=device,
@@ -740,10 +664,8 @@ def launch(
                 training_learn_rate=training_config.learn_rate,
                 training_loss_function=loss,
                 loss_stats_function=train_utils.loss_details_summary,
-                validation_interval=validation["interval"]
-                if validation["enabled"]
-                else None,
-                validation_function=validation_function,
+                validation_interval=None,
+                validation_function=None,
                 update_model_interval=resolved["budget"]["checkpoint_interval"],
                 model_faceoff_function=None,
             )
@@ -785,9 +707,7 @@ def launch(
                 run_seed=resolved["seed"],
                 games_per_task=resolved["selfplay"]["games_per_task"],
                 start_state_generator=start_state,
-                outcome_rollouts=resolved["selfplay"]["outcome_rollouts"],
                 faceoff_rounds=resolved["faceoff"]["paired_rounds"],
-                faceoff_rounds_per_task=resolved["faceoff"]["rounds_per_task"],
                 initial_training_dataset_path=pathlib.Path(initial_dataset)
                 if initial_dataset
                 else None,

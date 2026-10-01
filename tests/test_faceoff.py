@@ -11,7 +11,6 @@ def model_player_config() -> player.ModelPlayerConfig:
         mcts_iterations=4,
         mcts_dirichlet_epsilon=0.0,
         mcts_after_state_evaluate_all_children=False,
-        mcts_terminal_state_initial_rollouts=1,
     )
 
 

@@ -145,3 +145,21 @@ def test_resumed_training_matches_uninterrupted_training(tmp_path) -> None:
         continuous.parameters(), resumed.parameters(), strict=True
     ):
         assert torch.equal(expected, actual)
+
+
+@pytest.mark.parametrize("configuration", [None, {"training_semantics": "round_win_v1"}])
+def test_full_game_resume_rejects_unmarked_or_round_checkpoints(tmp_path, configuration):
+    from skyjo import buffer
+
+    source = torch.nn.Linear(2, 1)
+    path = checkpoint.save_checkpoint(
+        tmp_path / "old.pth", model=source, optimizer=None, configuration=configuration,
+    )
+    destination = torch.nn.Linear(2, 1)
+    before = {key: value.clone() for key, value in destination.state_dict().items()}
+    with pytest.raises(checkpoint.CheckpointFormatError, match="semantics"):
+        checkpoint.load_checkpoint(
+            path, model=destination,
+            required_training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
+        )
+    torch.testing.assert_close(destination.state_dict(), before)

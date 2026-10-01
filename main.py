@@ -197,7 +197,6 @@ if __name__ == "__main__":
     mcts_config = mcts.MCTSConfig(
         iterations=400,
         after_state_evaluate_all_children=False,
-        terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
     )
     model_player_config = player.ModelPlayerConfig(
@@ -207,7 +206,6 @@ if __name__ == "__main__":
     batched_mcts_config = parallel_mcts.BatchedMCTSConfig(
         iterations=1600,
         after_state_evaluate_all_children=False,
-        terminal_state_initial_rollouts=10,
         dirichlet_epsilon=0.25,
         batched_leaf_count=4,
         virtual_loss=0.5,

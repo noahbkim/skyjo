@@ -13,14 +13,14 @@ import torch
 from . import buffer, game, skynet
 
 DEFAULTS = {
-    "name": "score-auxiliary",
+    "name": "full-game-baseline",
     "description": "",
     "tags": [],
     "notes": "",
     "seed": 0,
     "players": 2,
     "model": {
-        "type": "round_score",
+        "type": "equivariant",
         "embedding_dimensions": 16,
         "global_state_embedding_dimensions": 32,
         "num_heads": 2,
@@ -29,24 +29,22 @@ DEFAULTS = {
         "batch_size": 256,
         "replay_ratio": 4.0,
         "learn_rate": 0.001,
-        "loss": "auxiliary",
+        "loss": "base",
         "value_scale": 1.0,
         "policy_scale": 1.0,
-        "round_score_scale": 1.0,
+        "round_score_scale": 0.0,
         "future_clear_scale": 0.0,
         "clear_positive_weight": 10.0,
     },
     "selfplay": {
         "games_per_iteration": 1024,
         "games_per_task": 8,
-        "outcome_rollouts": 100,
         "start_state": "standard",
     },
     "search": {
         "iterations": 100,
         "dirichlet_epsilon": 0.25,
         "after_state_evaluate_all_children": False,
-        "terminal_state_initial_rollouts": 10,
         "c_puct": 1.0,
         "fpu_reduction": 0.25,
         "score_utility_weight": 0.0,
@@ -54,12 +52,12 @@ DEFAULTS = {
     },
     "replay": {
         "capacity": 2_000_000,
-        "targets": "round_score",
+        "targets": "core",
         "initial_dataset": None,
         "dataset_id": None,
     },
     "validation": {
-        "enabled": True,
+        "enabled": False,
         "interval": 1,
         "value_loss_scale": 1.0,
         "policy_loss_scale": 1.0,
@@ -118,6 +116,18 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     prior_derived = supplied.pop("derived", None)
     config = _merge(DEFAULTS, supplied)
     model, training, replay = (config[key] for key in ("model", "training", "replay"))
+    if (
+        model["type"] != "equivariant"
+        or training["loss"] != "base"
+        or replay["targets"] != "core"
+    ):
+        raise ValueError("Full-game baseline requires equivariant model, base loss, and core targets")
+    if training["round_score_scale"] or training["future_clear_scale"]:
+        raise ValueError("Full-game baseline disables auxiliary losses")
+    if config["validation"]["enabled"] or config["faceoff"]["paired_rounds"]:
+        raise ValueError("Round validation and faceoffs are disabled for full-game training")
+    if config["search"]["score_utility_weight"] != 0:
+        raise ValueError("Full-game baseline requires score_utility_weight=0")
     for section, keys in {
         "model": (
             "embedding_dimensions",
@@ -130,8 +140,8 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
             "learn_rate",
             "clear_positive_weight",
         ),
-        "selfplay": ("games_per_iteration", "games_per_task", "outcome_rollouts"),
-        "search": ("iterations", "terminal_state_initial_rollouts"),
+        "selfplay": ("games_per_iteration", "games_per_task"),
+        "search": ("iterations",),
         "replay": ("capacity",),
         "validation": ("interval",),
         "faceoff": ("rounds_per_task", "interval"),
@@ -149,19 +159,6 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         raise ValueError("tags must be strings")
     if config["faceoff"]["paired_rounds"] < 0:
         raise ValueError("faceoff.paired_rounds cannot be negative")
-    if (
-        config["faceoff"]["paired_rounds"] > 0
-        and config["faceoff"]["interval"] != config["budget"]["checkpoint_interval"]
-    ):
-        raise ValueError(
-            "faceoff.interval must match budget.checkpoint_interval when faceoffs are enabled"
-        )
-    if config["players"] != 2 and (
-        config["validation"]["enabled"] or config["faceoff"]["paired_rounds"]
-    ):
-        raise ValueError(
-            "The current validation and faceoff recipes require two players"
-        )
     for key in ("embedding_dimensions", "global_state_embedding_dimensions"):
         if model[key] % model["num_heads"]:
             raise ValueError(f"model.{key} must be divisible by num_heads")
@@ -184,10 +181,6 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         for key in ("c_puct", "fpu_reduction", "action_softmax_temperature")
     ):
         raise ValueError("Search constants and temperature cannot be negative")
-    if model["type"] not in ("equivariant", "round_score", "auxiliary"):
-        raise ValueError("Unknown model type")
-    if training["loss"] not in ("base", "auxiliary"):
-        raise ValueError("Unknown loss")
     if config["selfplay"]["start_state"] not in ("standard", "potential_clear"):
         raise ValueError("Unknown selfplay.start_state")
     if (
@@ -195,22 +188,6 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         and config["players"] != 2
     ):
         raise ValueError("potential_clear start states require two players")
-    if replay["targets"] not in ("core", "round_score", "auxiliary"):
-        raise ValueError("Unknown replay target selection")
-    if training["loss"] == "base":
-        if training["round_score_scale"] or training["future_clear_scale"]:
-            raise ValueError("Set auxiliary scales to zero when using base loss")
-    else:
-        if training["round_score_scale"] and (
-            model["type"] == "equivariant" or replay["targets"] == "core"
-        ):
-            raise ValueError("Round-score loss requires a score head and score targets")
-        if training["future_clear_scale"] and (
-            model["type"] != "auxiliary" or replay["targets"] != "auxiliary"
-        ):
-            raise ValueError(
-                "Future-clear loss requires the auxiliary model and targets"
-            )
     device = torch.device(config["execution"]["device"])
     if device.type not in ("cpu", "cuda", "mps"):
         raise ValueError("Supported devices: cpu, cuda, mps")
@@ -224,16 +201,12 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     players = config["players"]
     spatial = [players, game.ROW_COUNT, game.COLUMN_COUNT, game.FINGER_SIZE]
     non_spatial = list(skynet.get_non_spatial_input_shape(players))
-    target_builder = {
-        "core": buffer.core_target_specs,
-        "round_score": buffer.round_score_target_specs,
-        "auxiliary": buffer.auxiliary_target_specs,
-    }[replay["targets"]]
     targets = [
         {"name": spec.name, "shape": list(spec.shape)}
-        for spec in target_builder(players, (game.MASK_SIZE,))
+        for spec in buffer.core_target_specs(players, (game.MASK_SIZE,))
     ]
     derived = {
+        "training_semantics": buffer.FULL_GAME_TRAINING_SEMANTICS,
         "spatial_input_shape": spatial,
         "non_spatial_input_shape": non_spatial,
         "action_mask_shape": [game.MASK_SIZE],
@@ -256,6 +229,7 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         ):
             raise ValueError("Unsupported initial replay dataset")
         for key in (
+            "training_semantics",
             "spatial_input_shape",
             "non_spatial_input_shape",
             "action_mask_shape",

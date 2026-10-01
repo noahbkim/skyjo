@@ -18,6 +18,7 @@ import run_train_epoch  # noqa: E402
 
 def make_dataset(path):
     replay_buffer = buffer.ReplayBuffer(
+        training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
         max_size=32,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
@@ -243,6 +244,7 @@ def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
     assert resumed.exit_code == 0, resumed.output
     assert "optimizer_steps: 2" in resumed.output
     payload = torch.load(resumed_checkpoint, weights_only=False)
+    assert payload["configuration"]["training_semantics"] == buffer.FULL_GAME_TRAINING_SEMANTICS
     assert (
         payload["configuration"]["model"]["name"]
         == skynet.EQUIVARIANT_ARCHITECTURE_NAME
@@ -307,6 +309,7 @@ def test_offline_training_selects_games_and_runs_without_validation(tmp_path):
     )
     assert resumed.exit_code == 0, resumed.output
     payload = torch.load(resumed_checkpoint, weights_only=False)
+    assert payload["configuration"]["training_semantics"] == buffer.FULL_GAME_TRAINING_SEMANTICS
     assert payload["configuration"]["dataset"]["game_indices"] == [0, 1]
     assert payload["configuration"]["dataset"]["validation_fraction"] == 0
     assert payload["progress"]["optimizer_steps"] == 2

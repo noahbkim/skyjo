@@ -20,7 +20,6 @@ from . import game as sj
 
 DEFAULT_GAMES = 20
 DEFAULT_MCTS_ITERATIONS = 100
-DEFAULT_TERMINAL_STATE_ROLLOUTS = 10
 DEFAULT_EMBEDDING_DIMENSIONS = 32
 DEFAULT_GLOBAL_STATE_EMBEDDING_DIMENSIONS = 64
 DEFAULT_NUM_HEADS = 2
@@ -138,7 +137,6 @@ def _build_model(
 def _model_player_config(
     *,
     mcts_iterations: int,
-    terminal_state_rollouts: int,
     score_utility_weight: float = 0.0,
 ) -> player.ModelPlayerConfig:
     return player.ModelPlayerConfig(
@@ -146,7 +144,6 @@ def _model_player_config(
         mcts_iterations=mcts_iterations,
         mcts_dirichlet_epsilon=0.0,
         mcts_after_state_evaluate_all_children=False,
-        mcts_terminal_state_initial_rollouts=terminal_state_rollouts,
         mcts_score_utility_weight=score_utility_weight,
     )
 
@@ -271,7 +268,6 @@ def run_faceoff_detailed(
     seed: int,
     device_name: str,
     mcts_iterations: int,
-    terminal_state_rollouts: int,
     embedding_dimensions: int | None,
     global_state_embedding_dimensions: int | None,
     num_heads: int | None,
@@ -283,8 +279,6 @@ def run_faceoff_detailed(
         raise ValueError("games must be a positive even number (one game per seat)")
     if mcts_iterations < 1:
         raise ValueError("mcts_iterations must be at least one")
-    if terminal_state_rollouts < 1:
-        raise ValueError("terminal_state_rollouts must be at least one")
     if workers < 1:
         raise ValueError("workers must be at least one")
     device = torch.device(device_name)
@@ -322,12 +316,10 @@ def run_faceoff_detailed(
     champion_architecture = champion_configuration.get("name")
     model_player_config = _model_player_config(
         mcts_iterations=mcts_iterations,
-        terminal_state_rollouts=terminal_state_rollouts,
         score_utility_weight=_checkpoint_score_utility_weight(candidate_checkpoint),
     )
     champion_model_player_config = _model_player_config(
         mcts_iterations=mcts_iterations,
-        terminal_state_rollouts=terminal_state_rollouts,
         score_utility_weight=_checkpoint_score_utility_weight(champion_checkpoint),
     )
     if workers > 1:
@@ -414,10 +406,6 @@ def faceoff_checkpoints(
         int,
         typer.Option(help="MCTS iterations per move."),
     ] = DEFAULT_MCTS_ITERATIONS,
-    terminal_state_rollouts: typing.Annotated[
-        int,
-        typer.Option(help="Initial terminal-state rollouts in MCTS."),
-    ] = DEFAULT_TERMINAL_STATE_ROLLOUTS,
     embedding_dimensions: typing.Annotated[
         int | None,
         typer.Option(help="Override checkpoint embedding_dimensions."),
@@ -454,7 +442,6 @@ def faceoff_checkpoints(
                 seed=seed,
                 device_name=device_name,
                 mcts_iterations=mcts_iterations,
-                terminal_state_rollouts=terminal_state_rollouts,
                 embedding_dimensions=embedding_dimensions,
                 global_state_embedding_dimensions=global_state_embedding_dimensions,
                 num_heads=num_heads,

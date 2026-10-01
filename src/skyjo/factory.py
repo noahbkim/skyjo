@@ -27,6 +27,7 @@ class SkyNetModelFactory:
         self.device = device
         self.model_kwargs = model_kwargs
         self.model_callable = model_callable
+        self.created_initial_checkpoint = False
         if list(self.models_dir.glob("checkpoint_*.pth")):
             return
         legacy_models = list(self.models_dir.glob("model_*.pth"))
@@ -50,6 +51,7 @@ class SkyNetModelFactory:
             )
         # Save initial model
         self.save_model(initial_model)
+        self.created_initial_checkpoint = True
 
     def __str__(self) -> str:
         return f"SkyNetModelFactory(model_callable={self.model_callable}, players={self.players}, device={self.device}, models_dir={self.models_dir}, model_kwargs={self.model_kwargs})"

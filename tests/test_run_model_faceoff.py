@@ -19,7 +19,6 @@ def test_run_faceoff_requires_paired_games() -> None:
             seed=0,
             device_name="cpu",
             mcts_iterations=1,
-            terminal_state_rollouts=1,
             embedding_dimensions=None,
             global_state_embedding_dimensions=None,
             num_heads=None,
@@ -82,7 +81,6 @@ def test_run_faceoff_rejects_legacy_model_architecture(tmp_path) -> None:
             seed=0,
             device_name="cpu",
             mcts_iterations=1,
-            terminal_state_rollouts=1,
             embedding_dimensions=None,
             global_state_embedding_dimensions=None,
             num_heads=None,
@@ -133,7 +131,6 @@ def test_parallel_faceoff_combines_completed_pairs(monkeypatch) -> None:
         },
         model_player_config=faceoff_cli._model_player_config(
             mcts_iterations=1,
-            terminal_state_rollouts=1,
         ),
         game_completed_callback=lambda: completed_games.append(None),
     )

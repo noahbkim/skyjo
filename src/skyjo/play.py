@@ -218,7 +218,6 @@ def game_history_to_game_data(
         A list of training data points.
     """
     assert len(game_history) >= 20, f"Game history is too short: {len(game_history)}"
-    training_data = []
     penultimate_state = game_history[-2].state
     penultimate_action = game_history[-2].action
     assert penultimate_action is not None, "expected penultimate action"
@@ -240,8 +239,25 @@ def game_history_to_game_data(
             terminal_state
         ).astype(np.float32)
 
-    # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
-    # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
+    return _history_to_game_data(
+        game_history,
+        outcome_state_value,
+        fixed_perspective_score,
+        normalized_round_score_state_value,
+        fixed_perspective_cleared_columns,
+        include_future_clear_target,
+    )
+
+
+def _history_to_game_data(
+    game_history: RoundHistory,
+    outcome_state_value: np.ndarray,
+    fixed_perspective_score: np.ndarray,
+    normalized_round_score_state_value: np.ndarray | None = None,
+    fixed_perspective_cleared_columns: np.ndarray | None = None,
+    include_future_clear_target: bool = False,
+) -> tuple[GameData, GameStats]:
+    training_data = []
     action_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
     action_possibility_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
     flip_count, flip_possibility_count = 0, 0
@@ -253,14 +269,15 @@ def game_history_to_game_data(
         player = sj.get_player(game_state)
         targets = {
             "value": np.roll(outcome_state_value, -player),
-            skynet.ROUND_SCORE_TARGET_NAME: np.roll(
-                normalized_round_score_state_value, -player
-            ),
             "policy": skynet.symmetrize_policy_target(
                 game_state,
                 mcts_probs,
             ),
         }
+        if normalized_round_score_state_value is not None:
+            targets[skynet.ROUND_SCORE_TARGET_NAME] = np.roll(
+                normalized_round_score_state_value, -player
+            )
         if include_future_clear_target:
             targets[skynet.FUTURE_CLEAR_TARGET_NAME] = future_clear_target_for_state(
                 game_state,
@@ -293,7 +310,7 @@ def game_history_to_game_data(
                 replace_face_up_count += 1
 
     cleared_cards = (
-        sj.get_table(game_history[-2].state)[:, :, :, sj.FINGER_CLEARED].sum()
+        sj.get_table(game_history[-1].state)[:, :, :, sj.FINGER_CLEARED].sum()
     )
     assert cleared_cards % 3 == 0, (
         f"Cleared cards is not divisible by 3: {cleared_cards}"
@@ -313,6 +330,34 @@ def game_history_to_game_data(
         replace_possibility_count=replace_possibility_count,
     )
     return training_data, game_stats
+
+
+def game_result_to_game_data(result: GameResult) -> tuple[GameData, GameStats]:
+    """Label all decisions with the observed game result, without outcome resampling."""
+    if not result.rounds:
+        raise ValueError("Expected a completed full game")
+    final_state = result.rounds[-1].history[-1].state
+    outcome = skynet.skyjo_to_game_state_value(final_state)
+    scores = sj.get_fixed_perspective_game_scores(final_state)
+    data = []
+    stats = None
+    for round_result in result.rounds:
+        history = round_result.history
+        if len(history) < 2 or not sj.get_round_over(history[-1].state):
+            raise ValueError("Expected a completed round with decisions")
+        rows, round_stats = _history_to_game_data(history, outcome, scores)
+        data.extend(rows)
+        if stats is None:
+            stats = round_stats
+        else:
+            for field in dataclasses.fields(GameStats):
+                if field.name not in ("outcome_state_value", "scores_state_value"):
+                    setattr(
+                        stats, field.name,
+                        getattr(stats, field.name) + getattr(round_stats, field.name),
+                    )
+    assert stats is not None
+    return data, stats
 
 
 def print_game_history(
@@ -406,12 +451,18 @@ play = play_round
 def play_game(
     players: list[player.AbstractPlayer],
     debug: bool = False,
+    start_state: sj.Skyjo | None = None,
 ) -> GameResult:
-    """Play from zero scores to 100 or more, retaining each completed round."""
+    """Play to 100 or more from a fresh game or an optional active round."""
     if not 2 <= len(players) <= sj.PLAYER_COUNT:
         raise ValueError(f"Expected between 2 and {sj.PLAYER_COUNT} players")
 
-    state = sj.start_round(sj.new(players=len(players)))
+    state = (
+        sj.start_round(sj.new(players=len(players)))
+        if start_state is None else start_state
+    )
+    if sj.get_player_count(state) != len(players) or sj.get_round_over(state):
+        raise ValueError("Expected an active round matching the supplied players")
     rounds = []
     while True:
         history = play_round(players, debug=debug, start_state=state)
@@ -468,7 +519,6 @@ def model_player_selfplay(
             mcts_iterations,
             dirichlet_epsilon=model_player.mcts_dirichlet_epsilon,
             after_state_evaluate_all_children=model_player.mcts_after_state_evaluate_all_children,
-            terminal_state_initial_rollouts=model_player.mcts_terminal_state_initial_rollouts,
             c_puct=model_player.mcts_c_puct,
             fpu_reduction=model_player.mcts_fpu_reduction,
             score_utility_weight=model_player.mcts_score_utility_weight,
@@ -538,7 +588,6 @@ def batched_model_player_selfplay(
             mcts_iterations,
             dirichlet_epsilon=model_player.mcts_dirichlet_epsilon,
             after_state_evaluate_all_children=model_player.mcts_after_state_evaluate_all_children,
-            terminal_state_initial_rollouts=model_player.mcts_terminal_state_initial_rollouts,
             batched_leaf_count=model_player.mcts_batched_leaf_count,
             virtual_loss=model_player.mcts_virtual_loss,
             c_puct=model_player.mcts_c_puct,
