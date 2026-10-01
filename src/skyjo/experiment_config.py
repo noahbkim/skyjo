@@ -149,6 +149,13 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         raise ValueError("tags must be strings")
     if config["faceoff"]["paired_rounds"] < 0:
         raise ValueError("faceoff.paired_rounds cannot be negative")
+    if (
+        config["faceoff"]["paired_rounds"] > 0
+        and config["faceoff"]["interval"] != config["budget"]["checkpoint_interval"]
+    ):
+        raise ValueError(
+            "faceoff.interval must match budget.checkpoint_interval when faceoffs are enabled"
+        )
     if config["players"] != 2 and (
         config["validation"]["enabled"] or config["faceoff"]["paired_rounds"]
     ):

@@ -57,14 +57,26 @@ before allocating replay arrays or starting workers. Built-in validation and
 faceoff are two-player recipes. `selfplay.start_state` can be `standard` or
 `potential_clear` (two players).
 
-`faceoff.interval` controls promotion evaluation independently of
-`budget.checkpoint_interval`, which controls periodic persistence only. With
-faceoffs enabled, the champion changes only after an accepted evaluation; skipped
-evaluation iterations remain provisional, even if saved. Rejection restores the
-last accepted model and optimizer. Initial, generation, candidate, and final
-snapshots may also be saved when needed for evidence, regardless of the periodic
-save interval. A final candidate may still be unevaluated if the budget ends
-between promotion intervals.
+Training continues from the current model regardless of evaluation results.
+The initial model is saved with optimizer state, configuration, and progress.
+After training, a checkpoint is saved every `budget.checkpoint_interval`
+iterations and at the final iteration. A final iteration already on the schedule
+is saved and evaluated once.
+
+Built-in validation runs on the initial checkpoint as `initial_validation`, then
+on each saved checkpoint as `validation` when enabled. In this recorded recipe,
+`validation.interval` remains accepted but the checkpoint schedule controls
+validation timing. Existing validation loss scales still apply.
+
+With faceoffs enabled (`faceoff.paired_rounds > 0`), `faceoff.interval` must match
+`budget.checkpoint_interval`. Each saved trained model plays against the last
+passing checkpoint, initially the starting model. More candidate wins than
+reference wins is a pass; ties fail. A pass advances the evaluation reference.
+A failure records the result and training continues without restoring weights or
+optimizer state. Faceoff events identify both checkpoints, the protocol, win
+counts, and `passed`. Setting paired rounds to zero disables faceoffs, while
+saving and enabled built-in validation still run. Paired-game seeds are global
+pair indices, starting at zero, independent of `faceoff.rounds_per_task`.
 
 An optional `replay.initial_dataset` path is relative to the input config file.
 The resolved config stores its absolute path and dataset ID; reruns reject a
@@ -84,13 +96,17 @@ required input dataset, and launch the saved JSON by absolute path. Saved code a
 seeds do not guarantee bit-identical results across devices or runtime versions.
 Only committed implementation changes can be recovered from the recorded commit.
 
-Trajectory progress counts total work performed. Checkpoint metadata and rollback
-events additionally identify `active_state_progress`: rejected optimizer updates
-remain in history but are absent from the restored model. A null checkpoint
-reference means the measured in-memory model has no exact saved checkpoint at that
-point. Loss means are over optimizer steps; game statistics are means over the
-generated games. Compare their definitions, data, and budgets before interpreting
-similarly named metrics as equivalent.
+An iteration generates games, adds their positions to replay, and trains for a
+replay-ratio budget of optimizer steps. One cumulative progress record counts
+iterations, generated games, optimizer steps, and sampled positions. Since
+evaluation never rolls back training, the saved counters describe the saved
+model's continuous training history. The shared checkpoint format is unchanged.
+A snapshot reference contains only a checkpoint path and artifact ID; the last
+passing reference is separate from the current model. A null checkpoint reference
+means the in-memory model has no exact saved checkpoint at that point. Loss means
+are over optimizer steps; game statistics are means over the generated games.
+Compare their definitions, data, and budgets before interpreting similarly named
+metrics as equivalent.
 
 Artifact paths are relative to the run directory. Replay is latest-only: apply
 `superseded` records before resolving historical registrations. Supersession is
@@ -99,12 +115,16 @@ snapshot unavailable even if its files survived. Checkpoints and replay are save
 independently and do **not** constitute a coherent run recovery point.
 
 Replay provenance records the initial buffer's path and dataset ID (when supplied),
-the previous replay dataset ID, and the latest batch's generating checkpoint and
-game count. The generating checkpoint describes only that newly added batch,
-not the entire mixed replay buffer. No per-game provenance index is maintained;
-these references describe how the buffer was built, not precisely which sources
-remain after eviction. The replay manifest therefore has no single
-`source_checkpoint` for the whole snapshot.
+the previous replay dataset ID, and the latest batch's run ID, generation iteration,
+generating checkpoint, and game count. Generation iterations are one-based: games
+for iteration 1 use the initial model, and games for iteration N use the model
+after iteration N-1. Between saved boundaries the checkpoint ID and path are null;
+an older checkpoint is never substituted for the actual unsaved model. The
+generating checkpoint describes only that newly added batch, not the entire mixed
+replay buffer. No per-game provenance index is maintained; these references
+describe how the buffer was built, not precisely which sources remain after
+eviction. The replay manifest therefore has no single `source_checkpoint` for the
+whole snapshot.
 
 Completed, failed, and caught interrupted runs have explicit lifecycle events.
 An uncatchable termination may leave status `running` or an incomplete final JSONL

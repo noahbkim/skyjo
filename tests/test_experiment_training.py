@@ -1,6 +1,7 @@
-"""Recipe-level state transitions and mixed replay provenance."""
+"""Recipe-level observational validation and mixed replay provenance."""
 
 import json
+import random
 from types import SimpleNamespace
 
 import numpy as np
@@ -33,17 +34,18 @@ def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separ
         None, replay, initial_dataset_path=original
     )
     progress = checkpoint.TrainingProgress()
-    training = experiment_training.TrainingState(progress, progress)
+    training = experiment_training.TrainingState(progress)
     previous_id = initial_id
     for index in (1, 2):
         replay.add(state, targets, game_index=index)
         generation = experiment_training.Snapshot(
-            tmp_path / f"model-{index}.pth", f"model-{index}", progress
+            tmp_path / f"model-{index}.pth", f"model-{index}"
         )
         recording.save_replay(
             replay,
             state=training,
             generation=generation,
+            generation_iteration=index,
             game_count=1,
             generation_settings={"seed": index},
         )
@@ -66,60 +68,27 @@ def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separ
     assert (original / "manifest.json").read_bytes() == original_manifest
 
 
-def test_promotion_rejection_restores_last_accepted_model_and_optimizer(tmp_path):
+def test_validation_preserves_model_mode_weights_and_randomness():
     model = torch.nn.Linear(1, 1)
-    model.device = torch.device("cpu")
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    weights = {key: value.clone() for key, value in model.state_dict().items()}
     recording = experiment_training.RecipeRecording(
         None, SimpleNamespace(dataset_id=None)
     )
-    sequence = 0
+    state = experiment_training.TrainingState(checkpoint.TrainingProgress())
+    rng = checkpoint.capture_rng_state()
+    expected = (random.random(), np.random.random(), torch.rand(1))
+    checkpoint.restore_rng_state(rng)
 
-    def save_model(model, **kwargs):
-        nonlocal sequence
-        sequence += 1
-        return checkpoint.save_checkpoint(
-            tmp_path / f"checkpoint-{sequence}.pth", model=model, **kwargs
-        )
+    def validate(model):
+        assert not model.training
+        assert not torch.is_grad_enabled()
+        random.random()
+        np.random.random()
+        return {"prediction": model(torch.rand(1)).item()}
 
-    factory = SimpleNamespace(save_model=save_model)
-    progress = checkpoint.TrainingProgress()
-    state = experiment_training.TrainingState(progress, progress)
-    champion = recording.save_snapshot(
-        factory, model, optimizer, {}, state, role="champion"
-    )
-    accepted_weights = None
-    for iteration, accept in enumerate((True, False), start=1):
-        optimizer.zero_grad()
-        model(torch.ones(1, 1)).square().sum().backward()
-        optimizer.step()
-        state = state.generated(games=1, positions=1).trained(
-            iteration=iteration, steps=1, batch_size=1
-        )
-        result = experiment_training.promote_candidate(
-            model=model,
-            optimizer=optimizer,
-            factory=factory,
-            configuration={},
-            state=state,
-            champion=champion,
-            recording=recording,
-            protocol={},
-            evaluate=lambda: {
-                "candidate_wins": int(accept),
-                "champion_wins": int(not accept),
-                "promoted": accept,
-            },
-        )
-        state, champion = result.state, result.champion
-        if accept:
-            accepted_weights = {
-                key: value.clone() for key, value in model.state_dict().items()
-            }
-    assert state.work.optimizer_steps == 2 and state.retained.optimizer_steps == 1
-    assert champion.retained.optimizer_steps == 1
-    assert all(
-        torch.equal(value, model.state_dict()[key])
-        for key, value in accepted_weights.items()
-    )
-    assert all(value["step"].item() == 1 for value in optimizer.state.values())
+    recording.validation(model, validate, state)
+    assert model.training
+    torch.testing.assert_close(model.state_dict(), weights, rtol=0, atol=0)
+    assert random.random() == expected[0]
+    assert np.random.random() == expected[1]
+    torch.testing.assert_close(torch.rand(1), expected[2], rtol=0, atol=0)

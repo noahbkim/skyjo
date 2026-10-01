@@ -300,6 +300,8 @@ def validate_model_faceoff(
     model_player_config: player.ModelPlayerConfig,
     start_state_generator: StartStateGenerator | None = None,
 ) -> dict[str, int | bool]:
+    batch_sizes = game_batch_sizes(rounds, rounds_per_task)
+    first_pair_indices = np.cumsum([0, *batch_sizes]).tolist()[:-1]
     model_state_dict = {
         name: value.detach().cpu() for name, value in model.state_dict().items()
     }
@@ -313,16 +315,13 @@ def validate_model_faceoff(
                 model_kwargs,
                 players,
                 batch_size,
-                task_index,
+                first_pair_index,
                 model_player_config,
                 start_state_generator,
             ),
         )
-        for task_index, batch_size in enumerate(
-            game_batch_sizes(
-                rounds,
-                rounds_per_task,
-            )
+        for first_pair_index, batch_size in zip(
+            first_pair_indices, batch_sizes, strict=True
         )
     ]
 
@@ -341,7 +340,7 @@ def validate_model_faceoff(
     return {
         "candidate_wins": trained_model_wins,
         "champion_wins": previous_model_wins,
-        "promoted": trained_model_wins > previous_model_wins,
+        "passed": trained_model_wins > previous_model_wins,
     }
 
 
@@ -399,10 +398,10 @@ def run_apply_async_local_selfplay_learning(
     faceoff_rounds_per_task: int = 1,
     initial_training_dataset_path: pathlib.Path | None = None,
     recorder: runs.RunRecorder | None = None,
-    promotion_interval: int = 1,
 ) -> None:
-    if promotion_interval < 1:
-        raise ValueError("promotion_interval must be positive")
+    checkpoint_interval = learn_config.update_model_interval
+    if checkpoint_interval is None or checkpoint_interval < 1:
+        raise ValueError("checkpoint interval must be positive")
     if process_count < 1:
         raise ValueError("process_count must be positive")
     if torch_threads_per_worker < 1:
@@ -427,8 +426,8 @@ def run_apply_async_local_selfplay_learning(
             "games_generated_per_iteration": (
                 learn_config.games_generated_per_iteration
             ),
-            "validation_interval": learn_config.validation_interval,
-            "promotion_interval": promotion_interval,
+            "validation_enabled": learn_config.validation_function is not None,
+            "checkpoint_interval": checkpoint_interval,
         },
         "training": {
             "batch_size": training_config.batch_size,
@@ -445,26 +444,28 @@ def run_apply_async_local_selfplay_learning(
         map_location=learn_config.torch_device,
     )
 
-    state = experiment_training.TrainingState(progress, progress)
+    state = experiment_training.TrainingState(progress)
     recording = experiment_training.RecipeRecording(
         recorder,
         training_data_buffer,
         initial_dataset_path=initial_training_dataset_path,
     )
-    initial = recording.register_snapshot(
+    # Complete the factory's bootstrap checkpoint before registering it. The
+    # recorded launcher always starts in a fresh directory; no extra raw model
+    # checkpoint is left behind without optimizer or configuration metadata.
+    initial_path = checkpoint.save_checkpoint(
         model_factory.get_latest_checkpoint_path(),
-        state,
-        role="initial",
+        model=model,
+        optimizer=optimizer,
+        configuration=run_configuration,
+        progress=progress,
     )
-    # Rollback must restore even the initially empty optimizer state.
-    champion = (
-        recording.save_snapshot(
-            model_factory, model, optimizer, run_configuration, state, role="champion"
+    reference = recording.register_snapshot(initial_path, state, role="initial")
+    state = dataclasses.replace(state, snapshot=reference)
+    if learn_config.validation_function is not None:
+        recording.validation(
+            model, learn_config.validation_function, state, initial=True
         )
-        if faceoff_rounds > 0
-        else initial
-    )
-    state = dataclasses.replace(state, snapshot=champion)
     next_game = max(training_data_buffer.game_indices, default=-1) + 1
 
     with mp.Pool(
@@ -481,30 +482,7 @@ def run_apply_async_local_selfplay_learning(
                 learn_config.learn_steps,
             )
 
-            # Validate the current state, then generate an explicitly attributed batch.
-            if learn_config.validation_function is not None and train.interval_due(
-                iteration, learn_config.validation_interval
-            ):
-                started = time.perf_counter()
-                metrics = learn_config.validation_function(model)
-                recording.event(
-                    "validation",
-                    state,
-                    metrics=metrics or {},
-                    context={
-                        "suite": "built_in_examples",
-                        "seconds": time.perf_counter() - started,
-                    },
-                )
-            generation = state.snapshot or recording.save_snapshot(
-                model_factory,
-                model,
-                optimizer,
-                run_configuration,
-                state,
-                role="generation",
-            )
-            state = dataclasses.replace(state, snapshot=generation)
+            generation = state.snapshot
             started = time.perf_counter()
             generated = generate_iteration(
                 pool,
@@ -545,6 +523,7 @@ def run_apply_async_local_selfplay_learning(
                 training_data_buffer,
                 state=state,
                 generation=generation,
+                generation_iteration=iteration + 1,
                 game_count=len(games),
                 generation_settings={
                     "run_seed": run_seed,
@@ -557,7 +536,7 @@ def run_apply_async_local_selfplay_learning(
             timings["replay_save"] = time.perf_counter() - started
             next_game += len(games)
 
-            # Training changes the candidate; work counters never roll back.
+            # Training is continuous, regardless of evaluation results.
             steps = math.ceil(
                 new_positions
                 * training_config.replay_ratio
@@ -585,61 +564,57 @@ def run_apply_async_local_selfplay_learning(
                     learn_config.loss_stats_function(losses),
                 )
 
-            # Only evaluation replaces the accepted champion, regardless of saving.
-            if faceoff_rounds > 0 and train.interval_due(
-                iteration + 1, promotion_interval
-            ):
-                champion_weights = torch.load(
-                    champion.path, map_location="cpu", weights_only=False
-                )["model_state_dict"]
-                transition = experiment_training.promote_candidate(
-                    model=model,
-                    optimizer=optimizer,
-                    factory=model_factory,
-                    configuration=run_configuration,
-                    state=state,
-                    champion=champion,
-                    evaluate=functools.partial(
-                        validate_model_faceoff,
-                        pool=pool,
-                        model=model,
-                        players=players,
-                        previous_model_state_dict=champion_weights,
-                        model_callable=model_callable,
-                        model_kwargs=model_kwargs,
-                        rounds=faceoff_rounds,
-                        rounds_per_task=faceoff_rounds_per_task,
-                        model_player_config=model_player_config,
-                        start_state_generator=start_state_generator,
-                    ),
-                    recording=recording,
-                    protocol={
-                        "paired_rounds": faceoff_rounds,
-                        "interval": promotion_interval,
-                        "rounds_per_task": faceoff_rounds_per_task,
-                        "seed_rule": "task index; each task increments by pair index",
-                        "player": dataclasses.asdict(
-                            dataclasses.replace(
-                                model_player_config, action_softmax_temperature=0.0
-                            )
-                        ),
-                        "start_state": "standard"
-                        if start_state_generator is None
-                        else start_state_generator.__qualname__,
-                    },
-                )
-                state, champion = transition.state, transition.champion
-
-            if train.interval_due(iteration + 1, learn_config.update_model_interval):
+            is_final = iteration + 1 == learn_config.learn_steps
+            if is_final or train.interval_due(iteration + 1, checkpoint_interval):
                 saved = recording.save_snapshot(
                     model_factory,
                     model,
                     optimizer,
                     run_configuration,
                     state,
-                    role="periodic",
+                    role="final" if is_final else "periodic",
                 )
                 state = dataclasses.replace(state, snapshot=saved)
+                if learn_config.validation_function is not None:
+                    recording.validation(model, learn_config.validation_function, state)
+                if faceoff_rounds > 0:
+                    reference_weights = torch.load(
+                        reference.path, map_location="cpu", weights_only=False
+                    )["model_state_dict"]
+                    result = validate_model_faceoff(
+                        pool=pool,
+                        model=model,
+                        players=players,
+                        previous_model_state_dict=reference_weights,
+                        model_callable=model_callable,
+                        model_kwargs=model_kwargs,
+                        rounds=faceoff_rounds,
+                        rounds_per_task=faceoff_rounds_per_task,
+                        model_player_config=model_player_config,
+                        start_state_generator=start_state_generator,
+                    )
+                    recording.faceoff(
+                        state,
+                        reference,
+                        result,
+                        protocol={
+                            "paired_rounds": faceoff_rounds,
+                            "interval": checkpoint_interval,
+                            "rounds_per_task": faceoff_rounds_per_task,
+                            "seed_rule": "global pair index, starting at zero",
+                            "acceptance_rule": "candidate_wins > champion_wins",
+                            "player": dataclasses.asdict(
+                                dataclasses.replace(
+                                    model_player_config, action_softmax_temperature=0.0
+                                )
+                            ),
+                            "start_state": "standard"
+                            if start_state_generator is None
+                            else start_state_generator.__qualname__,
+                        },
+                    )
+                    if result["passed"]:
+                        reference = saved
             timings["iteration"] = time.perf_counter() - iteration_started
             recording.iteration(
                 state,
@@ -653,10 +628,6 @@ def run_apply_async_local_selfplay_learning(
                 iteration + 1,
                 timings["iteration"],
             )
-
-    recording.save_snapshot(
-        model_factory, model, optimizer, run_configuration, state, role="final"
-    )
 
 
 def create_random_potential_clear_position() -> sj.Skyjo:
@@ -817,7 +788,6 @@ def launch(
                 outcome_rollouts=resolved["selfplay"]["outcome_rollouts"],
                 faceoff_rounds=resolved["faceoff"]["paired_rounds"],
                 faceoff_rounds_per_task=resolved["faceoff"]["rounds_per_task"],
-                promotion_interval=resolved["faceoff"]["interval"],
                 initial_training_dataset_path=pathlib.Path(initial_dataset)
                 if initial_dataset
                 else None,

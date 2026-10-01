@@ -1,3 +1,4 @@
+import copy
 import json
 import subprocess
 import sys
@@ -37,6 +38,16 @@ def test_invalid_config_fails_before_creating_run(tmp_path):
     assert not (tmp_path / "runs").exists()
 
 
+def test_faceoff_requires_shared_checkpoint_interval(tmp_path):
+    source = tmp_path / "mismatched.toml"
+    source.write_text("[faceoff]\npaired_rounds = 1\ninterval = 2\n")
+    with pytest.raises(ValueError, match="faceoff.interval must match"):
+        distributed_main.launch(source, tmp_path / "runs", allow_dirty=True)
+    assert not (tmp_path / "runs").exists()
+    source.write_text("[faceoff]\npaired_rounds = 0\ninterval = 2\n")
+    experiment_config.load_configuration(source)
+
+
 def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
     source = REPOSITORY / "configs" / "smoke.toml"
     run_paths = []
@@ -70,6 +81,9 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
             e["kind"] == "training" and "loss/total_loss" in e["metrics"] for e in trace
         )
         artifacts = events(run_path / "artifacts.jsonl")
+        checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
+        assert [e["progress"]["iteration"] for e in checkpoints] == [0, 1]
+        assert len(list((run_path / "checkpoints").glob("*.pth"))) == 2
         data_record = next(
             e for e in artifacts if e.get("artifact_kind") == "replay_data"
         )
@@ -113,77 +127,115 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         experiment_config.load_configuration(seeded_input)
 
 
-@pytest.mark.parametrize(
-    "checkpoint_interval,promotion_interval", [(1, 1), (2, 1), (1, 2)]
-)
-def test_score_recipe_records_validation_replay_replacement_and_rollback(
-    tmp_path, monkeypatch, checkpoint_interval, promotion_interval
+@pytest.mark.parametrize("iterations,interval", [(1, 1), (3, 1), (3, 2), (4, 2)])
+def test_continuous_training_records_exact_snapshots_and_evaluations(
+    tmp_path, monkeypatch, iterations, interval
 ):
     _, config = experiment_config.load_configuration(
-        REPOSITORY / "configs/score_aux.toml"
+        REPOSITORY / "configs/smoke.toml"
     )
-    config["budget"]["iterations"] = 2
-    config["budget"]["checkpoint_interval"] = checkpoint_interval
-    config["selfplay"].update(
-        games_per_iteration=1, games_per_task=1, outcome_rollouts=1
-    )
-    config["search"].update(iterations=1, terminal_state_initial_rollouts=1)
-    config["execution"].update(workers=1, threads_per_worker=1)
-    config["training"].update(batch_size=16, replay_ratio=0.1)
-    config["replay"]["capacity"] = 4096
-    config["faceoff"]["paired_rounds"] = 1
-    config["faceoff"]["interval"] = promotion_interval
-    source = tmp_path / "score-small.json"
+    config["budget"].update(iterations=iterations, checkpoint_interval=interval)
+    config["selfplay"]["games_per_iteration"] = 1
+    config["validation"].update(enabled=True, interval=7)
+    config["faceoff"].update(paired_rounds=1, interval=interval)
+    source = tmp_path / "small.json"
     source.write_text(json.dumps(config))
-    # Real training, deterministic rejection: this test owns rollback recording,
-    # not the separately tested faceoff scoring algorithm.
-    monkeypatch.setattr(
-        distributed_main,
-        "validate_model_faceoff",
-        lambda **kwargs: {
-            "candidate_wins": 0,
-            "champion_wins": 2,
-            "promoted": False,
-        },
-    )
+
+    # Real generation and optimizer updates; control only the evaluation outcome.
+    # Capture training outputs so checkpoint assertions detect any later rollback.
+    trained = []
+    original_train = distributed_main.train.train_steps
+
+    def capture_training(model, replay, **kwargs):
+        optimizer = kwargs["optimizer"]
+        if trained:
+            torch.testing.assert_close(model.state_dict(), trained[-1][0], rtol=0, atol=0)
+            torch.testing.assert_close(
+                optimizer.state_dict(), trained[-1][1], rtol=0, atol=0
+            )
+        losses = original_train(model, replay, **kwargs)
+        trained.append(copy.deepcopy((model.state_dict(), optimizer.state_dict())))
+        return losses
+
+    evaluated_references = []
+
+    def evaluate(**kwargs):
+        evaluated_references.append(copy.deepcopy(kwargs["previous_model_state_dict"]))
+        passed = len(evaluated_references) == 2
+        return {
+            "candidate_wins": 2 if passed else 0,
+            "champion_wins": 0 if passed else 2,
+            "passed": passed,
+        }
+
+    monkeypatch.setattr(distributed_main.train, "train_steps", capture_training)
+    monkeypatch.setattr(distributed_main, "validate_model_faceoff", evaluate)
     path = distributed_main.launch(source, tmp_path / "runs", allow_dirty=True)
     trace = events(path / "trajectory.jsonl")
     artifacts = events(path / "artifacts.jsonl")
+    boundaries = sorted({*range(interval, iterations + 1, interval), iterations})
+    checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
+    assert [e["progress"]["iteration"] for e in checkpoints] == [0, *boundaries]
+    assert len(list((path / "checkpoints").glob("*.pth"))) == len(checkpoints)
+    checkpoint_by_id = {e["artifact_id"]: e for e in checkpoints}
+    initial = torch.load(path / checkpoints[0]["path"], weights_only=False)
+    assert initial["configuration"]["model"]["name"]
+    assert initial["optimizer_state_dict"]["state"] == {}
+    for saved in checkpoints[1:]:
+        payload = torch.load(path / saved["path"], weights_only=False)
+        iteration = payload["progress"]["iteration"]
+        weights, optimizer_state = trained[iteration - 1]
+        torch.testing.assert_close(payload["model_state_dict"], weights, rtol=0, atol=0)
+        torch.testing.assert_close(
+            payload["optimizer_state_dict"], optimizer_state, rtol=0, atol=0
+        )
+        assert payload["progress"]["optimizer_steps"] == saved["progress"]["optimizer_steps"]
+        assert all(
+            s["step"].item() == payload["progress"]["optimizer_steps"]
+            for s in optimizer_state["state"].values()
+        )
+
+    baseline = [e for e in trace if e["kind"] == "initial_validation"]
+    assert len(baseline) == 1
+    assert baseline[0]["context"]["checkpoint_artifact_id"] == checkpoints[0]["artifact_id"]
     validations = [e for e in trace if e["kind"] == "validation"]
-    assert len(validations) == 2 and all(
-        "value_loss" in e["metrics"] for e in validations
-    )
-    rollbacks = [e for e in trace if e["kind"] == "rollback"]
-    assert len(rollbacks) == 2 // promotion_interval
-    assert rollbacks[-1]["progress"]["optimizer_steps"] > 0
-    assert rollbacks[-1]["context"]["active_state_progress"]["optimizer_steps"] == 0
+    assert [e["progress"]["iteration"] for e in validations] == boundaries
+    for event, saved in zip(validations, checkpoints[1:], strict=True):
+        assert "value_loss" in event["metrics"]
+        assert event["context"]["checkpoint_artifact_id"] == saved["artifact_id"]
+    assert not any(e["kind"] == "rollback" for e in trace)
     faceoffs = [e for e in trace if e["kind"] == "faceoff"]
-    checkpoint_ids = {
-        e["artifact_id"] for e in artifacts if e.get("artifact_kind") == "checkpoint"
-    }
-    assert all(
-        e["context"]["candidate_artifact_id"] in checkpoint_ids for e in faceoffs
-    )
+    assert [e["progress"]["iteration"] for e in faceoffs] == boundaries
+    reference_id = checkpoints[0]["artifact_id"]
+    for event, actual_reference in zip(faceoffs, evaluated_references, strict=True):
+        assert event["context"]["reference_artifact_id"] == reference_id
+        reference_payload = torch.load(
+            path / checkpoint_by_id[reference_id]["path"], weights_only=False
+        )
+        torch.testing.assert_close(
+            actual_reference, reference_payload["model_state_dict"], rtol=0, atol=0
+        )
+        if event["context"]["passed"]:
+            reference_id = event["context"]["checkpoint_artifact_id"]
+
     replays = [e for e in artifacts if e.get("artifact_kind") == "replay_data"]
     superseded = [e for e in artifacts if e["kind"] == "superseded"]
-    assert len(replays) == 2 and len(superseded) == 1
-    assert superseded[0]["artifact_id"] == replays[0]["artifact_id"]
-    assert superseded[0]["sequence"] < replays[1]["sequence"]
-    manifest = json.loads((path / replays[1]["path"] / "manifest.json").read_text())
-    assert manifest["dataset_id"] == replays[1]["metadata"]["dataset_id"]
+    assert len(replays) == iterations and len(superseded) == iterations - 1
+    for old, replacement, event in zip(replays, replays[1:], superseded):
+        assert event["artifact_id"] == old["artifact_id"]
+        assert event["sequence"] < replacement["sequence"]
+    run_id = json.loads((path / "run.json").read_text())["run_id"]
+    for iteration, replay in enumerate(replays, start=1):
+        batch = replay["metadata"]["latest_generated_batch"]
+        assert batch["run_id"] == run_id
+        assert batch["generation_iteration"] == iteration
+        if iteration == 1 or (iteration - 1) % interval == 0:
+            generation_checkpoint = checkpoint_by_id[batch["checkpoint_artifact_id"]]
+            assert generation_checkpoint["progress"]["iteration"] == iteration - 1
+        else:
+            assert batch["checkpoint_artifact_id"] is None
+            assert batch["checkpoint_path"] is None
+    manifest = json.loads((path / replays[-1]["path"] / "manifest.json").read_text())
+    assert manifest["dataset_id"] == replays[-1]["metadata"]["dataset_id"]
     assert manifest["source_checkpoint"] is None
-    assert (
-        replays[1]["metadata"]["previous_dataset_id"]
-        == replays[0]["metadata"]["dataset_id"]
-    )
-    assert replays[1]["metadata"]["latest_generated_batch"]["game_count"] == 1
-    assert manifest["game_count"] == 2
-    # Saving more often cannot promote intermediate model or optimizer updates.
-    checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
-    initial = torch.load(path / checkpoints[0]["path"], weights_only=False)
-    final = torch.load(path / checkpoints[-1]["path"], weights_only=False)
-    assert all(
-        torch.equal(value, final["model_state_dict"][key])
-        for key, value in initial["model_state_dict"].items()
-    )
-    assert final["optimizer_state_dict"]["state"] == {}
+    assert manifest["game_count"] == iterations

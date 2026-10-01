@@ -1,4 +1,4 @@
-"""State transitions and evidence recording for the distributed training recipe."""
+"""Progress and evidence recording for continuous distributed training."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 
 import numpy as np
+import torch
 
 from . import checkpoint, runs
 
@@ -16,47 +17,40 @@ from . import checkpoint, runs
 class Snapshot:
     path: pathlib.Path
     artifact_id: str | None
-    retained: checkpoint.TrainingProgress
 
 
 @dataclasses.dataclass(frozen=True)
 class TrainingState:
-    work: checkpoint.TrainingProgress
-    retained: checkpoint.TrainingProgress
+    progress: checkpoint.TrainingProgress
     generated_positions: int = 0
     snapshot: Snapshot | None = None
 
     def point(self) -> dict:
         return {
-            **dataclasses.asdict(self.work),
+            **dataclasses.asdict(self.progress),
             "generated_positions": self.generated_positions,
         }
 
     def generated(self, *, games: int, positions: int) -> TrainingState:
         return dataclasses.replace(
             self,
-            work=dataclasses.replace(
-                self.work, generated_games=self.work.generated_games + games
+            progress=dataclasses.replace(
+                self.progress, generated_games=self.progress.generated_games + games
             ),
             generated_positions=self.generated_positions + positions,
         )
 
     def trained(self, *, iteration: int, steps: int, batch_size: int) -> TrainingState:
-        def advance(progress):
-            return dataclasses.replace(
-                progress,
+        return TrainingState(
+            progress=dataclasses.replace(
+                self.progress,
                 iteration=iteration,
                 epoch=0,
-                generated_games=self.work.generated_games,
-                optimizer_steps=progress.optimizer_steps + steps,
-                sampled_positions=progress.sampled_positions + steps * batch_size,
-                trained_positions=progress.trained_positions + steps * batch_size,
-            )
-
-        return TrainingState(
-            advance(self.work),
-            advance(self.retained),
-            self.generated_positions,
+                optimizer_steps=self.progress.optimizer_steps + steps,
+                sampled_positions=self.progress.sampled_positions + steps * batch_size,
+                trained_positions=self.progress.trained_positions + steps * batch_size,
+            ),
+            generated_positions=self.generated_positions,
         )
 
 
@@ -89,7 +83,6 @@ class RecipeRecording:
                 progress=state.point(),
                 metrics=metrics or {},
                 context={
-                    "active_state_progress": dataclasses.asdict(state.retained),
                     "checkpoint_artifact_id": state.snapshot.artifact_id
                     if state.snapshot
                     else None,
@@ -109,7 +102,10 @@ class RecipeRecording:
     ) -> Snapshot:
         started = time.perf_counter()
         path = factory.save_model(
-            model, optimizer=optimizer, configuration=configuration, progress=state.work
+            model,
+            optimizer=optimizer,
+            configuration=configuration,
+            progress=state.progress,
         )
         seconds = time.perf_counter() - started
         snapshot = self.register_snapshot(path, state, role=role)
@@ -130,26 +126,76 @@ class RecipeRecording:
                 path,
                 kind="checkpoint",
                 progress=state.point(),
-                metadata={
-                    "active_state_progress": dataclasses.asdict(state.retained),
-                    "role": role,
-                },
+                metadata={"role": role},
             )
-        return Snapshot(path, artifact_id, state.retained)
+        return Snapshot(path, artifact_id)
+
+    def validation(
+        self,
+        model,
+        validate: Callable,
+        state: TrainingState,
+        *,
+        initial: bool = False,
+    ) -> None:
+        """Measure a saved model without changing training mode or randomness."""
+        started = time.perf_counter()
+        rng = checkpoint.capture_rng_state()
+        was_training = model.training
+        try:
+            model.eval()
+            with torch.inference_mode():
+                metrics = validate(model)
+        finally:
+            model.train(was_training)
+            checkpoint.restore_rng_state(rng)
+        self.event(
+            "initial_validation" if initial else "validation",
+            state,
+            metrics=metrics or {},
+            context={
+                "suite": "built_in_examples",
+                "seconds": time.perf_counter() - started,
+            },
+        )
+
+    def faceoff(
+        self,
+        state: TrainingState,
+        reference: Snapshot,
+        result: dict,
+        protocol: dict,
+    ) -> None:
+        self.event(
+            "faceoff",
+            state,
+            metrics={
+                "candidate_wins": result["candidate_wins"],
+                "champion_wins": result["champion_wins"],
+            },
+            context={
+                **protocol,
+                "passed": result["passed"],
+                "reference_artifact_id": reference.artifact_id,
+            },
+        )
 
     def save_replay(
         self,
         replay,
         *,
         state: TrainingState,
-        generation: Snapshot,
+        generation: Snapshot | None,
+        generation_iteration: int,
         game_count: int,
         generation_settings: dict,
     ) -> None:
         batch = {
+            "run_id": self.recorder.manifest["run_id"] if self.recorder else None,
+            "generation_iteration": generation_iteration,
             "game_count": game_count,
-            "checkpoint_artifact_id": generation.artifact_id,
-            "checkpoint_path": str(generation.path),
+            "checkpoint_artifact_id": generation.artifact_id if generation else None,
+            "checkpoint_path": str(generation.path) if generation else None,
             "settings": generation_settings,
         }
         metadata = {
@@ -227,61 +273,3 @@ class RecipeRecording:
             },
             context={"game_sample_count": len(records)},
         )
-
-
-@dataclasses.dataclass(frozen=True)
-class PromotionResult:
-    state: TrainingState
-    champion: Snapshot
-    promoted: bool
-
-
-def promote_candidate(
-    *,
-    model,
-    optimizer,
-    factory,
-    configuration: dict,
-    state: TrainingState,
-    champion: Snapshot,
-    evaluate: Callable[[], dict],
-    recording: RecipeRecording,
-    protocol: dict,
-) -> PromotionResult:
-    """Evaluate against the last accepted champion; return the entire transition."""
-    candidate = recording.save_snapshot(
-        factory, model, optimizer, configuration, state, role="candidate"
-    )
-    candidate_state = dataclasses.replace(state, snapshot=candidate)
-    result = evaluate()
-    recording.event(
-        "faceoff",
-        candidate_state,
-        metrics={
-            "candidate_wins": result["candidate_wins"],
-            "champion_wins": result["champion_wins"],
-        },
-        context={
-            **protocol,
-            "promoted": result["promoted"],
-            "champion_artifact_id": champion.artifact_id,
-            "candidate_artifact_id": candidate.artifact_id,
-            "candidate_state_progress": dataclasses.asdict(state.retained),
-        },
-    )
-    if result["promoted"]:
-        return PromotionResult(candidate_state, candidate, True)
-    checkpoint.load_checkpoint(
-        champion.path,
-        model=model,
-        optimizer=optimizer,
-        expected_configuration=configuration,
-        map_location=model.device,
-    )
-    restored = dataclasses.replace(state, retained=champion.retained, snapshot=champion)
-    recording.event(
-        "rollback",
-        restored,
-        context={"restored_checkpoint_artifact_id": champion.artifact_id},
-    )
-    return PromotionResult(restored, champion, False)
