@@ -114,7 +114,7 @@ def test_no_progress_rule_ends_game_and_doubles_scores(players: int):
     assert sj.get_countdown(s) == 0, (
         f"Final countdown: actual {sj.get_countdown(s)}, expected 0"
     )
-    assert sj.get_game_over(s)
+    assert sj.get_round_over(s)
 
     final_scores = sj.get_round_scores(s, round_ending_player=0)
     # After end_round (called by apply_action), all cards are visible. get_score gives the sum of card values.

@@ -55,6 +55,7 @@ MASK_SIZE = MASK_REPLACE + FINGER_COUNT
 GAME_TOP = 0
 GAME_DISCARDS = GAME_TOP + CARD_SIZE
 GAME_ACTION = GAME_DISCARDS + CARD_SIZE
+# Cumulative totals before the current round, in current-player order.
 GAME_SCORES = GAME_ACTION + ACTION_SIZE
 GAME_LAST_REVEALED_TURNS = GAME_SCORES + PLAYER_COUNT
 GAME_SIZE = GAME_LAST_REVEALED_TURNS + PLAYER_COUNT
@@ -101,8 +102,8 @@ Values:
         current turn count
     card: int | None 
         for use in random outcome
-    countdown: int 
-        number of cards remaining in the deck
+    countdown: int | None
+        remaining actions in the round's final turns, or None before ending
 """
 
 SkyjoAction: TypeAlias = int
@@ -318,7 +319,7 @@ def _player_table_is_visible(table: Table, player: int) -> bool:
 
 
 def new(*, players: int, top: int | None = None, rng: Random = random) -> Skyjo:
-    """Generate a fresh game with an initial visible discard.
+    """Generate the first round with zero scores and an initial visible discard.
 
     The discard is removed from the draw deck immediately. Pass ``top`` to
     choose its card index deterministically; otherwise it is sampled with
@@ -379,7 +380,7 @@ def get_deck(skyjo: Skyjo) -> Deck:
 
 
 def get_countdown(skyjo: Skyjo) -> int | None:
-    """Get the number of cards left in the deck."""
+    """Get remaining final-turn actions, or None before the round is ending."""
     return skyjo[6]
 
 
@@ -519,8 +520,29 @@ def get_fixed_perspective_round_scores(
     return np.roll(round_scores, get_player(skyjo))
 
 
+def get_game_scores(skyjo: Skyjo) -> np.ndarray[tuple[int], np.int16]:
+    """Get cumulative scores, including this round only once it is complete.
+
+    Scores are in current-player order. The returned array is independent of
+    the state; the stored totals always exclude the current round.
+    """
+    scores = get_game(skyjo)[
+        GAME_SCORES : GAME_SCORES + get_player_count(skyjo)
+    ].copy()
+    if get_round_over(skyjo):
+        scores += get_round_scores(skyjo)
+    return scores
+
+
+def get_fixed_perspective_game_scores(
+    skyjo: Skyjo,
+) -> np.ndarray[tuple[int], np.int16]:
+    """Get cumulative scores in fixed player order."""
+    return np.roll(get_game_scores(skyjo), get_player(skyjo))
+
+
 def get_winner(skyjo: Skyjo, round_ending_player: int = 0) -> int:
-    """Get the index of the winner relative to the current table.
+    """Get the index of the round winner relative to the current table.
     Round ending player is relative to current perspective."""
 
     scores = get_round_scores(skyjo, round_ending_player)
@@ -528,7 +550,7 @@ def get_winner(skyjo: Skyjo, round_ending_player: int = 0) -> int:
 
 
 def get_fixed_perspective_winner(skyjo: Skyjo) -> int:
-    """Get the index of the winner not from perspective of current player."""
+    """Get the round winner's fixed player index."""
 
     players = skyjo[3]
     winner = (get_winner(skyjo) + get_turn(skyjo)) % players
@@ -564,16 +586,24 @@ def get_player_count(skyjo: Skyjo) -> int:
     return skyjo[3]
 
 
-def get_game_over(skyjo: Skyjo) -> bool:
-    """Whether the game is over.
-    If there are any face-down cards game is not over"""
-    # table = skyjo[1]
-    # return not table[:, :, :, FINGER_HIDDEN].any()
+def get_round_over(skyjo: Skyjo) -> bool:
+    """Whether the round's final-turn countdown has finished."""
     return skyjo[6] == 0
 
 
-def get_game_about_to_end(skyjo: Skyjo) -> bool:
+def get_round_about_to_end(skyjo: Skyjo) -> bool:
+    """Whether the next action completes the round."""
     return skyjo[6] == 1
+
+
+def get_game_over(skyjo: Skyjo) -> bool:
+    """Whether a completed round brings any cumulative score to at least 100."""
+    return get_round_over(skyjo) and bool(np.any(get_game_scores(skyjo) >= 100))
+
+
+def get_game_about_to_end(skyjo: Skyjo) -> bool:
+    """Compatibility alias for get_round_about_to_end, not a game prediction."""
+    return get_round_about_to_end(skyjo)
 
 
 def hash_skyjo(skyjo: Skyjo) -> int:
@@ -1002,6 +1032,8 @@ def actions(skyjo: Skyjo) -> np.ndarray[tuple[int], np.int16]:
 
     mask = np.ndarray((MASK_SIZE,), dtype=np.int16)
     mask.fill(0)
+    if get_round_over(skyjo):
+        return mask
     game = skyjo[0]
     table = skyjo[1]
     if game[GAME_ACTION + ACTION_FLIP_SECOND]:
@@ -1093,7 +1125,7 @@ def random_valid_action(skyjo: Skyjo) -> int:
 
 
 def start_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
-    """Take skyjo state an start round by flipping first card for each player."""
+    """Reveal each player's first card on a fresh round's board."""
     players = skyjo[3]
     for _ in range(players):
         skyjo = randomize(skyjo, rng=rng)
@@ -1105,9 +1137,31 @@ def start_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
     return skyjo
 
 
+def start_next_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
+    """Deal a fresh round starting with the previous round's ending player.
+
+    The completed round remains unchanged. Its final totals become the new
+    round's starting totals, in the same current-player orientation.
+    """
+    if not get_round_over(skyjo):
+        raise ValueError("Cannot start the next round before this round ends")
+    if get_game_over(skyjo):
+        raise ValueError("Cannot start another round after the game ends")
+
+    players = get_player_count(skyjo)
+    starting_player = get_player(skyjo)
+    game, table, deck, _, _, card, countdown = new(players=players, rng=rng)
+    game[GAME_SCORES : GAME_SCORES + players] = get_game_scores(skyjo)
+    game[GAME_LAST_REVEALED_TURNS : GAME_LAST_REVEALED_TURNS + players] = (
+        starting_player
+    )
+    state = game, table, deck, players, starting_player, card, countdown
+    return start_round(state, rng=rng)
+
+
 def end_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
     """End the round by flipping all hidden cards."""
-    assert get_countdown(skyjo) == 0, "Game isn't over we can't end the round"
+    assert get_round_over(skyjo), "Cannot reveal final cards before the round ends"
     players = skyjo[3]
     for _ in range(players):
         for row in range(ROW_COUNT):
@@ -1136,6 +1190,8 @@ def end_round(skyjo: Skyjo, rng: Random = random) -> Skyjo:
 
 
 def apply_action(skyjo: Skyjo, action: SkyjoAction, rng: Random = random) -> Skyjo:
+    if get_round_over(skyjo):
+        raise ValueError("Cannot play an action after the round ends")
     players, countdown = get_player_count(skyjo), get_countdown(skyjo)
     # Apply action to skyjo
     if action == MASK_FLIP_SECOND_BELOW:
@@ -1202,18 +1258,16 @@ def selfplay(
     players: int = 4,
     rng: Random = random,
 ) -> None:
-    """Self-play a model until a game finishes."""
+    """Self-play a model until a round finishes."""
 
     skyjo = new(players=players)
     assert validate(skyjo)
     skyjo = start_round(skyjo, rng=rng)
-    countdown = skyjo[6]
-    while countdown != 0:
+    while not get_round_over(skyjo):
         mask = actions(skyjo)
         choice = model(skyjo)
         assert mask[choice]
         skyjo = apply_action(skyjo, choice, rng=rng)
-        countdown = skyjo[6]
     winner = get_fixed_perspective_winner(skyjo)
     print(winner)
     print(get_fixed_perspective_round_scores(skyjo))

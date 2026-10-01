@@ -488,7 +488,7 @@ class PureModelValuePlayer(AbstractPlayer):
         action_values = np.full(sj.MASK_SIZE, -np.inf, dtype=np.float32)
         for action in sj.get_actions(game_state):
             action_values[action] = 0.0
-            if sj.get_game_about_to_end(game_state):
+            if sj.get_round_about_to_end(game_state):
                 for _ in range(self.terminal_state_rollouts):
                     next_state = sj.apply_action(game_state, action)
                     action_values[action] += (

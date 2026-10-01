@@ -23,7 +23,7 @@ class LegacyGameStateMachine(RuleBasedStateMachine):
         self.rng = random.Random(seed)
         self.state = sj.start_round(sj.new(players=players, rng=self.rng), rng=self.rng)
 
-    @precondition(lambda self: not sj.get_game_over(self.state))
+    @precondition(lambda self: not sj.get_round_over(self.state))
     @rule(choice=st.integers(min_value=0, max_value=sj.MASK_SIZE - 1))
     def apply_legal_action(self, choice: int) -> None:
         valid_actions = np.flatnonzero(sj.actions(self.state))
@@ -38,12 +38,12 @@ class LegacyGameStateMachine(RuleBasedStateMachine):
         assert sj.get_player(self.state) == sj.get_turn(self.state) % sj.get_player_count(
             self.state
         )
-        if sj.get_turn(self.state) == old_turn + 1 and not sj.get_game_over(self.state):
+        if sj.get_turn(self.state) == old_turn + 1 and not sj.get_round_over(self.state):
             # Completed turns rotate the non-acting players one slot toward the
             # active-player perspective without changing their boards.
             assert np.array_equal(sj.get_table(self.state)[:-1], old_table[1:])
 
-    @precondition(lambda self: sj.get_game_over(self.state))
+    @precondition(lambda self: sj.get_round_over(self.state))
     @rule()
     def observe_terminal_state(self) -> None:
         scores = sj.get_round_scores(self.state)
@@ -56,7 +56,7 @@ class LegacyGameStateMachine(RuleBasedStateMachine):
     def state_is_valid_and_conserves_cards(self) -> None:
         assert sj.validate(self.state)
         assert_card_conservation(self.state)
-        if not sj.get_game_over(self.state):
+        if not sj.get_round_over(self.state):
             assert sj.actions(self.state).sum() > 0
 
 
