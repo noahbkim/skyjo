@@ -1159,10 +1159,11 @@ class TestGame:
                 ),
             ),
         )
-        assert game.final_scores == (54, 54)
+        assert game.final_scores == (108, 54)
+        assert game.final_score_differentials == (54, 0)
         assert game.players[0].hand_score == 54
         assert game.players[1].hand_score == 54
-        assert game.winner_index == 0
+        assert game.winner_index == 1
 
     def test_with_hidden_cards_revealed_lose(self) -> None:
         game = sj.Game(

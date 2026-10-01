@@ -143,6 +143,8 @@ class PredictorOutputQueue:
         self.free_value_output_queue = mp.Queue()
         self.policy_output_queue = mp.Queue()
         self.free_policy_output_queue = mp.Queue()
+        self.round_score_output_queue = mp.Queue()
+        self.free_round_score_output_queue = mp.Queue()
         self.batch_size_queue = mp.Queue()
 
     def empty(self) -> bool:
@@ -150,6 +152,7 @@ class PredictorOutputQueue:
             self.prediction_ids_queue.empty()
             and self.value_output_queue.empty()
             and self.policy_output_queue.empty()
+            and self.round_score_output_queue.empty()
         )
 
     def has_free(self) -> bool:
@@ -157,13 +160,15 @@ class PredictorOutputQueue:
             not self.free_prediction_ids_queue.empty()
             or not self.free_value_output_queue.empty()
             or not self.free_policy_output_queue.empty()
+            or not self.free_round_score_output_queue.empty()
         )
 
-    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_free(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return (
             self.free_prediction_ids_queue.get(),
             self.free_value_output_queue.get(),
             self.free_policy_output_queue.get(),
+            self.free_round_score_output_queue.get(),
         )
 
     def put_free(
@@ -171,32 +176,38 @@ class PredictorOutputQueue:
         prediction_ids_tensor: torch.Tensor,
         value_output_tensor: torch.Tensor,
         policy_output_tensor: torch.Tensor,
+        round_score_output_tensor: torch.Tensor,
     ) -> None:
         self.free_prediction_ids_queue.put(prediction_ids_tensor)
         self.free_value_output_queue.put(value_output_tensor)
         self.free_policy_output_queue.put(policy_output_tensor)
+        self.free_round_score_output_queue.put(round_score_output_tensor)
 
     def put(
         self,
         prediction_ids_tensor: torch.Tensor,
         value_output_tensor: torch.Tensor,
         policy_output_tensor: torch.Tensor,
+        round_score_output_tensor: torch.Tensor,
         batch_size: int,
     ) -> None:
         self.prediction_ids_queue.put(prediction_ids_tensor)
         self.value_output_queue.put(value_output_tensor)
         self.policy_output_queue.put(policy_output_tensor)
+        self.round_score_output_queue.put(round_score_output_tensor)
         self.batch_size_queue.put(batch_size)
 
-    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    def get(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
         prediction_ids_tensor = self.prediction_ids_queue.get()
         value_output_tensor = self.value_output_queue.get()
         policy_output_tensor = self.policy_output_queue.get()
+        round_score_output_tensor = self.round_score_output_queue.get()
         batch_size = self.batch_size_queue.get()
         return (
             prediction_ids_tensor,
             value_output_tensor,
             policy_output_tensor,
+            round_score_output_tensor,
             batch_size,
         )
 
@@ -463,6 +474,13 @@ class PredictorProcess(mp.Process):
                         ),
                         dtype=torch.float32,
                     ).share_memory_(),  # policy output
+                    torch.zeros(
+                        size=(
+                            self.input_queues[queue_id].max_batch_size,
+                            *model.value_output_shape,
+                        ),
+                        dtype=torch.float32,
+                    ).share_memory_(),  # normalized round-score output
                 )
 
     def _setup_logging(self):
@@ -482,7 +500,9 @@ class PredictorProcess(mp.Process):
         model = self.model_factory.get_latest_model()
         model.set_device(self.torch_device)
         model.eval()
-        logging.info(f"Loaded model from {self.model_factory._get_latest_model_path()}")
+        logging.info(
+            f"Loaded model from {self.model_factory.get_latest_checkpoint_path()}"
+        )
         return model
 
     def _gather_available_inputs(self, unified_input_queue: UnifiedPredictorInputQueue):
@@ -565,12 +585,18 @@ class PredictorProcess(mp.Process):
                     ) = unified_input_queue.get_batch(self.max_batch_size)
 
                     # Model Inference
-                    with torch.no_grad():
-                        value_output, policy_output = model(
+                    model.eval()
+                    with torch.inference_mode():
+                        model_output = model(
                             spatial_input_tensor,
                             non_spatial_input_tensor,
                             mask_tensor,
                         )
+                        value_output = model_output.value
+                        policy_output = model_output.policy_logits
+                        round_score_output = getattr(
+                            model_output, "auxiliary_outputs", {}
+                        ).get(skynet.ROUND_SCORE_TARGET_NAME)
 
                     # Send outputs back to clients
                     processed_count = 0
@@ -583,6 +609,7 @@ class PredictorProcess(mp.Process):
                             prediction_ids_tensor,
                             value_tensor,
                             policy_tensor,
+                            round_score_tensor,
                         ) = self.output_queues[queue_id].get_free()
                         prediction_ids_tensor[:batch_size] = prediction_ids[
                             processed_count : processed_count + batch_size
@@ -593,12 +620,19 @@ class PredictorProcess(mp.Process):
                         policy_tensor[:batch_size] = policy_output[
                             processed_count : processed_count + batch_size
                         ]
+                        if round_score_output is None:
+                            round_score_tensor[:batch_size].fill_(float("nan"))
+                        else:
+                            round_score_tensor[:batch_size] = round_score_output[
+                                processed_count : processed_count + batch_size
+                            ]
 
                         # Put results back into output queue
                         self.output_queues[queue_id].put(
                             prediction_ids_tensor,
                             value_tensor,
                             policy_tensor,
+                            round_score_tensor,
                             batch_size,
                         )
                         processed_count += batch_size
@@ -688,27 +722,42 @@ class DistributedPredictorClient(AbstractPredictorClient):
 
     def _get_new_output(
         self,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         (
             prediction_ids,
             value_output,
             policy_output,
+            round_score_output,
             batch_size,
         ) = self.output_queue.get()
         new_output = (
             prediction_ids[:batch_size].clone(),
             value_output[:batch_size].clone(),
             policy_output[:batch_size].clone(),
+            round_score_output[:batch_size].clone(),
         )
         self.output_queue.put_free(
             prediction_ids,
             value_output,
             policy_output,
+            round_score_output,
         )
         # logging.info(
         #     f"Recieved new output, batch_size: {batch_size}, first prediction_id: {new_output[0][0]}, last prediction_id: {new_output[0][-1]}"
         # )
         return new_output
+
+    def _current_model_output(self, sample_index: int) -> skynet.SkyNetOutput:
+        value = self.current_output[1][sample_index].unsqueeze(0)
+        policy = self.current_output[2][sample_index].unsqueeze(0)
+        round_score = self.current_output[3][sample_index].unsqueeze(0)
+        if torch.isnan(round_score).all():
+            return skynet.EquivariantOutput(value, policy)
+        return skynet.EquivariantAuxOutput(
+            value,
+            policy,
+            {skynet.ROUND_SCORE_TARGET_NAME: round_score},
+        )
 
     def _get_current_batch(
         self,
@@ -787,10 +836,7 @@ class DistributedPredictorClient(AbstractPredictorClient):
         to_return = (
             self.current_output[0][self.sample_count].item(),
             skynet.SkyNetPrediction.from_skynet_output(
-                skynet.EquivariantOutput(
-                    self.current_output[1][self.sample_count].unsqueeze(0),
-                    self.current_output[2][self.sample_count].unsqueeze(0),
-                )
+                self._current_model_output(self.sample_count)
             ),
         )
         self.sample_count += 1
@@ -809,10 +855,7 @@ class DistributedPredictorClient(AbstractPredictorClient):
                 (
                     self.current_output[0][sample_idx].item(),
                     skynet.SkyNetPrediction.from_skynet_output(
-                        skynet.EquivariantOutput(
-                            self.current_output[1][sample_idx].unsqueeze(0),
-                            self.current_output[2][sample_idx].unsqueeze(0),
-                        )
+                        self._current_model_output(sample_idx)
                     ),
                 )
             )
@@ -868,16 +911,31 @@ class LocalPredictorClient(AbstractPredictorClient):
 
     def _get_new_output(
         self,
-    ) -> tuple[list[int], torch.Tensor, torch.Tensor]:
+    ) -> tuple[list[int], skynet.SkyNetOutput]:
         (
             prediction_ids,
-            value_output,
-            policy_output,
+            model_output,
         ) = self.output_queue.pop(0)
         return (
             prediction_ids,
-            value_output,
-            policy_output,
+            model_output,
+        )
+
+    def _current_model_output(self, sample_index: int) -> skynet.SkyNetOutput:
+        model_output = self.current_output[1]
+        auxiliary_outputs = getattr(model_output, "auxiliary_outputs", None)
+        if auxiliary_outputs is None:
+            return skynet.EquivariantOutput(
+                model_output.value[sample_index : sample_index + 1],
+                model_output.policy_logits[sample_index : sample_index + 1],
+            )
+        return skynet.EquivariantAuxOutput(
+            model_output.value[sample_index : sample_index + 1],
+            model_output.policy_logits[sample_index : sample_index + 1],
+            {
+                name: value[sample_index : sample_index + 1]
+                for name, value in auxiliary_outputs.items()
+            },
         )
 
     def _get_current_batch(
@@ -934,18 +992,27 @@ class LocalPredictorClient(AbstractPredictorClient):
             device=self.device,
             dtype=torch.float32,
         )
-        with torch.no_grad():
-            value_output, policy_output = self.model(
+        self.model.eval()
+        with torch.inference_mode():
+            model_output = self.model(
                 spatial_input_tensor, nonspatial_input_tensor, mask_tensor
             )
             if self.device != torch.device("cpu"):
-                value_output = value_output.cpu()
-                policy_output = policy_output.cpu()
+                auxiliary_outputs = getattr(model_output, "auxiliary_outputs", None)
+                if auxiliary_outputs is None:
+                    model_output = skynet.EquivariantOutput(
+                        model_output.value.cpu(), model_output.policy_logits.cpu()
+                    )
+                else:
+                    model_output = skynet.EquivariantAuxOutput(
+                        model_output.value.cpu(),
+                        model_output.policy_logits.cpu(),
+                        {name: value.cpu() for name, value in auxiliary_outputs.items()},
+                    )
         self.output_queue.append(
             (
                 prediction_ids[:batch_size],
-                value_output,
-                policy_output,
+                model_output,
             )
         )
 
@@ -957,15 +1024,12 @@ class LocalPredictorClient(AbstractPredictorClient):
         to_return = (
             self.current_output[0][self.sample_count],
             skynet.SkyNetPrediction.from_skynet_output(
-                skynet.EquivariantOutput(
-                    self.current_output[1][self.sample_count].unsqueeze(0),
-                    self.current_output[2][self.sample_count].unsqueeze(0),
-                )
+                self._current_model_output(self.sample_count)
             ),
         )
         self.sample_count += 1
         # We have returned all of the samples in the current batch
-        if self.sample_count == self.current_output[1].shape[0]:
+        if self.sample_count == self.current_output[1].value.shape[0]:
             self.current_output = None
             self.sample_count = 0
         return to_return
@@ -974,15 +1038,14 @@ class LocalPredictorClient(AbstractPredictorClient):
         if self.current_output is None:
             self.current_output = self._get_new_output()
         outputs = []
-        for sample_idx in range(self.sample_count, self.current_output[1].shape[0]):
+        for sample_idx in range(
+            self.sample_count, self.current_output[1].value.shape[0]
+        ):
             outputs.append(
                 (
                     self.current_output[0][sample_idx],
                     skynet.SkyNetPrediction.from_skynet_output(
-                        skynet.EquivariantOutput(
-                            self.current_output[1][sample_idx].unsqueeze(0),
-                            self.current_output[2][sample_idx].unsqueeze(0),
-                        )
+                        self._current_model_output(sample_idx)
                     ),
                 )
             )
@@ -1017,7 +1080,7 @@ class LocalPredictorClient(AbstractPredictorClient):
 
         while not self.model_update_queue.empty():
             logging.info(
-                f"Updating model from latest path: {self.factory._get_latest_model_path()}"
+                f"Updating model from latest path: {self.factory.get_latest_checkpoint_path()}"
             )
             self.model_update_queue.get()
             self.model = self.factory.get_latest_model()

@@ -151,33 +151,61 @@ def simulate_game_end(
     np.ndarray[tuple[int], np.float32],
     np.ndarray[tuple[int], np.float32],
 ]:
-    """Returns expected outcome, score value, scores, and cleared columns."""
+    """Returns expected outcome, normalized scores, raw scores, and cleared columns."""
     players = sj.get_player_count(penultimate_state)
-    outcomes, score_differential_values, scores, cleared_columns = (
+    outcomes, normalized_round_scores, scores, cleared_columns = (
         np.zeros(players, dtype=np.float32),
         np.zeros(players, dtype=np.float32),
         np.zeros(players, dtype=np.float32),
-        np.zeros(players * sj.COLUMN_COUNT, dtype=np.float32),
+        np.zeros((players, sj.COLUMN_COUNT), dtype=np.float32),
     )
 
     for _ in range(simulations):
         game_state = penultimate_state
         final_state = sj.apply_action(game_state, last_action)
         outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
-        score_differential_values += (
-            skynet.skyjo_to_score_differential_state_value(final_state) / simulations
+        normalized_round_scores += (
+            skynet.skyjo_to_normalized_round_score_state_value(final_state)
+            / simulations
         )
         scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
         cleared_columns += (
-            sj.get_fixed_perspective_cleared_columns(final_state).reshape(-1)
+            sj.get_fixed_perspective_cleared_columns(final_state)
             / simulations
         )
-    return outcomes, score_differential_values, scores, cleared_columns
+    return outcomes, normalized_round_scores, scores, cleared_columns
+
+
+def future_clear_target_for_state(
+    state: sj.Skyjo,
+    fixed_perspective_final_clears: np.ndarray[tuple[int, int], np.float32],
+) -> np.ndarray[tuple[int, int], np.float32]:
+    """Return active-relative future-clear labels, masking existing clears."""
+    expected_shape = (sj.get_player_count(state), sj.COLUMN_COUNT)
+    if fixed_perspective_final_clears.shape == (
+        expected_shape[0] * expected_shape[1],
+    ):
+        fixed_perspective_final_clears = fixed_perspective_final_clears.reshape(
+            expected_shape
+        )
+    if fixed_perspective_final_clears.shape != expected_shape:
+        raise ValueError(
+            "fixed_perspective_final_clears must have shape "
+            f"{expected_shape}, got {fixed_perspective_final_clears.shape}"
+        )
+    target = np.roll(
+        fixed_perspective_final_clears,
+        -sj.get_player(state),
+        axis=0,
+    ).astype(np.float32, copy=True)
+    target[sj.get_cleared_columns(state).astype(bool)] = -1.0
+    return target
 
 
 def game_history_to_game_data(
     game_history: GameHistory,
     terminal_rollouts: int = 1,
+    include_future_clear_target: bool = True,
 ) -> tuple[GameData, GameStats]:
     """Convert self-play history into training rows and aggregate game stats.
 
@@ -197,20 +225,20 @@ def game_history_to_game_data(
     if sj.is_action_random(penultimate_action, penultimate_state):
         (
             outcome_state_value,
-            score_differential_state_value,
+            normalized_round_score_state_value,
             fixed_perspective_score,
             fixed_perspective_cleared_columns,
         ) = simulate_game_end(penultimate_state, penultimate_action, terminal_rollouts)
     else:
         terminal_state = game_history[-1].state
         outcome_state_value = skynet.skyjo_to_state_value(terminal_state)
-        score_differential_state_value = (
-            skynet.skyjo_to_score_differential_state_value(terminal_state)
+        normalized_round_score_state_value = (
+            skynet.skyjo_to_normalized_round_score_state_value(terminal_state)
         )
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(terminal_state)
         fixed_perspective_cleared_columns = sj.get_fixed_perspective_cleared_columns(
             terminal_state
-        ).reshape(-1)
+        ).astype(np.float32)
 
     # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
     # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
@@ -222,16 +250,27 @@ def game_history_to_game_data(
         action_mask = sj.actions(game_state).astype(np.float32)
         assert action is not None, "expected non-terminal action"
         assert mcts_probs is not None, "expected non-terminal action probabilities"
+        player = sj.get_player(game_state)
+        targets = {
+            "value": np.roll(outcome_state_value, -player),
+            skynet.ROUND_SCORE_TARGET_NAME: np.roll(
+                normalized_round_score_state_value, -player
+            ),
+            "policy": skynet.symmetrize_policy_target(
+                game_state,
+                mcts_probs,
+            ),
+        }
+        if include_future_clear_target:
+            targets[skynet.FUTURE_CLEAR_TARGET_NAME] = future_clear_target_for_state(
+                game_state,
+                fixed_perspective_cleared_columns,
+            )
         training_data.append(
             GameDataPoint(
                 game_state,  # game
                 action,  # realized action
-                {
-                    "value": np.roll(
-                        score_differential_state_value, -sj.get_player(game_state)
-                    ),
-                    "policy": mcts_probs,
-                },
+                targets,
             )
         )
         action_counts[action] += 1
@@ -427,15 +466,16 @@ def model_player_selfplay(
             game_state,
             model_player.predictor_client,
             mcts_iterations,
-            model_player.mcts_dirichlet_epsilon,
-            model_player.mcts_after_state_evaluate_all_children,
-            model_player.mcts_terminal_state_initial_rollouts,
-            model_player.mcts_forced_playout_k,
-            root_node,
+            dirichlet_epsilon=model_player.mcts_dirichlet_epsilon,
+            after_state_evaluate_all_children=model_player.mcts_after_state_evaluate_all_children,
+            terminal_state_initial_rollouts=model_player.mcts_terminal_state_initial_rollouts,
+            c_puct=model_player.mcts_c_puct,
+            fpu_reduction=model_player.mcts_fpu_reduction,
+            score_utility_weight=model_player.mcts_score_utility_weight,
+            root_node=root_node,
         )
         action_probabilities = root_node.policy_targets(
-            model_player.action_softmax_temperature,
-            model_player.mcts_forced_playout_k,
+            model_player.action_softmax_temperature
         )
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
@@ -496,17 +536,18 @@ def batched_model_player_selfplay(
             game_state,
             model_player.predictor_client,
             mcts_iterations,
-            model_player.mcts_dirichlet_epsilon,
-            model_player.mcts_after_state_evaluate_all_children,
-            model_player.mcts_terminal_state_initial_rollouts,
-            model_player.mcts_batched_leaf_count,
-            model_player.mcts_virtual_loss,
-            model_player.mcts_forced_playout_k,
-            root_node,
+            dirichlet_epsilon=model_player.mcts_dirichlet_epsilon,
+            after_state_evaluate_all_children=model_player.mcts_after_state_evaluate_all_children,
+            terminal_state_initial_rollouts=model_player.mcts_terminal_state_initial_rollouts,
+            batched_leaf_count=model_player.mcts_batched_leaf_count,
+            virtual_loss=model_player.mcts_virtual_loss,
+            c_puct=model_player.mcts_c_puct,
+            fpu_reduction=model_player.mcts_fpu_reduction,
+            score_utility_weight=model_player.mcts_score_utility_weight,
+            root_node=root_node,
         )
         action_probabilities = root_node.policy_targets(
-            model_player.action_softmax_temperature,
-            model_player.mcts_forced_playout_k,
+            model_player.action_softmax_temperature
         )
 
         action = np.random.choice(sj.MASK_SIZE, p=action_probabilities)
@@ -667,10 +708,11 @@ if __name__ == "__main__":
     import torch
 
     device = torch.device("cpu")
+    players = 2
     model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
-        value_output_shape=(2,),
+        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
+        value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=device,
         embedding_dimensions=16,

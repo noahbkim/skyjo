@@ -22,7 +22,9 @@ class MCTSConfig(config.Config):
     dirichlet_epsilon: float
     after_state_evaluate_all_children: bool
     terminal_state_initial_rollouts: int
-    forced_playout_k: float | None = None
+    c_puct: float = 1.5
+    fpu_reduction: float = 0.0
+    score_utility_weight: float = 0.0
 
 
 # MARK: NODE SCORING
@@ -31,22 +33,24 @@ class MCTSConfig(config.Config):
 def ucb_score(
     child: MCTSNode,
     parent: DecisionStateNode,
-    forced_playout_k: float | None = None,
 ) -> float:
     assert isinstance(parent, DecisionStateNode), (
         f"Parent must be DecisionStateNode, got {type(parent)}"
     )
     action_probability = parent.action_probability(child.action)
-    if (
-        forced_playout_k is not None
-        and child.visit_count > 0
-        and child.visit_count
-        < np.sqrt(forced_playout_k * parent.visit_count * action_probability)
-    ):
-        return 1000
-    return skynet.state_value_for_player(
-        child.state_value, sj.get_player(parent.state)
-    ) + action_probability * np.sqrt(parent.total_count) / (1 + child.child_count)
+    if child.has_value_estimate:
+        value = skynet.state_value_for_player(
+            child.state_value, sj.get_player(parent.state)
+        )
+    else:
+        value = parent.model_value_for_current_player - parent.fpu_reduction
+    exploration = (
+        parent.c_puct
+        * action_probability
+        * np.sqrt(parent.visit_count + 1)
+        / (1 + child.visit_count)
+    )
+    return value + exploration - getattr(child, "virtual_loss", 0.0)
 
 
 # MARK: NODES
@@ -61,11 +65,14 @@ class DecisionStateNode:
     model_prediction: skynet.SkyNetPrediction | None = None
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
+    virtual_loss_total: float = 0.0
     is_expanded: bool = False
     are_children_discovered: bool = False
     dirichlet_noise: np.ndarray[tuple[int], np.float32] | None = None
     dirichlet_epsilon: float = 0.0
-    forced_playout_k: float | None = None
+    c_puct: float = 1.5
+    fpu_reduction: float = 0.0
+    score_utility_weight: float = 0.0
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -82,15 +89,11 @@ class DecisionStateNode:
             f"State Value: {self.state_value}\n"
             f"Is Expanded: {self.is_expanded}\n"
             f"Model Prediction: {self.model_prediction}\n"
-            f"Forced Playout K: {self.forced_playout_k}\n"
             f"Children visit counts: {self.policy_targets() * sum(child.visit_count for child in self.children.values())}\n"
         )
 
     @property
     def total_count(self) -> int:
-        # TODO: optimize
-        if sj.get_round_about_to_end(self.state):
-            return sum(child.outcome_count for child in self.children.values())
         return self.visit_count
 
     @property
@@ -98,11 +101,24 @@ class DecisionStateNode:
         return self.visit_count
 
     @property
+    def virtual_loss(self) -> float:
+        return self.virtual_loss_total
+
+    @property
+    def has_value_estimate(self) -> bool:
+        return self.model_prediction is not None
+
+    @property
+    def model_value_for_current_player(self) -> float:
+        assert self.model_prediction is not None, "expected an expanded decision node"
+        return self.model_prediction.search_value(self.score_utility_weight)[0].item()
+
+    @property
     def state_value(self) -> skynet.StateValue:
         if self.visit_count == 0:
             if self.model_prediction is not None:
                 return skynet.to_state_value(
-                    self.model_prediction.value_output,
+                    self.model_prediction.search_value(self.score_utility_weight),
                     sj.get_player(self.state),
                 )
             return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
@@ -110,8 +126,7 @@ class DecisionStateNode:
 
     def _select_highest_ucb_child(self) -> MCTSNode:
         child_ucbs = [
-            (ucb_score(child, self, self.forced_playout_k), child)
-            for child in self.children.values()
+            (ucb_score(child, self), child) for child in self.children.values()
         ]
         max_ucb = max(child_ucbs, key=lambda x: x[0])[0]
         candidates = [item[1] for item in child_ucbs if abs(max_ucb - item[0]) < 1e-5]
@@ -138,13 +153,7 @@ class DecisionStateNode:
             )
 
     def select_child(self, **kwargs) -> MCTSNode:
-        highest_ucb_child = self._select_highest_ucb_child()
-        if (
-            isinstance(highest_ucb_child, TerminalStateNode)
-            and highest_ucb_child.is_random
-        ):
-            highest_ucb_child.realize_outcome()
-        return highest_ucb_child
+        return self._select_highest_ucb_child()
 
     def create_child_node(
         self,
@@ -158,6 +167,7 @@ class DecisionStateNode:
                 action=action,
                 is_random=sj.is_action_random(action, self.state),
                 initial_rollouts=terminal_state_initial_rollouts,
+                score_utility_weight=self.score_utility_weight,
             )
 
         if sj.is_action_random(action, self.state):
@@ -168,33 +178,17 @@ class DecisionStateNode:
             state=next_state,
             parent=self,
             action=action,
+            c_puct=self.c_puct,
+            fpu_reduction=self.fpu_reduction,
+            score_utility_weight=self.score_utility_weight,
         )
 
     def policy_targets(
-        self, temperature: float = 1.0, forced_playout_k: float | None = None
+        self, temperature: float = 1.0
     ) -> np.ndarray[tuple[int], np.float32]:
         visit_counts = np.zeros((sj.MASK_SIZE,), dtype=np.float32)
         for action, child in self.children.items():
             visit_counts[action] = child.visit_count
-
-        if forced_playout_k is not None:
-            most_visited_child = self.highest_visit_child()
-            most_visited_child_ucb = ucb_score(most_visited_child, self)
-            for action, child in self.children.items():
-                child_value = skynet.state_value_for_player(
-                    child.state_value, sj.get_player(self.state)
-                )
-                if action == most_visited_child.action or child.visit_count == 0:
-                    continue
-                forced_visits = np.floor(
-                    (
-                        self.action_probability(action) * np.sqrt(self.visit_count)
-                        + child_value * (1 + child.visit_count)
-                        - most_visited_child_ucb * (1 + child.visit_count)
-                    )
-                    / (child_value - most_visited_child_ucb)
-                )
-                visit_counts[action] -= max(0, forced_visits)
 
         if temperature == 0:
             visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
@@ -221,12 +215,13 @@ class AfterStateNode:
     action: sj.SkyjoAction
     parent: DecisionStateNode
     state_value_total: skynet.StateValue | None = None
-    children: dict[sj.Skyjo, DecisionStateNode | TerminalStateNode] = dataclasses.field(
+    children: dict[int, DecisionStateNode | TerminalStateNode] = dataclasses.field(
         default_factory=dict
     )
-    child_weights: dict[sj.Skyjo, int] = dataclasses.field(default_factory=dict)
-    child_weight_total: int = 0
+    child_weights: dict[int, float] = dataclasses.field(default_factory=dict)
+    child_weight_total: float = 0.0
     visit_count: int = 0
+    virtual_loss_total: float = 0.0
     is_expanded: bool = False
     all_children_discovered: bool = False
 
@@ -251,6 +246,14 @@ class AfterStateNode:
         return self.visit_count
 
     @property
+    def virtual_loss(self) -> float:
+        return self.virtual_loss_total
+
+    @property
+    def has_value_estimate(self) -> bool:
+        return self.is_expanded
+
+    @property
     def state_value(self) -> skynet.StateValue:
         if not self.is_expanded:
             return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
@@ -266,18 +269,6 @@ class AfterStateNode:
             self.state_value_total / self.visit_count
         )  # visit_count == realized_count_total
 
-    @property
-    def weighted_model_prediction_value(self) -> skynet.StateValue:
-        assert all(
-            child.model_prediction is not None for child in self.children.values()
-        ), "All children must have a model prediction"
-        return sum(
-            child.model_prediction.value_output
-            * self.child_weights[hash_]
-            / self.child_weight_total
-            for hash_, child in self.children.items()
-        )
-
     def _create_child(self, state: sj.Skyjo) -> MCTSNode:
         assert not sj.get_round_over(state), (
             "Create terminal state node explicitly instead"
@@ -286,6 +277,9 @@ class AfterStateNode:
             state=state,
             parent=self,
             action=self.action,
+            c_puct=self.parent.c_puct,
+            fpu_reduction=self.parent.fpu_reduction,
+            score_utility_weight=self.parent.score_utility_weight,
         )
 
     def realize_outcomes(self, n) -> None:
@@ -376,30 +370,21 @@ class AfterStateNode:
             self.child_weight_total += 1
         return self.children[next_state_hash]
 
-    def update(
+    def update_exact_child(
         self,
         child: DecisionStateNode,
-        value: skynet.StateValue,
-        prev_value: skynet.StateValue,
+        previous_child_value: skynet.StateValue,
     ) -> None:
-        """Used during backpropogation of a state value"""
+        """Update an exact chance expectation after one child value changes."""
         assert isinstance(child, DecisionStateNode), (
             f"Child must be a DecisionStateNode, got {type(child)} instead",
         )
-        # If all children are discovered, we can update by just the change
-        # in the state value of the previous (child) node since the weights
-        # are constant
-        if self.all_children_discovered:
-            self.state_value_total += (
-                (child.state_value - prev_value)
-                * self.child_weights[sj.hash_skyjo(child.state)]
-                / self.child_weight_total
-            )
-
-        # Otherwise we are just weighting by the occurences so we can just
-        # explicitly update the state value total
-        else:
-            self.state_value_total += value
+        assert self.all_children_discovered, "expected an exact chance node"
+        self.state_value_total += (
+            (child.state_value - previous_child_value)
+            * self.child_weights[sj.hash_skyjo(child.state)]
+            / self.child_weight_total
+        )
 
 
 @dataclasses.dataclass(slots=True)
@@ -415,6 +400,8 @@ class TerminalStateNode:
     is_expanded: bool = False
     are_children_discovered: bool = False
     outcome_total: skynet.StateValue | None = None
+    latest_outcome: skynet.StateValue | None = None
+    score_utility_weight: float = 0.0
 
     def __str__(self) -> str:
         return (
@@ -434,7 +421,11 @@ class TerminalStateNode:
 
     @property
     def child_count(self) -> int:
-        return self.outcome_count
+        return self.visit_count
+
+    @property
+    def has_value_estimate(self) -> bool:
+        return self.outcome_count > 0
 
     @property
     def state(self) -> sj.Skyjo:
@@ -444,13 +435,16 @@ class TerminalStateNode:
     def state_value(self) -> skynet.StateValue:
         return self.outcome_total / self.outcome_count
 
-    def realize_outcome(self) -> None:
+    def realize_outcome(self) -> skynet.StateValue:
         terminal_state = sj.apply_action(self.pre_terminal_state, self.action)
-
-        self.outcome_total += skynet.skyjo_to_score_differential_state_value(
-            terminal_state
+        outcome = skynet.skyjo_to_search_state_value(
+            terminal_state,
+            self.score_utility_weight,
         )
+        self.outcome_total += outcome
         self.outcome_count += 1
+        self.latest_outcome = outcome
+        return outcome
 
     def realize_outcomes(self, n: int) -> None:
         if self.is_random:
@@ -478,28 +472,39 @@ def find_leaf(
     return search_path
 
 
-def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue):
-    prev_node = None
-    prev_node_prev_state_value = None
+def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue) -> None:
+    """Back up one traversal return using edge visits consistently."""
+    effective_value = value
+    previous_node: MCTSNode | None = None
+    previous_node_old_value: skynet.StateValue | None = None
     for node in reversed(search_path):
-        original_state_value = node.state_value
+        original_state_value = node.state_value.copy()
         if isinstance(node, DecisionStateNode):
-            node.state_value_total += value
-        elif isinstance(node, AfterStateNode) and prev_node is not None:
-            node.update(prev_node, value, prev_node_prev_state_value)
+            node.state_value_total += effective_value
+        elif isinstance(node, AfterStateNode) and previous_node is not None:
+            assert isinstance(previous_node, DecisionStateNode)
+            assert previous_node_old_value is not None
+            if node.all_children_discovered:
+                node.update_exact_child(previous_node, previous_node_old_value)
+                effective_value = node.state_value.copy()
+            else:
+                node.state_value_total += effective_value
         node.visit_count += 1
-        prev_node = node
-        prev_node_prev_state_value = original_state_value
+        previous_node = node
+        previous_node_old_value = original_state_value
 
 
 def run_mcts(
     game_state: sj.Skyjo,
-    predictor_client: predictor.PredictorClient,
+    predictor_client: predictor.AbstractPredictorClient,
     iterations: int,
+    *,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
     terminal_state_initial_rollouts: int = 1,
-    forced_playout_k: float | None = None,
+    c_puct: float = 1.5,
+    fpu_reduction: float = 0.0,
+    score_utility_weight: float = 0.0,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Runs a batched MCTS using virtual loss evaluation.
@@ -534,6 +539,13 @@ def run_mcts(
     for network inference throught the predictor client. Once the results are
     ready we process them.
     """
+    if c_puct <= 0:
+        raise ValueError("c_puct must be positive")
+    if fpu_reduction < 0:
+        raise ValueError("fpu_reduction cannot be negative")
+    if score_utility_weight < 0:
+        raise ValueError("score_utility_weight cannot be negative")
+
     # Get model prediction for root state
     if root_node is None:
         _ = predictor_client.put(game_state)
@@ -543,23 +555,34 @@ def run_mcts(
             state=game_state,
             parent=None,
             action=None,
+            c_puct=c_puct,
+            fpu_reduction=fpu_reduction,
+            score_utility_weight=score_utility_weight,
         )
         root_node.expand(
             model_prediction=prediction,
             terminal_state_rollouts=terminal_state_initial_rollouts,
         )
 
-    # Inject dirichlet noise into the root node
+    else:
+        if not isinstance(root_node, DecisionStateNode):
+            raise TypeError("root_node must be a DecisionStateNode")
+        if (
+            root_node.c_puct != c_puct
+            or root_node.fpu_reduction != fpu_reduction
+            or root_node.score_utility_weight != score_utility_weight
+        ):
+            raise ValueError("reused root scoring configuration does not match")
+
+    # Root noise is local to this search invocation.
+    root_node.dirichlet_noise.fill(0)
+    root_node.dirichlet_epsilon = dirichlet_epsilon
     if dirichlet_epsilon > 0:
         valid_action_count = sj.actions(root_node.state).sum().item()
         dirichlet_noise = np.random.dirichlet(
             np.ones(valid_action_count) * 10 / valid_action_count,
         )
         root_node.dirichlet_noise[sj.get_actions(root_node.state)] = dirichlet_noise
-        root_node.dirichlet_epsilon = dirichlet_epsilon
-
-    if forced_playout_k is not None:
-        root_node.forced_playout_k = forced_playout_k
 
     search_depths = []
     for _ in range(iterations):
@@ -569,6 +592,11 @@ def run_mcts(
         )
         search_depths.append(len(search_path))
         leaf = search_path[-1]
+
+        if isinstance(leaf, TerminalStateNode):
+            backup_value = (
+                leaf.realize_outcome() if leaf.is_random else leaf.state_value.copy()
+            )
 
         # if isinstance(leaf, TerminalStateNode):
         #     leaf.realize_outcomes(terminal_state_initial_rollouts)
@@ -593,15 +621,11 @@ def run_mcts(
             for prediction_id, prediction in predictor_client.get_all():
                 child_hash = afterstate_prediction_ids[prediction_id]
                 child = leaf.children[child_hash]
-                # Treate these as being expanded and visited
                 child.expand(model_prediction=prediction)
-                child.visit_count += 1
-                child.state_value_total += skynet.to_state_value(
-                    prediction.value_output, sj.get_player(child.state)
-                )
                 del afterstate_prediction_ids[prediction_id]
 
             leaf.expand()
+            backup_value = leaf.state_value.copy()
 
         # DECISION STATE LEAF
         # We want to queue the decision state for model prediction. Also
@@ -619,7 +643,10 @@ def run_mcts(
                 model_prediction=prediction,
                 terminal_state_rollouts=terminal_state_initial_rollouts,
             )
-        backpropagate(search_path, leaf.state_value)
+            backup_value = leaf.state_value.copy()
+        else:
+            backup_value = leaf.state_value.copy()
+        backpropagate(search_path, backup_value)
     # print(sum(search_depths) / len(search_depths))
     return root_node
 
@@ -637,7 +664,7 @@ if __name__ == "__main__":
     players = 2
     model = skynet.SimpleSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         hidden_layers=[64, 64],
@@ -649,7 +676,6 @@ if __name__ == "__main__":
         sj.apply_action(sj.apply_action(winning_state, sj.MASK_TAKE), sj.MASK_SIZE - 1),
         predictor_client,
         iterations=1600,
-        max_parallel_threads=100,
     )
     print(root_node)
 

@@ -297,7 +297,7 @@ def _update_countdown(
         return (players - 1) * 2
     if (
         countdown is None
-        and (current_turn - last_revealed_turn) // players >= NO_PROGRESS_TURN_THRESHOLD
+        and (current_turn - last_revealed_turn) // players > NO_PROGRESS_TURN_THRESHOLD
     ):
         return (players - 1) * 2
     return _decrement_countdown(countdown)
@@ -319,7 +319,12 @@ def _player_table_is_visible(table: Table, player: int) -> bool:
 
 
 def new(*, players: int, top: int | None = None, rng: Random = random) -> Skyjo:
-    """Generate the first round with zero scores and an initial discard."""
+    """Generate the first round with zero scores and an initial visible discard.
+
+    The discard is removed from the draw deck immediately. Pass ``top`` to
+    choose its card index deterministically; otherwise it is sampled with
+    ``rng``.
+    """
 
     game = np.ndarray((GAME_SIZE,), dtype=np.int16)
     game.fill(0)
@@ -496,14 +501,13 @@ def get_round_scores(
                 np.delete(base_scores, round_ending_player)
             ) or (
                 (turn - get_last_revealed_turns(skyjo)[round_ending_player]) // players
-                >= NO_PROGRESS_TURN_THRESHOLD
-                + 1  # +1 because after last action turn is incremented again
+                > NO_PROGRESS_TURN_THRESHOLD
             ):
                 base_scores[round_ending_player] *= 2
         else:
             if (
                 turn - get_last_revealed_turns(skyjo)[player]
-            ) // players >= NO_PROGRESS_TURN_THRESHOLD:
+            ) // players > NO_PROGRESS_TURN_THRESHOLD:
                 base_scores[player] *= 2
     return base_scores
 
@@ -602,7 +606,7 @@ def get_game_about_to_end(skyjo: Skyjo) -> bool:
     return get_round_about_to_end(skyjo)
 
 
-def hash_skyjo(skyjo: Skyjo) -> bytes:
+def hash_skyjo(skyjo: Skyjo) -> int:
     """Hash the `skyjo` state.
 
     NOTE: This is  tobytes() can return the same hash for arrays of different shape.
@@ -731,7 +735,7 @@ def validate(skyjo: Skyjo) -> bool:
     # No card has been revealed for too long
     assert (
         get_turn(skyjo) - get_last_revealed_turns(skyjo)[0]
-    ) // players <= NO_PROGRESS_TURN_THRESHOLD or get_countdown(skyjo) == 0, (
+    ) // players <= NO_PROGRESS_TURN_THRESHOLD + 1 or get_countdown(skyjo) is not None, (
         f"A card has not been revealed for too long: {get_turn(skyjo)=}, {get_last_revealed_turns(skyjo)=}, {get_countdown(skyjo)=}"
         f"{(get_turn(skyjo) - get_last_revealed_turns(skyjo)[0]) // players=}"
     )
@@ -953,6 +957,7 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
     # If the finger is currently hidden, we need to draw, but only if
     # `card` is not specified.
     new_game = game.copy()
+    last_revealed_turn = get_last_revealed_turns(skyjo)[0]
     if table[0, row, column, FINGER_HIDDEN]:
         finger = FINGER_HIDDEN
         if card is None:
@@ -970,7 +975,6 @@ def replace(skyjo: Skyjo, row: int, column: int) -> Skyjo:
         else:
             assert table[0, row, column, FINGER_CLEARED]
             raise ValueError(f"{skyjo!r} cannot replace cleared ({row}, {column})")
-    last_revealed_turn = get_last_revealed_turns(skyjo)[0]
 
     # Replace the current discard with `card`
     if card is not None:
@@ -1088,10 +1092,6 @@ def is_action_random(action: SkyjoAction, skyjo: Skyjo) -> bool:
     if MASK_FLIP <= action < MASK_FLIP + FINGER_COUNT:
         return True
     row, column = divmod(action - MASK_REPLACE, COLUMN_COUNT)
-    # If replacing doesn't reveal a card and NO PROGRESS_TURN_THRESHOLD will be reached,
-    # then game will end and thus there will be random outcomes from flipping.
-    if not table[0, row, column, FINGER_HIDDEN] <= get_turn(skyjo) + 1:
-        return True
     return bool(table[0, row, column, FINGER_HIDDEN])
 
 

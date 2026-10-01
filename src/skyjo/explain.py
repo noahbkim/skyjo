@@ -443,9 +443,9 @@ VALIDATION_EXAMPLES = [
 
 def validate_model_on_validation_examples(
     model: skynet.SkyNet,
-    value_loss_scale: float = 1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
-):
+) -> dict[str, float]:
     game_data = []
     for description, game_state, targets in VALIDATION_EXAMPLES:
         game_data.append(
@@ -461,6 +461,12 @@ def validate_model_on_validation_examples(
     logging.info("[VALIDATION] VALIDATION SET LOSS")
     logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
     logging.info(f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}")
+
+    metrics = {
+        "value_loss": value_loss_scale * value_loss.item(),
+        "policy_loss": policy_loss_scale * policy_loss.item(),
+        "example_count": len(VALIDATION_EXAMPLES),
+    }
 
     logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
     for description, game_state, targets in VALIDATION_EXAMPLES:
@@ -480,15 +486,16 @@ def validate_model_on_validation_examples(
         logging.info(f"[VALIDATION] model prediction:\n{model_prediction}")
         logging.info(f"[VALIDATION] value target: {targets.value}")
         logging.info(f"[VALIDATION] policy target:\n{targets.policy}")
+    return metrics
 
 
 def validate_model_with_games_data(
     model: skynet.SkyNet,
     validation_batch: train_utils.TrainingBatch,
-    value_loss_scale: float = 3.0,
+    value_loss_scale: float = 1.0,
 ):
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         spatial_inputs_tensor = torch.tensor(
             validation_batch.spatial_inputs, dtype=torch.float32, device=model.device
         )
@@ -533,12 +540,17 @@ def validate_model_with_games_data(
 def validate_model(
     model: skynet.SkyNet,
     validation_batch: train_utils.TrainingBatch | None = None,
-    value_loss_scale: float = 1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
-):
-    validate_model_on_validation_examples(model, value_loss_scale, policy_loss_scale)
+) -> dict[str, float]:
+    metrics = validate_model_on_validation_examples(
+        model, value_loss_scale, policy_loss_scale
+    )
     if validation_batch is not None:
-        validate_model_with_games_data(model, validation_batch)
+        metrics["batch_total_loss"] = float(
+            validate_model_with_games_data(model, validation_batch, value_loss_scale)
+        )
+    return metrics
 
 
 if __name__ == "__main__":
@@ -547,7 +559,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     model = skynet.SimpleSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=(sj.GAME_SIZE,),
+        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         hidden_layers=[64, 64],

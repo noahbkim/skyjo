@@ -2,13 +2,14 @@
 processes."""
 
 import pathlib
-import re
 import typing
+import datetime
 
 import torch
 
 from . import game as sj
 from . import skynet
+from . import checkpoint
 
 
 class SkyNetModelFactory:
@@ -26,6 +27,13 @@ class SkyNetModelFactory:
         self.device = device
         self.model_kwargs = model_kwargs
         self.model_callable = model_callable
+        if list(self.models_dir.glob("checkpoint_*.pth")):
+            return
+        legacy_models = list(self.models_dir.glob("model_*.pth"))
+        if legacy_models:
+            raise checkpoint.CheckpointFormatError(
+                f"{self.models_dir} contains raw model files but no versioned checkpoints"
+            )
         if initial_model is None:
             initial_model = self.model_callable(
                 spatial_input_shape=(
@@ -34,7 +42,7 @@ class SkyNetModelFactory:
                     sj.COLUMN_COUNT,
                     sj.FINGER_SIZE,
                 ),
-                non_spatial_input_shape=(sj.GAME_SIZE,),
+                non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
                 value_output_shape=(players,),
                 policy_output_shape=(sj.MASK_SIZE,),
                 device=self.device,
@@ -47,41 +55,35 @@ class SkyNetModelFactory:
         return f"SkyNetModelFactory(model_callable={self.model_callable}, players={self.players}, device={self.device}, models_dir={self.models_dir}, model_kwargs={self.model_kwargs})"
 
     def _get_latest_model_path(self) -> pathlib.Path:
-        """Finds the model file with the latest timestamp in the filename."""
-        model_files = list(self.models_dir.glob("model_*.pth"))
-        if not model_files:
-            # If no models saved yet, return path for the initial model
-            # Assuming the initial model is saved with a specific name or timestamp 0
-            # For simplicity, let's assume save_model ensures one exists or handles it.
-            # Re-evaluating: It's better to raise an error if called before first save.
-            raise FileNotFoundError(f"No model files found in {self.models_dir}")
+        """Find the newest versioned checkpoint; raw model files are ignored."""
+        checkpoint_files = sorted(self.models_dir.glob("checkpoint_*.pth"))
+        if not checkpoint_files:
+            raise FileNotFoundError(f"No checkpoints found in {self.models_dir}")
+        return checkpoint_files[-1]
 
-        # Regex to extract the timestamp YYYYMMDD_HHMMSS
-        pattern = re.compile(r"model_(\d{8}_\d{6})\.pth")
+    def get_latest_checkpoint_path(self) -> pathlib.Path:
+        return self._get_latest_model_path()
 
-        latest_file = None
-        latest_timestamp_str = ""
-
-        for file_path in model_files:
-            match = pattern.match(file_path.name)
-            if match:
-                timestamp_str = match.group(1)
-                # String comparison works for YYYYMMDD_HHMMSS format
-                if timestamp_str > latest_timestamp_str:
-                    latest_timestamp_str = timestamp_str
-                    latest_file = file_path
-
-        if latest_file is None:
-            # This case should ideally not happen if files exist and saving adheres to format
-            raise FileNotFoundError(
-                f"No model files matching the pattern 'model_YYYYMMDD_HHMMSS.pth' found in {self.models_dir}"
-            )
-
-        return latest_file
-
-    def save_model(self, model: skynet.SkyNet) -> pathlib.Path:
+    def save_model(
+        self,
+        model: skynet.SkyNet,
+        optimizer: torch.optim.Optimizer | None = None,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+        configuration: typing.Any = None,
+        progress: checkpoint.TrainingProgress | None = None,
+    ) -> pathlib.Path:
         self.models_dir.mkdir(parents=True, exist_ok=True)
-        return model.save(self.models_dir)
+        timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+            "%Y%m%d_%H%M%S_%f"
+        )
+        return checkpoint.save_checkpoint(
+            self.models_dir / f"checkpoint_{timestamp}.pth",
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            configuration=configuration,
+            progress=progress,
+        )
 
     def get_latest_model(self) -> skynet.SkyNet:
         latest_model_path = self._get_latest_model_path()
@@ -92,12 +94,17 @@ class SkyNetModelFactory:
                 sj.COLUMN_COUNT,
                 sj.FINGER_SIZE,
             ),
-            non_spatial_input_shape=(sj.GAME_SIZE,),
+            non_spatial_input_shape=skynet.get_non_spatial_input_shape(self.players),
             value_output_shape=(self.players,),
             policy_output_shape=(sj.MASK_SIZE,),
             device=self.device,
             **self.model_kwargs,
         )
-        model.load_state_dict(torch.load(latest_model_path, weights_only=True))
+        checkpoint.load_checkpoint(
+            latest_model_path,
+            model=model,
+            restore_rng=False,
+            map_location=self.device,
+        )
         model.to(self.device)
         return model
