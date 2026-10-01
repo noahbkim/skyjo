@@ -20,7 +20,6 @@ DEFAULTS = {
     "seed": 0,
     "players": 2,
     "model": {
-        "type": "equivariant",
         "embedding_dimensions": 16,
         "global_state_embedding_dimensions": 32,
         "num_heads": 2,
@@ -29,12 +28,8 @@ DEFAULTS = {
         "batch_size": 256,
         "replay_ratio": 4.0,
         "learn_rate": 0.001,
-        "loss": "base",
         "value_scale": 1.0,
         "policy_scale": 1.0,
-        "round_score_scale": 0.0,
-        "future_clear_scale": 0.0,
-        "clear_positive_weight": 10.0,
     },
     "selfplay": {
         "games_per_iteration": 1024,
@@ -47,22 +42,13 @@ DEFAULTS = {
         "after_state_evaluate_all_children": False,
         "c_puct": 1.0,
         "fpu_reduction": 0.25,
-        "score_utility_weight": 0.0,
         "action_softmax_temperature": 1.0,
     },
     "replay": {
         "capacity": 2_000_000,
-        "targets": "core",
         "initial_dataset": None,
         "dataset_id": None,
     },
-    "validation": {
-        "enabled": False,
-        "interval": 1,
-        "value_loss_scale": 1.0,
-        "policy_loss_scale": 1.0,
-    },
-    "faceoff": {"paired_rounds": 0, "rounds_per_task": 1, "interval": 1},
     "budget": {"iterations": 10, "checkpoint_interval": 1},
     "execution": {
         "device": "cpu",
@@ -116,18 +102,6 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     prior_derived = supplied.pop("derived", None)
     config = _merge(DEFAULTS, supplied)
     model, training, replay = (config[key] for key in ("model", "training", "replay"))
-    if (
-        model["type"] != "equivariant"
-        or training["loss"] != "base"
-        or replay["targets"] != "core"
-    ):
-        raise ValueError("Full-game baseline requires equivariant model, base loss, and core targets")
-    if training["round_score_scale"] or training["future_clear_scale"]:
-        raise ValueError("Full-game baseline disables auxiliary losses")
-    if config["validation"]["enabled"] or config["faceoff"]["paired_rounds"]:
-        raise ValueError("Round validation and faceoffs are disabled for full-game training")
-    if config["search"]["score_utility_weight"] != 0:
-        raise ValueError("Full-game baseline requires score_utility_weight=0")
     for section, keys in {
         "model": (
             "embedding_dimensions",
@@ -138,13 +112,10 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
             "batch_size",
             "replay_ratio",
             "learn_rate",
-            "clear_positive_weight",
         ),
         "selfplay": ("games_per_iteration", "games_per_task"),
         "search": ("iterations",),
         "replay": ("capacity",),
-        "validation": ("interval",),
-        "faceoff": ("rounds_per_task", "interval"),
         "budget": ("iterations", "checkpoint_interval"),
         "execution": ("workers", "threads_per_worker"),
     }.items():
@@ -157,22 +128,15 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         raise ValueError("seed must fit a uint32")
     if not all(isinstance(tag, str) for tag in config["tags"]):
         raise ValueError("tags must be strings")
-    if config["faceoff"]["paired_rounds"] < 0:
-        raise ValueError("faceoff.paired_rounds cannot be negative")
     for key in ("embedding_dimensions", "global_state_embedding_dimensions"):
         if model[key] % model["num_heads"]:
             raise ValueError(f"model.{key} must be divisible by num_heads")
     for key in (
         "value_scale",
         "policy_scale",
-        "round_score_scale",
-        "future_clear_scale",
     ):
         if training[key] < 0:
             raise ValueError(f"training.{key} cannot be negative")
-    for key in ("value_loss_scale", "policy_loss_scale"):
-        if config["validation"][key] < 0:
-            raise ValueError(f"validation.{key} cannot be negative")
     search = config["search"]
     if not 0 <= search["dirichlet_epsilon"] <= 1:
         raise ValueError("search.dirichlet_epsilon must be between zero and one")
@@ -206,7 +170,6 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         for spec in buffer.core_target_specs(players, (game.MASK_SIZE,))
     ]
     derived = {
-        "training_semantics": buffer.FULL_GAME_TRAINING_SEMANTICS,
         "spatial_input_shape": spatial,
         "non_spatial_input_shape": non_spatial,
         "action_mask_shape": [game.MASK_SIZE],
@@ -229,7 +192,6 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         ):
             raise ValueError("Unsupported initial replay dataset")
         for key in (
-            "training_semantics",
             "spatial_input_shape",
             "non_spatial_input_shape",
             "action_mask_shape",

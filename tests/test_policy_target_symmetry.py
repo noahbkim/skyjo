@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from skyjo import game as sj
-from skyjo import play, skynet
+from skyjo import play, player, skynet
 
 
 def state_with_symmetric_active_board() -> sj.Skyjo:
@@ -58,30 +58,23 @@ def test_symmetrize_policy_target_rejects_wrong_shape() -> None:
         )
 
 
-def test_game_history_conversion_symmetrizes_only_the_stored_target(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_full_game_conversion_symmetrizes_only_the_stored_target() -> None:
     state = state_with_symmetric_active_board()
     posterior = np.arange(1, sj.MASK_SIZE + 1, dtype=np.float32)
     posterior /= posterior.sum()
     unchanged = posterior.copy()
+    completed = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(2)])
+    last_round = completed.rounds[-1]
+    # Isolate one recorded decision and a genuine completed-game snapshot.
     history = [
-        play.GameHistoryEntry(state, sj.MASK_FLIP_SECOND_BELOW, posterior)
-        for _ in range(19)
+        play.RoundHistoryEntry(state, sj.MASK_FLIP_SECOND_BELOW, posterior),
+        last_round.history[-1],
     ]
-    history.append(play.GameHistoryEntry(state, None, None))
-    monkeypatch.setattr(
-        play,
-        "simulate_game_end",
-        lambda *args, **kwargs: (
-            np.array([1.0, 0.0], dtype=np.float32),
-            np.array([0.25, 0.75], dtype=np.float32),
-            np.array([10.0, 20.0], dtype=np.float32),
-            np.zeros(2 * sj.COLUMN_COUNT, dtype=np.float32),
-        ),
-    )
-
-    game_data, _ = play.game_history_to_game_data(history)
+    result = play.GameResult((play.RoundResult(
+        history, last_round.round_scores, last_round.cumulative_scores,
+        last_round.ending_player,
+    ),))
+    game_data, _ = play.game_result_to_game_data(result)
 
     assert game_data[0].action == sj.MASK_FLIP_SECOND_BELOW
     assert np.array_equal(posterior, unchanged)

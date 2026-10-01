@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import random
 import sys
-import types
 from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 
 from skyjo import buffer, play, skynet, train_utils
@@ -14,41 +11,6 @@ from skyjo import game as sj
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import distributed_main  # noqa: E402
-
-
-@pytest.mark.parametrize("rounds_per_task", [1, 2, 4])
-@pytest.mark.parametrize("wins_per_pair,passed", [((1, 1), False), ((2, 0), True)])
-def test_faceoff_batching_preserves_pair_seeds_and_strict_win_rule(
-    rounds_per_task, wins_per_pair, passed
-):
-    seeds = []
-
-    class Pool:
-        def apply_async(self, function, args):
-            # Worker input defines a consecutive range of paired-game seeds.
-            count, first_seed = args[5:7]
-            seeds.extend(range(first_seed, first_seed + count))
-            return types.SimpleNamespace(
-                get=lambda: tuple(count * wins for wins in wins_per_pair)
-            )
-
-    result = distributed_main.validate_model_faceoff(
-        pool=Pool(),
-        model=types.SimpleNamespace(state_dict=lambda: {}),
-        players=2,
-        previous_model_state_dict={},
-        model_callable=None,
-        model_kwargs={},
-        rounds=10,
-        rounds_per_task=rounds_per_task,
-        model_player_config=None,
-    )
-    assert seeds == list(range(10))
-    assert result == {
-        "candidate_wins": 10 * wins_per_pair[0],
-        "champion_wins": 10 * wins_per_pair[1],
-        "passed": passed,
-    }
 
 
 def test_torch_worker_uses_bounded_cpu_parallelism(monkeypatch):
@@ -122,7 +84,6 @@ def test_real_games_are_independent_of_task_batching():
 
 def make_buffer() -> buffer.ReplayBuffer:
     return buffer.ReplayBuffer(
-        training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
         max_size=8,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
@@ -146,7 +107,6 @@ def test_fresh_run_can_seed_buffer_without_overwriting_source(tmp_path):
     source.save(source_path)
     destination_path = tmp_path / "destination" / "dataset"
     config = buffer.Config(
-        training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
         max_size=8,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
@@ -189,7 +149,7 @@ def test_target_generation_is_sorted_and_does_not_need_randomness(monkeypatch):
         fake_conversion,
     )
     generated = [
-        distributed_main.GeneratedGameHistory(
+        distributed_main.GeneratedGame(
             global_game_index=index,
             play_seed=distributed_main.derive_game_seed(
                 9, index, distributed_main.PLAY_SEED_STREAM
@@ -216,23 +176,3 @@ def test_target_generation_is_sorted_and_does_not_need_randomness(monkeypatch):
         ordered_buffer.ordered_batch().value_targets,
         reversed_buffer.ordered_batch().value_targets,
     )
-
-
-@pytest.mark.parametrize("semantics", [None, "round_win_v1"])
-def test_pool_rejects_replay_with_old_or_missing_semantics(tmp_path, semantics):
-    source = make_buffer()
-    source.training_semantics = semantics
-    state = sj.new(players=2, top=0)
-    mask = sj.actions(state).astype(np.float32)
-    source.add(state, {"value": np.array([1, 0], dtype=np.float32), "policy": mask / mask.sum()})
-    source.save(tmp_path / "old")
-    config = buffer.Config(
-        max_size=8,
-        spatial_input_shape=source.spatial_input_buffer.shape[1:],
-        non_spatial_input_shape=source.non_spatial_input_buffer.shape[1:],
-        action_mask_shape=(sj.MASK_SIZE,),
-        path=tmp_path / "new",
-    )
-    with pytest.raises(ValueError, match="semantics"):
-        distributed_main.initialize_training_data_buffer(config, source.path)
-    assert not config.path.exists()

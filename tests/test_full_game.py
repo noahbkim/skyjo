@@ -158,15 +158,13 @@ def test_full_game_returns_round_histories_and_shared_winners(equal_hands):
             (42 * (number - 1), 21 * (number - 1), 21 * (number - 1)),
         )
 
-    # A completed round remains usable by the existing training/statistics path.
-    data, stats = play.game_history_to_game_data(result.rounds[0].history)
-    assert len(data) == len(result.rounds[0].history) - 1
-    np.testing.assert_array_equal(stats.scores_state_value, (42, 21, 21))
+    data, stats = play.game_result_to_game_data(result)
+    assert len(data) == sum(len(r.history) - 1 for r in result.rounds)
+    np.testing.assert_array_equal(stats.scores_state_value, (126, 63, 63))
 
 
-@pytest.mark.parametrize("runner", [play.play_round, play.play])
-def test_round_runners_stop_before_the_game_ends(runner, equal_hands):
-    history = runner([player.NaiveQuickFinishPlayer() for _ in range(3)])
+def test_play_round_stops_before_the_game_ends(equal_hands):
+    history = play.play_round([player.NaiveQuickFinishPlayer() for _ in range(3)])
 
     assert sj.get_round_over(history[-1].state)
     assert not sj.get_game_over(history[-1].state)
@@ -189,8 +187,8 @@ def test_full_game_targets_use_final_shared_winners_without_resampling(monkeypat
         entries = []
         for state in states:
             mask = sj.actions(state).astype(np.float32)
-            entries.append(play.GameHistoryEntry(state, int(np.flatnonzero(mask)[0]), mask / mask.sum()))
-        return entries + [play.GameHistoryEntry(terminal, None, None)]
+            entries.append(play.RoundHistoryEntry(state, int(np.flatnonzero(mask)[0]), mask / mask.sum()))
+        return entries + [play.RoundHistoryEntry(terminal, None, None)]
 
     result = play.GameResult((
         play.RoundResult(history([initial, second_seat], first), (3, 6, 9), (33, 6, 9), 0),
@@ -289,7 +287,7 @@ def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
     assert root.visit_count == 110
 
 
-def test_full_game_replay_keeps_rounds_together_and_preserves_semantics(tmp_path, equal_hands):
+def test_full_game_replay_keeps_rounds_together(tmp_path, equal_hands):
     from skyjo import buffer, skynet
 
     result = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
@@ -302,7 +300,6 @@ def test_full_game_replay_keeps_rounds_together_and_preserves_semantics(tmp_path
         spatial_input_shape=(3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=skynet.get_non_spatial_input_shape(3),
         action_mask_shape=(sj.MASK_SIZE,),
-        training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
     )
     for game_index in (4, 5, 6):
         replay.add_game_data(data, game_index=game_index)
@@ -314,9 +311,7 @@ def test_full_game_replay_keeps_rounds_together_and_preserves_semantics(tmp_path
     assert set(training.game_indices + validation.game_indices) == {5, 6}
     for number, selected in enumerate((training, validation)):
         assert len(selected) == game_length
-        assert selected.training_semantics == buffer.FULL_GAME_TRAINING_SEMANTICS
         batch = selected.ordered_batch()
         assert batch.non_spatial_inputs[:, sj.GAME_SCORES:sj.GAME_SCORES + 3].any()
         resaved = buffer.ReplayBuffer.load(selected.save(tmp_path / f"split-{number}"))
-        assert resaved.training_semantics == buffer.FULL_GAME_TRAINING_SEMANTICS
         np.testing.assert_array_equal(resaved.ordered_batch().value_targets, batch.value_targets)

@@ -601,11 +601,6 @@ def get_game_over(skyjo: Skyjo) -> bool:
     return get_round_over(skyjo) and bool(np.any(get_game_scores(skyjo) >= 100))
 
 
-def get_game_about_to_end(skyjo: Skyjo) -> bool:
-    """Compatibility alias for get_round_about_to_end, not a game prediction."""
-    return get_round_about_to_end(skyjo)
-
-
 def hash_skyjo(skyjo: Skyjo) -> int:
     """Hash the `skyjo` state.
 

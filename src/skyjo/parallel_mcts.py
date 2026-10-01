@@ -2,7 +2,7 @@
 
 All tree rules and node implementations live in :mod:`skyjo.mcts`.  Predictor
 clients remain responsible for coalescing queued evaluations; this module only
-retains the historical batched configuration and call surface.
+schedules batches of leaf evaluations.
 """
 
 from __future__ import annotations
@@ -26,17 +26,6 @@ class BatchedMCTSConfig(config.Config):
     score_utility_weight: float = 0.0
 
 
-# Compatibility names now point at the single tested node implementation.
-DecisionStateNode = mcts.DecisionStateNode
-AfterStateNode = mcts.AfterStateNode
-RoundBoundaryNode = mcts.RoundBoundaryNode
-MCTSNode = mcts.MCTSNode
-Config = BatchedMCTSConfig
-ucb_score = mcts.ucb_score
-find_leaf = mcts.find_leaf
-backpropagate = mcts.backpropagate
-
-
 def run_mcts(
     game_state: sj.Skyjo,
     predictor_client: predictor.AbstractPredictorClient,
@@ -49,8 +38,8 @@ def run_mcts(
     c_puct: float = 1.5,
     fpu_reduction: float = 0.0,
     score_utility_weight: float = 0.0,
-    root_node: MCTSNode | None = None,
-) -> MCTSNode:
+    root_node: mcts.MCTSNode | None = None,
+) -> mcts.MCTSNode:
     """Run shared tree semantics while batching pending leaf evaluations."""
     if batched_leaf_count < 1:
         raise ValueError("batched_leaf_count must be at least one")
@@ -70,7 +59,7 @@ def run_mcts(
 
     completed = 0
     while completed < iterations:
-        batch_paths: list[list[MCTSNode]] = []
+        batch_paths: list[list[mcts.MCTSNode]] = []
         seen_leaves: set[int] = set()
         for _ in range(min(batched_leaf_count, iterations - completed)):
             path = mcts.find_leaf(
@@ -88,8 +77,8 @@ def run_mcts(
                     node.virtual_loss += virtual_loss
             batch_paths.append(path)
 
-        pending: dict[int, tuple[str, list[MCTSNode], MCTSNode | None]] = {}
-        after_paths: dict[int, tuple[list[MCTSNode], AfterStateNode]] = {}
+        pending: dict[int, tuple[str, list[mcts.MCTSNode], mcts.MCTSNode | None]] = {}
+        after_paths: dict[int, tuple[list[mcts.MCTSNode], mcts.AfterStateNode]] = {}
         backup_values: dict[int, skynet.StateValue] = {}
         for path in batch_paths:
             leaf = path[-1]
@@ -150,7 +139,3 @@ def run_mcts(
             raise RuntimeError("batched search could not schedule a leaf")
 
     return root
-
-
-def visualize_children(node: MCTSNode) -> None:
-    mcts.visualize_children(node)

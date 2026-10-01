@@ -44,7 +44,7 @@ def test_future_clear_target_rotates_players_and_masks_existing_columns() -> Non
         dtype=np.float32,
     )
 
-    target = play.future_clear_target_for_state(tuple(state), fixed_final)
+    target = train_utils.future_clear_target_for_state(tuple(state), fixed_final)
 
     assert np.array_equal(
         target,

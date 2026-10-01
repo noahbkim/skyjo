@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo import explain, game as sj
+from skyjo import game as sj
 from skyjo import mcts, parallel_mcts, predictor, skynet
 
 
@@ -37,11 +37,6 @@ def run(search, *, batched_leaf_count: int | None = None):
         iterations=8,
         **kwargs,
     )
-
-
-def test_batched_adapter_uses_shared_node_core() -> None:
-    assert parallel_mcts.DecisionStateNode is mcts.DecisionStateNode
-    assert parallel_mcts.AfterStateNode is mcts.AfterStateNode
 
 
 def test_batch_size_one_matches_sequential_search_exactly() -> None:

@@ -32,20 +32,10 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
 
 def test_invalid_config_fails_before_creating_run(tmp_path):
     config = tmp_path / "bad.toml"
-    config.write_text("[training]\nfuture_clear_scale = 1.0\n")
-    with pytest.raises(ValueError, match="auxiliary losses"):
+    config.write_text("[training]\nbatch_size = 0\n")
+    with pytest.raises(ValueError, match="training.batch_size must be positive"):
         distributed_main.launch(config, tmp_path / "runs", allow_dirty=True)
     assert not (tmp_path / "runs").exists()
-
-
-def test_faceoff_requires_shared_checkpoint_interval(tmp_path):
-    source = tmp_path / "mismatched.toml"
-    source.write_text("[faceoff]\npaired_rounds = 1\ninterval = 2\n")
-    with pytest.raises(ValueError, match="Round validation and faceoffs"):
-        distributed_main.launch(source, tmp_path / "runs", allow_dirty=True)
-    assert not (tmp_path / "runs").exists()
-    source.write_text("[faceoff]\npaired_rounds = 0\ninterval = 2\n")
-    experiment_config.load_configuration(source)
 
 
 def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
@@ -90,13 +80,11 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         replay = buffer.ReplayBuffer.load(run_path / data_record["path"])
         assert replay.dataset_id == data_record["metadata"]["dataset_id"]
         assert replay.game_count == 2
-        assert replay.training_semantics == buffer.FULL_GAME_TRAINING_SEMANTICS
         assert set(replay.target_names) == {"value", "policy"}
         initial_payload = torch.load(run_path / checkpoints[0]["path"], weights_only=False)
         final_payload = torch.load(run_path / checkpoints[-1]["path"], weights_only=False)
         assert any(not torch.equal(initial_payload["model_state_dict"][k], v)
                    for k, v in final_payload["model_state_dict"].items())
-        assert final_payload["configuration"]["training_semantics"] == buffer.FULL_GAME_TRAINING_SEMANTICS
         final = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"][-1]
         model = skynet.EquivariantSkyNet(
             spatial_input_shape=replay.spatial_input_buffer.shape[1:],
@@ -188,7 +176,6 @@ def test_continuous_training_records_exact_snapshots(
             for s in optimizer_state["state"].values()
         )
 
-    assert not any(e["kind"] in ("validation", "initial_validation", "faceoff", "rollback") for e in trace)
 
     replays = [e for e in artifacts if e.get("artifact_kind") == "replay_data"]
     superseded = [e for e in artifacts if e["kind"] == "superseded"]

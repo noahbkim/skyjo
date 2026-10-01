@@ -20,7 +20,6 @@ from . import train_utils
 
 DATASET_FORMAT = "skyjo.replay-dataset"
 DATASET_VERSION = 1
-FULL_GAME_TRAINING_SEMANTICS = "full_game_win_v1"
 MANIFEST_FILE = "manifest.json"
 
 
@@ -124,7 +123,6 @@ class Config(config.Config):
     action_mask_shape: tuple[int, ...]
     target_specs: TargetSpecs | None = None
     path: pathlib.Path | None = None
-    training_semantics: str | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -182,11 +180,9 @@ class ReplayBuffer:
         action_mask_shape: tuple[int, ...],
         target_specs: TargetSpecInput = None,
         path: pathlib.Path | None = None,
-        training_semantics: str | None = None,
     ):
         if max_size < 1:
             raise ValueError("max_size must be at least one")
-        self.training_semantics = training_semantics
         self.max_size = max_size
         self.target_specs = resolve_target_specs(
             target_specs,
@@ -225,7 +221,6 @@ class ReplayBuffer:
             config.action_mask_shape,
             config.target_specs,
             config.path,
-            config.training_semantics,
         )
 
     @classmethod
@@ -234,8 +229,6 @@ class ReplayBuffer:
         if config.path is None or not (config.path / MANIFEST_FILE).is_file():
             return cls.from_config(config)
         replay_buffer = cls.load(config.path, capacity=config.max_size)
-        if replay_buffer.training_semantics != config.training_semantics:
-            raise ValueError("Replay training semantics do not match the configured objective")
         expected_specs = resolve_target_specs(
             config.target_specs,
             spatial_input_shape=config.spatial_input_shape,
@@ -364,7 +357,6 @@ class ReplayBuffer:
             path=path,
             capacity=capacity,
         )
-        loaded.training_semantics = manifest.get("training_semantics")
         loaded.dataset_id = str(manifest["dataset_id"])
         loaded.dataset_metadata = dict(manifest)
         return loaded
@@ -790,7 +782,6 @@ class ReplayBuffer:
             ),
             path=self.path,
         )
-        result.training_semantics = self.training_semantics
         result.dataset_id = self.dataset_id
         result.dataset_metadata = dict(self.dataset_metadata)
         return result
@@ -881,7 +872,6 @@ class ReplayBuffer:
 
             dataset_id = uuid.uuid4().hex
             manifest = {
-                "training_semantics": self.training_semantics,
                 "format": DATASET_FORMAT,
                 "version": DATASET_VERSION,
                 "dataset_id": dataset_id,

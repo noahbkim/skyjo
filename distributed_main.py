@@ -25,7 +25,6 @@ from skyjo import (
     experiment_config,
     experiment_training,
     explain,
-    faceoff,
     factory,
     mcts,
     play,
@@ -51,7 +50,7 @@ def configure_torch_worker(torch_thread_count: int) -> None:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class GeneratedGameHistory:
+class GeneratedGame:
     global_game_index: int
     play_seed: int
     result: play.GameResult
@@ -114,7 +113,7 @@ def play_games_locally(
     run_seed: int,
     first_game_index: int,
     start_state_generator: StartStateGenerator | None = None,
-) -> list[GeneratedGameHistory]:
+) -> list[GeneratedGame]:
     """Pool worker entrypoint.
 
     This intentionally does not use PredictorProcess or any queues. Each task gets
@@ -150,7 +149,7 @@ def play_games_locally(
         start_state = None if start_state_generator is None else start_state_generator()
         result = play.play_game(model_players, start_state=start_state)
         generated_games.append(
-            GeneratedGameHistory(
+            GeneratedGame(
                 global_game_index=global_game_index,
                 play_seed=play_seed,
                 result=result,
@@ -167,7 +166,7 @@ def game_batch_sizes(total_games: int, games_per_task: int) -> list[int]:
 
 
 def add_generated_games_to_buffer(
-    generated_games: typing.Iterable[GeneratedGameHistory],
+    generated_games: typing.Iterable[GeneratedGame],
     training_data_buffer: buffer.ReplayBuffer,
     *,
     log_progress: bool = False,
@@ -212,9 +211,6 @@ def initialize_training_data_buffer(
     initial_dataset_path: pathlib.Path | None = None,
 ) -> buffer.ReplayBuffer:
     """Load the destination dataset, or seed a fresh destination from a snapshot."""
-    config = dataclasses.replace(
-        config, training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS
-    )
     destination_manifest = (
         None if config.path is None else config.path / buffer.MANIFEST_FILE
     )
@@ -232,100 +228,6 @@ def initialize_training_data_buffer(
     return replay_buffer
 
 
-def faceoff_models_locally(
-    model_callable: typing.Callable[..., skynet.SkyNet],
-    model_state_dict: dict[str, torch.Tensor],
-    previous_model_state_dict: dict[str, torch.Tensor],
-    model_kwargs: dict[str, typing.Any],
-    players: int,
-    paired_rounds: int,
-    seed: int,
-    model_player_config: player.ModelPlayerConfig,
-    start_state_generator: StartStateGenerator | None = None,
-) -> tuple[int, int]:
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-
-    trained_model = build_local_model(
-        model_callable=model_callable,
-        model_kwargs=model_kwargs,
-        players=players,
-        model_state_dict=model_state_dict,
-    )
-    previous_model = build_local_model(
-        model_callable=model_callable,
-        model_kwargs=model_kwargs,
-        players=players,
-        model_state_dict=previous_model_state_dict,
-    )
-
-    return faceoff.model_mcts_faceoff(
-        trained_model,
-        previous_model,
-        model_player_config=model_player_config,
-        paired_rounds=paired_rounds,
-        seed=seed,
-        start_state_generator=start_state_generator,
-    )
-
-
-def validate_model_faceoff(
-    pool: mp.pool.Pool,
-    model: skynet.SkyNet,
-    players: int,
-    previous_model_state_dict: dict[str, torch.Tensor],
-    model_callable: typing.Callable[..., skynet.SkyNet],
-    model_kwargs: dict[str, typing.Any],
-    rounds: int,
-    rounds_per_task: int,
-    model_player_config: player.ModelPlayerConfig,
-    start_state_generator: StartStateGenerator | None = None,
-) -> dict[str, int | bool]:
-    batch_sizes = game_batch_sizes(rounds, rounds_per_task)
-    first_pair_indices = np.cumsum([0, *batch_sizes]).tolist()[:-1]
-    model_state_dict = {
-        name: value.detach().cpu() for name, value in model.state_dict().items()
-    }
-    async_results = [
-        pool.apply_async(
-            faceoff_models_locally,
-            (
-                model_callable,
-                model_state_dict,
-                previous_model_state_dict,
-                model_kwargs,
-                players,
-                batch_size,
-                first_pair_index,
-                model_player_config,
-                start_state_generator,
-            ),
-        )
-        for first_pair_index, batch_size in zip(
-            first_pair_indices, batch_sizes, strict=True
-        )
-    ]
-
-    trained_model_wins = 0
-    previous_model_wins = 0
-    for result in async_results:
-        task_trained_model_wins, task_previous_model_wins = result.get()
-        trained_model_wins += task_trained_model_wins
-        previous_model_wins += task_previous_model_wins
-
-    logging.info(
-        "[VALIDATION] Faceoff against previous model: trained model wins=%s previous model wins=%s",
-        trained_model_wins,
-        previous_model_wins,
-    )
-    return {
-        "candidate_wins": trained_model_wins,
-        "champion_wins": previous_model_wins,
-        "passed": trained_model_wins > previous_model_wins,
-    }
-
-
 def generate_iteration(
     pool,
     *,
@@ -333,7 +235,7 @@ def generate_iteration(
     games_per_task: int,
     first_game_index: int,
     worker_kwargs: dict,
-) -> list[GeneratedGameHistory]:
+) -> list[GeneratedGame]:
     """Dispatch one generation batch and collect its complete game histories."""
     sizes = game_batch_sizes(total_games, games_per_task)
     starts = np.cumsum([0, *sizes[:-1]]).tolist()
@@ -375,12 +277,9 @@ def run_apply_async_local_selfplay_learning(
     run_seed: int = 0,
     games_per_task: int = 1,
     start_state_generator: StartStateGenerator | None = None,
-    faceoff_rounds: int = 0,
     initial_training_dataset_path: pathlib.Path | None = None,
     recorder: runs.RunRecorder | None = None,
 ) -> None:
-    if learn_config.validation_function is not None or faceoff_rounds != 0:
-        raise ValueError("Round validation and faceoffs are disabled for full-game training")
     if model_player_config.mcts_score_utility_weight != 0:
         raise ValueError("Full-game training requires score_utility_weight=0")
     expected_specs = buffer.core_target_specs(players, (sj.MASK_SIZE,))
@@ -390,8 +289,8 @@ def run_apply_async_local_selfplay_learning(
         action_mask_shape=training_data_buffer_config.action_mask_shape,
     ) != expected_specs:
         raise ValueError("Full-game baseline requires core replay targets")
-    checkpoint_interval = learn_config.update_model_interval
-    if checkpoint_interval is None or checkpoint_interval < 1:
+    checkpoint_interval = learn_config.checkpoint_interval
+    if checkpoint_interval < 1:
         raise ValueError("checkpoint interval must be positive")
     if process_count < 1:
         raise ValueError("process_count must be positive")
@@ -407,7 +306,6 @@ def run_apply_async_local_selfplay_learning(
     model.set_device(learn_config.torch_device)
     optimizer = train.make_optimizer(model, training_config.learn_rate)
     run_configuration = {
-        "training_semantics": buffer.FULL_GAME_TRAINING_SEMANTICS,
         "model": {
             "name": getattr(model, "architecture_name", type(model).__name__),
             "non_spatial_input_shape": model.non_spatial_input_shape,
@@ -418,7 +316,6 @@ def run_apply_async_local_selfplay_learning(
             "games_generated_per_iteration": (
                 learn_config.games_generated_per_iteration
             ),
-            "validation_enabled": learn_config.validation_function is not None,
             "checkpoint_interval": checkpoint_interval,
         },
         "training": {
@@ -436,7 +333,6 @@ def run_apply_async_local_selfplay_learning(
             model=model,
             optimizer=optimizer,
             expected_configuration=run_configuration,
-            required_training_semantics=buffer.FULL_GAME_TRAINING_SEMANTICS,
             map_location=learn_config.torch_device,
         )
 
@@ -556,7 +452,7 @@ def run_apply_async_local_selfplay_learning(
                 )
 
             is_final = iteration + 1 == learn_config.learn_steps
-            if is_final or train.interval_due(iteration + 1, checkpoint_interval):
+            if is_final or (iteration + 1) % checkpoint_interval == 0:
                 saved = recording.save_snapshot(
                     model_factory,
                     model,
@@ -632,9 +528,7 @@ def launch(
             torch.set_num_threads(execution["threads_per_worker"])
             device = torch.device(execution["device"])
             model_callable = skynet.EquivariantSkyNet
-            model_kwargs = {
-                key: value for key, value in model_settings.items() if key != "type"
-            }
+            model_kwargs = dict(model_settings)
             model_factory = factory.SkyNetModelFactory(
                 model_callable=model_callable,
                 players=resolved["players"],
@@ -659,15 +553,8 @@ def launch(
                 games_generated_per_iteration=resolved["selfplay"][
                     "games_per_iteration"
                 ],
-                training_epochs=0,
-                training_batch_size=training_config.batch_size,
-                training_learn_rate=training_config.learn_rate,
-                training_loss_function=loss,
                 loss_stats_function=train_utils.loss_details_summary,
-                validation_interval=None,
-                validation_function=None,
-                update_model_interval=resolved["budget"]["checkpoint_interval"],
-                model_faceoff_function=None,
+                checkpoint_interval=resolved["budget"]["checkpoint_interval"],
             )
             search = dict(resolved["search"])
             temperature = search.pop("action_softmax_temperature")
@@ -707,7 +594,6 @@ def launch(
                 run_seed=resolved["seed"],
                 games_per_task=resolved["selfplay"]["games_per_task"],
                 start_state_generator=start_state,
-                faceoff_rounds=resolved["faceoff"]["paired_rounds"],
                 initial_training_dataset_path=pathlib.Path(initial_dataset)
                 if initial_dataset
                 else None,

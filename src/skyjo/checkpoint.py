@@ -118,7 +118,6 @@ def load_checkpoint(
     optimizer: torch.optim.Optimizer | None = None,
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     expected_configuration: typing.Any = None,
-    required_training_semantics: str | None = None,
     restore_rng: bool = True,
     map_location: torch.device | str | None = None,
 ) -> TrainingProgress:
@@ -134,11 +133,6 @@ def load_checkpoint(
         )
 
     actual_configuration = payload.get("configuration")
-    if required_training_semantics is not None and (
-        not isinstance(actual_configuration, dict)
-        or actual_configuration.get("training_semantics") != required_training_semantics
-    ):
-        raise CheckpointFormatError("Checkpoint training semantics do not match the active objective")
     if expected_configuration is not None and actual_configuration is not None:
         expected = normalize_configuration(expected_configuration)
         if actual_configuration != expected:

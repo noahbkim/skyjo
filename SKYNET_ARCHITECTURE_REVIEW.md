@@ -1,6 +1,6 @@
 # SkyNet Architecture Review
 
-This document reviews `skynet.py` as of the current repository state. The short version: the core idea is good. The `EquivariantSkyNet` architecture is intentionally small, uses attention in a way that respects the natural set structure of Skyjo columns, and its row/column permutation behavior checks out. The biggest opportunities are not "make it huge"; they are tightening the observation contract, training setup, output heads, and model invariance tests.
+This is a historical architecture review, predating the full-game baseline. See [README.md](README.md) and `configs/baseline.toml` for the supported training workflow. The short version: the core idea is good. The `EquivariantSkyNet` architecture is intentionally small, uses attention in a way that respects the natural set structure of Skyjo columns, and its row/column permutation behavior checks out. The biggest opportunities are not "make it huge"; they are tightening the observation contract, training setup, output heads, and model invariance tests.
 
 ## Current Architecture
 
@@ -9,7 +9,7 @@ This document reviews `skynet.py` as of the current repository state. The short 
 - `SimpleSkyNet`: a flat MLP baseline over concatenated board and non-board features.
 - `EquivariantSkyNet`: the main architecture, designed to be invariant/equivariant to Skyjo board symmetries.
 
-The current training path in `main.py` uses `EquivariantSkyNet` with roughly this configuration:
+The review used `EquivariantSkyNet` with roughly this configuration:
 
 ```python
 embedding_dimensions=32
