@@ -89,7 +89,7 @@ class DecisionStateNode:
     @property
     def total_count(self) -> int:
         # TODO: optimize
-        if sj.get_game_about_to_end(self.state):
+        if sj.get_round_about_to_end(self.state):
             return sum(child.outcome_count for child in self.children.values())
         return self.visit_count
 
@@ -151,7 +151,7 @@ class DecisionStateNode:
         action: sj.SkyjoAction,
         terminal_state_initial_rollouts: int = 1,
     ) -> MCTSNode:
-        if sj.get_game_about_to_end(self.state):
+        if sj.get_round_about_to_end(self.state):
             return TerminalStateNode(
                 pre_terminal_state=self.state,
                 parent=self,
@@ -259,7 +259,7 @@ class AfterStateNode:
         if (
             self.all_children_discovered
             or self.visit_count == 0
-            or sj.get_game_about_to_end(self.state)
+            or sj.get_round_about_to_end(self.state)
         ):
             return self.state_value_total
         return (
@@ -279,7 +279,7 @@ class AfterStateNode:
         )
 
     def _create_child(self, state: sj.Skyjo) -> MCTSNode:
-        assert not sj.get_game_over(state), (
+        assert not sj.get_round_over(state), (
             "Create terminal state node explicitly instead"
         )
         return DecisionStateNode(
@@ -294,7 +294,7 @@ class AfterStateNode:
 
     def _realize_outcome(self) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
-        assert not sj.get_game_over(outcome_state), (
+        assert not sj.get_round_over(outcome_state), (
             "Create terminal state node explicitly instead"
         )
         outcome_state_hash = sj.hash_skyjo(outcome_state)

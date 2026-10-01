@@ -19,7 +19,7 @@ def single_game_faceoff(
     if debug:
         print(sj.visualize_state(game_state))
 
-    while not sj.get_game_over(game_state):
+    while not sj.get_round_over(game_state):
         player = players[sj.get_player(game_state)]
         action = player.get_action(game_state)
         assert sj.actions(game_state)[action]

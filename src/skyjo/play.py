@@ -44,7 +44,37 @@ class GameHistoryEntry(typing.NamedTuple):
     action_probabilities: ActionProbabilities | None
 
 
-GameHistory: typing.TypeAlias = list[GameHistoryEntry]
+RoundHistory: typing.TypeAlias = list[GameHistoryEntry]
+# Compatibility name: existing training histories still represent one round.
+GameHistory: typing.TypeAlias = RoundHistory
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class RoundResult:
+    """A completed round, with scores and ending player in fixed player order."""
+
+    history: RoundHistory
+    round_scores: tuple[int, ...]
+    cumulative_scores: tuple[int, ...]
+    ending_player: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class GameResult:
+    """A full game's ordered rounds and outcome in fixed player order."""
+
+    rounds: tuple[RoundResult, ...]
+
+    @property
+    def final_scores(self) -> tuple[int, ...]:
+        return self.rounds[-1].cumulative_scores
+
+    @property
+    def winners(self) -> tuple[int, ...]:
+        best_score = min(self.final_scores)
+        return tuple(
+            i for i, score in enumerate(self.final_scores) if score == best_score
+        )
 
 
 class GameDataPoint(typing.NamedTuple):
@@ -271,7 +301,7 @@ def distributed_play(
         else:
             game_state = start_state
         game_history = []
-        while not sj.get_game_over(game_state):
+        while not sj.get_round_over(game_state):
             action_probabilities = players[
                 sj.get_player(game_state)
             ].get_action_probabilities(game_state)
@@ -287,12 +317,13 @@ def distributed_play(
     return game_histories
 
 
-def play(
+def play_round(
     players: list[player.AbstractPlayer],
     debug: bool = False,
     start_state: sj.Skyjo | None = None,
     stop_event: mp.Event | None = None,
-) -> GameHistory:
+) -> RoundHistory:
+    """Play one round, retaining each decision and its final snapshot."""
     if start_state is None:
         game_state = sj.new(players=len(players))
         game_state = sj.start_round(game_state)
@@ -302,7 +333,7 @@ def play(
 
     if debug:
         logging.info(f"{sj.visualize_state(game_state)}")
-    while (stop_event is None or not stop_event.is_set()) and not sj.get_game_over(
+    while (stop_event is None or not stop_event.is_set()) and not sj.get_round_over(
         game_state
     ):
         action_probabilities = players[
@@ -322,11 +353,50 @@ def play(
     if debug:
         outcome = skynet.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
-        logging.info("GAME OVER")
+        logging.info("ROUND OVER")
         logging.info(f"OUTCOME: {outcome}")
         logging.info(f"SCORES: {fixed_perspective_score}")
         logging.info(f"TOTAL TURNS: {sj.get_turn(game_state)}")
     return game_history
+
+
+# Preserve the single-round entry point used by existing training callers.
+play = play_round
+
+
+def play_game(
+    players: list[player.AbstractPlayer],
+    debug: bool = False,
+) -> GameResult:
+    """Play from zero scores to 100 or more, retaining each completed round."""
+    if not 2 <= len(players) <= sj.PLAYER_COUNT:
+        raise ValueError(f"Expected between 2 and {sj.PLAYER_COUNT} players")
+
+    state = sj.start_round(sj.new(players=len(players)))
+    rounds = []
+    while True:
+        history = play_round(players, debug=debug, start_state=state)
+        state = history[-1].state
+        rounds.append(
+            RoundResult(
+                history=history,
+                round_scores=tuple(
+                    map(int, sj.get_fixed_perspective_round_scores(state))
+                ),
+                cumulative_scores=tuple(
+                    map(int, sj.get_fixed_perspective_game_scores(state))
+                ),
+                ending_player=sj.get_player(state),
+            )
+        )
+        if sj.get_game_over(state):
+            result = GameResult(rounds=tuple(rounds))
+            if debug:
+                logging.info("GAME OVER")
+                logging.info(f"SCORES: {result.final_scores}")
+                logging.info(f"WINNERS: {result.winners}")
+            return result
+        state = sj.start_next_round(state)
 
 
 def model_player_selfplay(
@@ -346,7 +416,7 @@ def model_player_selfplay(
 
     root_node = None
     game_history = []
-    while (stop_event is None or not stop_event.is_set()) and not sj.get_game_over(
+    while (stop_event is None or not stop_event.is_set()) and not sj.get_round_over(
         game_state
     ):
         model_player = model_players[sj.get_player(game_state)]
@@ -372,13 +442,13 @@ def model_player_selfplay(
         game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         if sj.is_action_random(action, game_state):
             game_state = sj.apply_action(game_state, action)
-            if not sj.get_game_over(game_state):
+            if not sj.get_round_over(game_state):
                 root_node = root_node.children[action].children.get(
                     sj.hash_skyjo(game_state)
                 )
         else:
             game_state = sj.apply_action(game_state, action)
-            if not sj.get_game_over(game_state):
+            if not sj.get_round_over(game_state):
                 root_node = root_node.children[action]
 
         if debug:
@@ -415,7 +485,7 @@ def batched_model_player_selfplay(
 
     root_node = None
     game_history = []
-    while (stop_event is None or not stop_event.is_set()) and not sj.get_game_over(
+    while (stop_event is None or not stop_event.is_set()) and not sj.get_round_over(
         game_state
     ):
         model_player = model_players[sj.get_player(game_state)]
@@ -444,13 +514,13 @@ def batched_model_player_selfplay(
         game_history.append(GameHistoryEntry(game_state, action, action_probabilities))
         if sj.is_action_random(action, game_state):
             game_state = sj.apply_action(game_state, action)
-            if not sj.get_game_over(game_state):
+            if not sj.get_round_over(game_state):
                 root_node = root_node.children[action].children.get(
                     sj.hash_skyjo(game_state)
                 )
         else:
             game_state = sj.apply_action(game_state, action)
-            if not sj.get_game_over(game_state):
+            if not sj.get_round_over(game_state):
                 root_node = root_node.children[action]
 
         if debug:

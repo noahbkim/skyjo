@@ -20,8 +20,8 @@ def test_new_skyjo(players: int):
     assert game_state.shape == (sj.GAME_SIZE,)
     assert game_state[sj.GAME_ACTION + sj.ACTION_FLIP_SECOND] == 1
     assert (
-        np.sum(game_state[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE]) == 0
-    )  # No top card initially
+        np.sum(game_state[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE]) == 1
+    )  # The initial discard has already been drawn
     assert (
         np.sum(game_state[sj.GAME_DISCARDS : sj.GAME_DISCARDS + sj.CARD_SIZE]) == 0
     )  # No discards initially
@@ -50,7 +50,10 @@ def test_new_skyjo(players: int):
 
     # Assert deck state
     assert deck_state.shape == (sj.CARD_SIZE,)
-    assert np.array_equal(deck_state, np.array(sj.CARD_COUNTS, dtype=np.int16))
+    assert np.array_equal(
+        deck_state + game_state[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE],
+        np.array(sj.CARD_COUNTS, dtype=np.int16),
+    )
 
     # Assert other parameters
     assert num_players == players
@@ -117,7 +120,7 @@ def test_no_progress_rule_ends_game_and_doubles_scores(players: int):
     assert sj.get_countdown(s) == 0, (
         f"Final countdown: actual {sj.get_countdown(s)}, expected 0"
     )
-    assert sj.get_game_over(s)
+    assert sj.get_round_over(s)
 
     final_scores = sj.get_round_scores(s, round_ending_player=0)
     # After end_round (called by apply_action), all cards are visible. get_score gives the sum of card values.
