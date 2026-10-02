@@ -136,6 +136,31 @@ def test_progress_is_timed_including_idle_intervals_and_final_completion(
     assert "complete" in caplog.messages[-1]
 
 
+def test_default_progress_reports_only_completion_even_after_long_idle(
+    monkeypatch, caplog
+):
+    now = [0.0]
+    monkeypatch.setattr(experiment_training.time, "perf_counter", lambda: now[0])
+    config = experiment_training.ObservationConfig()
+    progress = experiment_training.GenerationProgress(8, config.progress_interval_seconds)
+    with caplog.at_level(logging.INFO):
+        for elapsed, games in ((300, 0), (600, 4), (900, 4)):
+            now[0] = elapsed
+            progress.games = games
+            progress.report()
+            assert progress.wait_seconds() is None
+        assert not caplog.records
+        now[0] = 1000
+        progress.games = 8
+        progress.decisions = 800
+        progress.report(final=True)
+    assert len(caplog.records) == 1
+    assert "8/8 games in 1000.0s" in caplog.messages[0]
+    assert "0.008 games/s" in caplog.messages[0]
+    assert "0.8 decisions/s" in caplog.messages[0]
+    assert "complete" in caplog.messages[0]
+
+
 @pytest.mark.parametrize(
     "interval,expected", [(0, []), (5, [0, 5, 10, 12]), (1, list(range(13)))]
 )

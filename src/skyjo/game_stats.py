@@ -240,8 +240,26 @@ def summarize_games(games: list[GameStats]) -> dict[str, float | int]:
     return metrics
 
 
-def format_summary(metrics: dict[str, float | int]) -> str:
-    """Render the same aggregates saved in the trajectory, without per-slot noise."""
+def format_summary(metrics: dict[str, float | int], *, detailed: bool = False) -> str:
+    """Render saved aggregates as a compact line or detailed DEBUG summary."""
+    if not detailed:
+        parts = [f"{metrics['round/count']} rounds"]
+        for name, label in (
+            ("round/turns", "turns/round"),
+            ("round/score", "points/player-round"),
+            ("round/clears", "clears/player-round"),
+        ):
+            value = metrics.get(f"{name}/mean")
+            parts.append(
+                f"{value:.2f} {label}" if value is not None else f"{label}: n/a"
+            )
+        rate = metrics.get("round/no_progress_rate")
+        parts.append(
+            f"{100 * rate:.1f}% no-progress"
+            if rate is not None
+            else "no-progress: n/a"
+        )
+        return " | ".join(parts)
     lines = [
         f"{metrics['round/count']} rounds ({metrics['round/partial_count']} partial)"
     ]

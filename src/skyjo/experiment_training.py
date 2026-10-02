@@ -17,15 +17,15 @@ from . import checkpoint, explain, game_stats, runs, train, train_utils
 
 @dataclasses.dataclass(frozen=True)
 class ObservationConfig:
-    progress_interval_seconds: float = 30.0
+    progress_interval_seconds: float = 0.0
     concept_interval: int = 5
 
     def __post_init__(self):
         if (
             not math.isfinite(self.progress_interval_seconds)
-            or self.progress_interval_seconds <= 0
+            or self.progress_interval_seconds < 0
         ):
-            raise ValueError("progress_interval_seconds must be finite and positive")
+            raise ValueError("progress_interval_seconds must be finite and nonnegative")
         if self.concept_interval < 0:
             raise ValueError("concept_interval cannot be negative")
 
@@ -36,7 +36,7 @@ class ObservationConfig:
 
 
 class GenerationProgress:
-    """Rate-limited parent-side progress, including periods without completions."""
+    """One completion summary, with optional timed updates when interval > 0."""
 
     def __init__(self, total_games: int, interval: float):
         self.total_games = total_games
@@ -46,12 +46,14 @@ class GenerationProgress:
         self.games = 0
         self.decisions = 0
 
-    def wait_seconds(self) -> float:
+    def wait_seconds(self) -> float | None:
+        if self.interval == 0:
+            return None
         return max(0, self.next_report - time.perf_counter())
 
     def report(self, *, final: bool = False) -> None:
         now = time.perf_counter()
-        if not final and now < self.next_report:
+        if not final and (self.interval == 0 or now < self.next_report):
             return
         elapsed = max(now - self.started, 1e-9)
         rate = self.games / elapsed
@@ -281,7 +283,8 @@ class RecipeRecording:
         )
         logging.info(
             "[TRAIN] %s new positions | %s replay positions | %s updates | %s sampled "
-            "| replay ratio %.2f | %.2f replay-equivalent passes | %.0f positions/s",
+            "| replay ratio %.2f | %.2f replay-equivalent passes | %.0f positions/s "
+            "| loss %.4f",
             new_positions,
             replay_positions,
             result.steps,
@@ -289,8 +292,9 @@ class RecipeRecording:
             ratio,
             passes,
             rate,
+            mean_losses["total_loss"],
         )
-        logging.info(
+        logging.debug(
             "[TRAIN] Mean losses: %s",
             {key: round(value, 5) for key, value in mean_losses.items()},
         )
@@ -338,13 +342,16 @@ class RecipeRecording:
         logging.info("[GAMES] %s", game_stats.format_summary(round_metrics))
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             logging.debug(
-                "[GAMES] Detailed summaries:\n%s", train_utils.game_stats_summary(games)
+                "[GAMES] Detailed summaries:\n%s\n%s",
+                game_stats.format_summary(round_metrics, detailed=True),
+                train_utils.game_stats_summary(games),
             )
         logging.info(
-            "[LEARN] Completed iteration %s | seconds: %s",
+            "[LEARN] Completed iteration %s in %.1fs",
             state.progress.iteration,
-            {key: round(value, 2) for key, value in timings.items()},
+            timings["iteration"],
         )
+        logging.debug("[LEARN] Phase timings (seconds): %s", timings)
 
     def save_rounds(
         self, state: TrainingState, prepared: PreparedGames, generation: Snapshot | None

@@ -81,9 +81,13 @@ action rates pool counts and eligible opportunities. No-progress endings are
 identified before automatic final reveals, and score adjustments compare raw
 board points with the scored round points.
 
-`logging.progress_interval_seconds` defaults to 30. Generation reports games/sec,
-decisions/sec, and ETA, including idle intervals and final completion. Task and
-target-conversion messages require `execution.debug = true`. Training summaries
+`logging.progress_interval_seconds` defaults to 0: one completion summary per
+generation phase, including elapsed time, games/sec, and decisions/sec. Set a
+positive interval (for example, 300 seconds) to also report progress and ETA while
+generation runs. Task and target-conversion messages require `execution.debug = true`.
+Game summaries show round averages and the no-progress ending rate; full
+distributions, action rates, loss components, and phase timings remain in the
+structured metrics and DEBUG logs. Training summaries
 show sampled positions, optimizer updates, replay ratio, and replay-equivalent
 passes. Structured policy diagnostics include position-weighted target entropy,
 predicted entropy, and KL(target || prediction), overall and by decision phase.

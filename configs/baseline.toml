@@ -48,7 +48,8 @@ threads_per_worker = 1
 debug = false
 
 [logging]
-progress_interval_seconds = 30.0
+# Completion summary only; set a positive interval for timed progress updates.
+progress_interval_seconds = 0.0
 
 [validation]
 concept_interval = 5

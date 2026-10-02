@@ -50,7 +50,7 @@ DEFAULTS = {
         "dataset_id": None,
     },
     "budget": {"iterations": 10, "checkpoint_interval": 1},
-    "logging": {"progress_interval_seconds": 30.0},
+    "logging": {"progress_interval_seconds": 0.0},
     "validation": {"concept_interval": 5},
     "execution": {
         "device": "cpu",
@@ -120,11 +120,12 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         "replay": ("capacity",),
         "budget": ("iterations", "checkpoint_interval"),
         "execution": ("workers", "threads_per_worker"),
-        "logging": ("progress_interval_seconds",),
     }.items():
         for key in keys:
             if config[section][key] <= 0:
                 raise ValueError(f"{section}.{key} must be positive")
+    if config["logging"]["progress_interval_seconds"] < 0:
+        raise ValueError("logging.progress_interval_seconds cannot be negative")
     if config["validation"]["concept_interval"] < 0:
         raise ValueError("validation.concept_interval cannot be negative")
     if config["players"] < 2 or config["seed"] < 0:

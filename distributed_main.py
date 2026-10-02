@@ -236,7 +236,7 @@ def generate_iteration(
     games_per_task: int,
     first_game_index: int,
     worker_kwargs: dict,
-    progress_interval_seconds: float = 30.0,
+    progress_interval_seconds: float = 0.0,
 ) -> list[GeneratedGame]:
     """Collect actual completions; deterministic ordering is restored before replay."""
     sizes = game_batch_sizes(total_games, games_per_task)

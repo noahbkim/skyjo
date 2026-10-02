@@ -29,7 +29,7 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
     assert config["selfplay"]["games_per_iteration"] == 256
     assert config["budget"]["iterations"] == 100
     assert config["replay"]["capacity"] == 524288
-    assert config["logging"]["progress_interval_seconds"] == 30
+    assert config["logging"]["progress_interval_seconds"] == 0
     assert config["validation"]["concept_interval"] == 5
     assert config["derived"]["optimizer"]["weight_decay"] == 1e-4
 
@@ -105,7 +105,11 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         log = (run_path / "logs/train.log").read_text()
         assert "games/s" in log and "replay-equivalent passes" in log
         assert "[TARGETS]" not in log and " tasks" not in log
-        assert log.count("[SELF-PLAY]") == 1  # Smoke generation finishes before 30s.
+        assert log.count("[SELF-PLAY]") == 1
+        assert log.count("[TRAIN]") == 1
+        assert log.count("[GAMES]") == 1
+        assert "p90=" not in log and "Action rates:" not in log
+        assert "Phase timings" not in log and "Mean losses" not in log
         replay = buffer.ReplayBuffer.load(run_path / data_record["path"])
         assert replay.dataset_id == data_record["metadata"]["dataset_id"]
         assert replay.game_count == 2
