@@ -3,6 +3,8 @@ Module to Train Skyjo models
 """
 
 import dataclasses
+import math
+import time
 import typing
 
 import torch
@@ -31,11 +33,50 @@ class ReplayRatioTrainConfig(config.Config):
             raise ValueError("replay_ratio must be positive")
 
 
+@dataclasses.dataclass(frozen=True)
+class TrainingResult:
+    losses: list[dict]
+    diagnostics: dict[str, float | int]
+    steps: int
+    sampled_positions: int
+    seconds: float
+
+
+def train_iteration(
+    model: skynet.SkyNet,
+    replay: buffer.ReplayBuffer,
+    optimizer: torch.optim.Optimizer,
+    config: ReplayRatioTrainConfig,
+    new_positions: int,
+) -> TrainingResult:
+    """Allocate a replay-ratio budget and collect detached diagnostics."""
+    steps = math.ceil(new_positions * config.replay_ratio / config.batch_size)
+    diagnostics = train_utils.TrainingDiagnostics()
+    started = time.perf_counter()
+    losses = train_steps(
+        model,
+        replay,
+        training_batch_size=config.batch_size,
+        optimizer_steps=steps,
+        optimizer=optimizer,
+        loss_function=config.loss_function,
+        diagnostics=diagnostics,
+    )
+    return TrainingResult(
+        losses,
+        diagnostics.summary(),
+        steps,
+        steps * config.batch_size,
+        time.perf_counter() - started,
+    )
+
+
 def train_step(
     model: skynet.SkyNet,
     batch: train_utils.TrainingBatch,
     loss_function: train_utils.LossFunction,
     optimizer: torch.optim.Optimizer,
+    diagnostics: train_utils.TrainingDiagnostics | None = None,
 ) -> tuple[float, train_utils.LossDetails]:
     """Performs a single training step on the model."""
     model.train()
@@ -54,6 +95,10 @@ def train_step(
     )
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
     loss, loss_detail = loss_function(model_output, tensor_targets)
+    if diagnostics is not None:
+        diagnostics.update(
+            model_output.policy_logits, tensor_targets.policy, masks_tensor
+        )
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
@@ -68,6 +113,7 @@ def train_steps(
     optimizer_steps: int,
     optimizer: torch.optim.Optimizer,
     loss_function: train_utils.LossFunction,
+    diagnostics: train_utils.TrainingDiagnostics | None = None,
 ) -> list[train_utils.LossDetails]:
     """Run exactly ``optimizer_steps`` updates sampled from the replay buffer."""
     if optimizer_steps < 0:
@@ -82,6 +128,7 @@ def train_steps(
             batch,
             loss_function,
             optimizer,
+            diagnostics,
         )
         loss_details.append(step_loss_details)
     return loss_details

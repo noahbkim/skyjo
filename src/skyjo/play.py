@@ -10,6 +10,7 @@ import numpy as np
 
 from . import game as sj
 from . import player, skynet
+from .game_stats import GameStats, analyze_game
 
 # MARK: Types
 
@@ -74,145 +75,18 @@ class GameDataPoint(typing.NamedTuple):
 GameData: typing.TypeAlias = list[GameDataPoint]
 
 
-@dataclasses.dataclass(slots=True)
-class GameStats:
-    game_length: int
-    outcome_state_value: skynet.StateValue
-    scores_state_value: skynet.StateValue
-    action_counts: np.ndarray[tuple[int], np.float32]
-    action_possibility_counts: np.ndarray[tuple[int], np.float32]
-    clear_count: int
-    flip_count: int
-    flip_possibility_count: int
-    replace_face_up_count: int
-    replace_face_down_count: int
-    replace_possibility_count: int
-
-    def to_record_dict(self) -> dict[str, typing.Any]:
-        record_dict = {
-            "game_length": self.game_length,
-            "clear_count": self.clear_count,
-        }
-        for i, outcome in enumerate(self.outcome_state_value):
-            record_dict[f"outcome_{i}"] = outcome
-        for i, score in enumerate(self.scores_state_value):
-            record_dict[f"score_{i}"] = score
-
-        flip_rate = self.flip_count / max(self.flip_possibility_count, 1)
-        replace_face_up_rate = self.replace_face_up_count / max(
-            self.replace_possibility_count, 1
-        )
-        replace_face_down_rate = self.replace_face_down_count / max(
-            self.replace_possibility_count, 1
-        )
-        record_dict["flip_rate"] = flip_rate
-        record_dict["replace_face_up_rate"] = replace_face_up_rate
-        record_dict["replace_face_down_rate"] = replace_face_down_rate
-
-        action_rates = self.action_counts / np.maximum(
-            self.action_possibility_counts, 1
-        )
-        for i in range(sj.MASK_SIZE):
-            record_dict[f"{sj.get_action_name(i)}"] = action_rates[i]
-        return record_dict
-
-
-def _round_history_to_game_data(
-    game_history: RoundHistory,
-    outcome_state_value: np.ndarray,
-    fixed_perspective_score: np.ndarray,
-) -> tuple[GameData, GameStats]:
-    training_data = []
-    action_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-    action_possibility_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-    flip_count, flip_possibility_count = 0, 0
-    replace_face_up_count, replace_face_down_count, replace_possibility_count = 0, 0, 0
-    for game_state, action, mcts_probs in game_history[:-1]:
-        action_mask = sj.actions(game_state).astype(np.float32)
-        assert action is not None, "expected non-terminal action"
-        assert mcts_probs is not None, "expected non-terminal action probabilities"
-        player = sj.get_player(game_state)
-        targets = {
-            "value": np.roll(outcome_state_value, -player),
-            "policy": skynet.symmetrize_policy_target(
-                game_state,
-                mcts_probs,
-            ),
-        }
-        training_data.append(
-            GameDataPoint(
-                game_state,  # game
-                action,  # realized action
-                targets,
-            )
-        )
-        action_counts[action] += 1
-        action_possibility_counts += action_mask
-        if action < sj.MASK_FLIP:
-            continue
-
-        # Always possible to replace a face up card or face down card
-        replace_possibility_count += 1
-        if np.any(action_mask[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT]):
-            flip_possibility_count += 1
-
-        if sj.MASK_FLIP <= action < sj.MASK_REPLACE:
-            flip_count += 1
-        else:
-            row, col = divmod(action - sj.MASK_REPLACE, sj.COLUMN_COUNT)
-            if sj.get_finger(game_state, row, col, 0) == sj.FINGER_HIDDEN:
-                replace_face_down_count += 1
-            else:
-                replace_face_up_count += 1
-
-    cleared_cards = (
-        sj.get_table(game_history[-1].state)[:, :, :, sj.FINGER_CLEARED].sum()
-    )
-    assert cleared_cards % 3 == 0, (
-        f"Cleared cards is not divisible by 3: {cleared_cards}"
-    )
-    clear_count = cleared_cards // 3
-    game_stats = GameStats(
-        game_length=len(game_history) - 1,
-        outcome_state_value=outcome_state_value,
-        scores_state_value=fixed_perspective_score,
-        action_counts=action_counts,
-        action_possibility_counts=action_possibility_counts,
-        clear_count=clear_count,
-        flip_count=flip_count,
-        flip_possibility_count=flip_possibility_count,
-        replace_face_up_count=replace_face_up_count,
-        replace_face_down_count=replace_face_down_count,
-        replace_possibility_count=replace_possibility_count,
-    )
-    return training_data, game_stats
-
-
 def game_result_to_game_data(result: GameResult) -> tuple[GameData, GameStats]:
-    """Label all decisions with the observed game result, without outcome resampling."""
-    if not result.rounds:
-        raise ValueError("Expected a completed full game")
-    final_state = result.rounds[-1].history[-1].state
-    outcome = skynet.skyjo_to_game_state_value(final_state)
-    scores = sj.get_fixed_perspective_game_scores(final_state)
+    """Label observed decisions with the full-game outcome and summarize play."""
+    stats = analyze_game(result)
     data = []
-    stats = None
     for round_result in result.rounds:
-        history = round_result.history
-        if len(history) < 2 or not sj.get_round_over(history[-1].state):
-            raise ValueError("Expected a completed round with decisions")
-        rows, round_stats = _round_history_to_game_data(history, outcome, scores)
-        data.extend(rows)
-        if stats is None:
-            stats = round_stats
-        else:
-            for field in dataclasses.fields(GameStats):
-                if field.name not in ("outcome_state_value", "scores_state_value"):
-                    setattr(
-                        stats, field.name,
-                        getattr(stats, field.name) + getattr(round_stats, field.name),
-                    )
-    assert stats is not None
+        for state, action, probabilities in round_result.history[:-1]:
+            assert action is not None and probabilities is not None
+            targets = {
+                "value": np.roll(stats.outcome_state_value, -sj.get_player(state)),
+                "policy": skynet.symmetrize_policy_target(state, probabilities),
+            }
+            data.append(GameDataPoint(state, action, targets))
     return data, stats
 
 
@@ -280,7 +154,8 @@ def play_game(
 
     state = (
         sj.start_round(sj.new(players=len(players)))
-        if start_state is None else start_state
+        if start_state is None
+        else start_state
     )
     if sj.get_player_count(state) != len(players) or sj.get_round_over(state):
         raise ValueError("Expected an active round matching the supplied players")

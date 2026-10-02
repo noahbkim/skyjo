@@ -10,6 +10,7 @@ import functools
 import logging
 import math
 import pathlib
+import queue
 import random
 import time
 import typing
@@ -194,7 +195,7 @@ def add_generated_games_to_buffer(
             or completed_games == len(ordered_games)
         ):
             elapsed_seconds = time.perf_counter() - started_at
-            logging.info(
+            logging.debug(
                 "[TARGETS] Converted %s/%s games and %s positions in %.1fs "
                 "(%.1f positions/s)",
                 completed_games,
@@ -235,11 +236,16 @@ def generate_iteration(
     games_per_task: int,
     first_game_index: int,
     worker_kwargs: dict,
+    progress_interval_seconds: float = 0.0,
 ) -> list[GeneratedGame]:
-    """Dispatch one generation batch and collect its complete game histories."""
+    """Collect actual completions; deterministic ordering is restored before replay."""
     sizes = game_batch_sizes(total_games, games_per_task)
     starts = np.cumsum([0, *sizes[:-1]]).tolist()
-    results = [
+    completed = queue.Queue()
+    progress = experiment_training.GenerationProgress(
+        total_games, progress_interval_seconds
+    )
+    for size, offset in zip(sizes, starts, strict=True):
         pool.apply_async(
             play_games_locally,
             kwds={
@@ -247,20 +253,43 @@ def generate_iteration(
                 "number_of_games": size,
                 "first_game_index": first_game_index + offset,
             },
+            callback=lambda result: completed.put((True, result)),
+            error_callback=lambda error: completed.put((False, error)),
         )
-        for size, offset in zip(sizes, starts, strict=True)
-    ]
     generated = []
-    for completed, result in enumerate(results, start=1):
-        generated.extend(result.get())
-        logging.info(
-            "[SELF-PLAY] Completed %s/%s tasks and %s/%s games",
-            completed,
-            len(results),
-            len(generated),
-            total_games,
+    tasks = 0
+    while tasks < len(sizes):
+        try:
+            succeeded, result = completed.get(timeout=progress.wait_seconds())
+        except queue.Empty:
+            progress.report()
+            continue
+        if not succeeded:
+            raise result
+        tasks += 1
+        generated.extend(result)
+        progress.games += len(result)
+        progress.decisions += sum(
+            len(r.history) - 1 for g in result for r in g.result.rounds
         )
-    return generated
+        logging.debug("[SELF-PLAY] Completed %s/%s tasks", tasks, len(sizes))
+        progress.report(final=tasks == len(sizes))
+    return sorted(generated, key=lambda game: game.global_game_index)
+
+
+def prepare_iteration(
+    generated: list[GeneratedGame], replay: buffer.ReplayBuffer
+) -> experiment_training.PreparedGames:
+    started = time.perf_counter()
+    before = (replay.game_count, len(replay))
+    ordered = sorted(generated, key=lambda game: game.global_game_index)
+    games = add_generated_games_to_buffer(ordered, replay, log_progress=True)
+    return experiment_training.PreparedGames(
+        games,
+        [(g.global_game_index, g.play_seed) for g in ordered],
+        before,
+        time.perf_counter() - started,
+    )
 
 
 def run_apply_async_local_selfplay_learning(
@@ -279,15 +308,25 @@ def run_apply_async_local_selfplay_learning(
     start_state_generator: StartStateGenerator | None = None,
     initial_training_dataset_path: pathlib.Path | None = None,
     recorder: runs.RunRecorder | None = None,
+    observations: experiment_training.ObservationConfig | None = None,
 ) -> None:
+    observations = observations or experiment_training.ObservationConfig()
+    if players != 2 and observations.concept_interval:
+        logging.info(
+            "[CONCEPTS] Skipped: handcrafted concepts require a two-player model"
+        )
+        observations = dataclasses.replace(observations, concept_interval=0)
     if model_player_config.mcts_score_utility_weight != 0:
         raise ValueError("Full-game training requires score_utility_weight=0")
     expected_specs = buffer.core_target_specs(players, (sj.MASK_SIZE,))
-    if buffer.resolve_target_specs(
-        training_data_buffer_config.target_specs,
-        spatial_input_shape=training_data_buffer_config.spatial_input_shape,
-        action_mask_shape=training_data_buffer_config.action_mask_shape,
-    ) != expected_specs:
+    if (
+        buffer.resolve_target_specs(
+            training_data_buffer_config.target_specs,
+            spatial_input_shape=training_data_buffer_config.spatial_input_shape,
+            action_mask_shape=training_data_buffer_config.action_mask_shape,
+        )
+        != expected_specs
+    ):
         raise ValueError("Full-game baseline requires core replay targets")
     checkpoint_interval = learn_config.checkpoint_interval
     if checkpoint_interval < 1:
@@ -341,6 +380,7 @@ def run_apply_async_local_selfplay_learning(
         recorder,
         training_data_buffer,
         initial_dataset_path=initial_training_dataset_path,
+        loss_stats_function=learn_config.loss_stats_function,
     )
     # Complete the factory's bootstrap checkpoint before registering it. The
     # recorded launcher always starts in a fresh directory; no extra raw model
@@ -357,18 +397,32 @@ def run_apply_async_local_selfplay_learning(
     state = dataclasses.replace(state, snapshot=initial)
     next_game = max(training_data_buffer.game_indices, default=-1) + 1
 
+    if observations.concepts_due(0, learn_config.learn_steps):
+        recording.concepts(state, explain.evaluate_concepts(model))
+    worker_settings = {
+        "model_callable": model_callable,
+        "model_kwargs": model_kwargs,
+        "model_player_config": model_player_config,
+        "players": players,
+        "run_seed": run_seed,
+        "start_state_generator": start_state_generator,
+    }
+    generation_settings = {
+        "run_seed": run_seed,
+        "players": players,
+        "model": run_configuration["model"],
+        "model_player": dataclasses.asdict(model_player_config),
+    }
     with mp.Pool(
         processes=process_count,
         initializer=configure_torch_worker,
         initargs=(torch_threads_per_worker,),
     ) as pool:
-        for iteration in range(progress.iteration, learn_config.learn_steps):
+        for iteration in range(progress.iteration + 1, learn_config.learn_steps + 1):
             iteration_started = time.perf_counter()
             timings = {}
             logging.info(
-                "[LEARN] Starting iteration %s/%s",
-                iteration + 1,
-                learn_config.learn_steps,
+                "[LEARN] Starting iteration %s/%s", iteration, learn_config.learn_steps
             )
 
             generation = state.snapshot
@@ -379,80 +433,55 @@ def run_apply_async_local_selfplay_learning(
                 games_per_task=games_per_task,
                 first_game_index=next_game,
                 worker_kwargs={
-                    "model_callable": model_callable,
-                    "model_kwargs": model_kwargs,
+                    **worker_settings,
                     "model_state_dict": {
                         name: value.detach().cpu()
                         for name, value in model.state_dict().items()
                     },
-                    "model_player_config": model_player_config,
-                    "players": players,
-                    "run_seed": run_seed,
-                    "start_state_generator": start_state_generator,
                 },
+                progress_interval_seconds=observations.progress_interval_seconds,
             )
             timings["generation"] = time.perf_counter() - started
-            before = (training_data_buffer.game_count, len(training_data_buffer))
-            started = time.perf_counter()
-            games = add_generated_games_to_buffer(
-                generated,
-                training_data_buffer,
-                log_progress=True,
+
+            prepared = prepare_iteration(generated, training_data_buffer)
+            timings["target"] = prepared.seconds
+            state = state.generated(
+                games=len(prepared.games), positions=prepared.positions
             )
-            timings["target"] = time.perf_counter() - started
-            new_positions = sum(stats.game_length for stats in games)
-            state = state.generated(games=len(games), positions=new_positions)
-            logging.info(
-                "[LEARN] Generated game stats:\n%s",
-                train_utils.game_stats_summary(games),
-            )
+            next_game += len(prepared.games)
             started = time.perf_counter()
             recording.save_replay(
                 training_data_buffer,
                 state=state,
                 generation=generation,
-                generation_iteration=iteration + 1,
-                game_count=len(games),
-                generation_settings={
-                    "run_seed": run_seed,
-                    "players": players,
-                    "model": run_configuration["model"],
-                    "model_player": dataclasses.asdict(model_player_config),
-                },
+                generation_iteration=iteration,
+                game_count=len(prepared.games),
+                generation_settings=generation_settings,
             )
             timings["replay_save"] = time.perf_counter() - started
-            next_game += len(games)
 
-            # Train in proportion to newly generated decisions.
-            steps = math.ceil(
-                new_positions
-                * training_config.replay_ratio
-                / training_config.batch_size
-            )
-            started = time.perf_counter()
-            losses = train.train_steps(
+            trained = train.train_iteration(
                 model,
                 training_data_buffer,
-                training_batch_size=training_config.batch_size,
-                optimizer_steps=steps,
-                optimizer=optimizer,
-                loss_function=training_config.loss_function,
+                optimizer,
+                training_config,
+                prepared.positions,
             )
-            timings["training"] = time.perf_counter() - started
+            timings["training"] = trained.seconds
             state = state.trained(
-                iteration=iteration + 1,
-                steps=steps,
+                iteration=iteration,
+                steps=trained.steps,
                 batch_size=training_config.batch_size,
             )
-            recording.training(state, losses)
-            if learn_config.loss_stats_function is not None:
-                logging.info(
-                    "[LEARN] Training stats:\n%s",
-                    learn_config.loss_stats_function(losses),
-                )
 
-            is_final = iteration + 1 == learn_config.learn_steps
-            if is_final or (iteration + 1) % checkpoint_interval == 0:
+            concepts = None
+            started = time.perf_counter()
+            if observations.concepts_due(iteration, learn_config.learn_steps):
+                concepts = explain.evaluate_concepts(model)
+            timings["validation"] = time.perf_counter() - started
+            started = time.perf_counter()
+            is_final = iteration == learn_config.learn_steps
+            if is_final or iteration % checkpoint_interval == 0:
                 saved = recording.save_snapshot(
                     model_factory,
                     model,
@@ -462,18 +491,23 @@ def run_apply_async_local_selfplay_learning(
                     role="final" if is_final else "periodic",
                 )
                 state = dataclasses.replace(state, snapshot=saved)
+            timings["checkpoint_save"] = time.perf_counter() - started
+
+            started = time.perf_counter()
+            recording.save_rounds(state, prepared, generation)
+            timings["round_save"] = time.perf_counter() - started
+
+            recording.training(
+                state,
+                trained,
+                new_positions=prepared.positions,
+                replay_positions=len(training_data_buffer),
+            )
+            if concepts is not None:
+                recording.concepts(state, concepts)
             timings["iteration"] = time.perf_counter() - iteration_started
             recording.iteration(
-                state,
-                games=games,
-                replay=training_data_buffer,
-                before=before,
-                timings=timings,
-            )
-            logging.info(
-                "[LEARN] Completed iteration %s in %.1fs",
-                iteration + 1,
-                timings["iteration"],
+                state, prepared=prepared, replay=training_data_buffer, timings=timings
             )
 
 
@@ -598,6 +632,10 @@ def launch(
                 if initial_dataset
                 else None,
                 recorder=recorder,
+                observations=experiment_training.ObservationConfig(
+                    **resolved["logging"],
+                    **resolved["validation"],
+                ),
             )
     finally:
         logger.removeHandler(handler)

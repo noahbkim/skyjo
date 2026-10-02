@@ -26,7 +26,11 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
         saved = tmp_path / f"{name}.json"
         saved.write_text(json.dumps(config))
         assert experiment_config.load_configuration(saved)[1] == config
-    assert config["selfplay"]["games_per_iteration"] == 1024
+    assert config["selfplay"]["games_per_iteration"] == 256
+    assert config["budget"]["iterations"] == 100
+    assert config["replay"]["capacity"] == 524288
+    assert config["logging"]["progress_interval_seconds"] == 0
+    assert config["validation"]["concept_interval"] == 5
     assert config["derived"]["optimizer"]["weight_decay"] == 1e-4
 
 
@@ -77,6 +81,35 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         data_record = next(
             e for e in artifacts if e.get("artifact_kind") == "replay_data"
         )
+        round_artifact = next(
+            e for e in artifacts if e.get("artifact_kind") == "round_statistics"
+        )
+        round_records = events(run_path / round_artifact["path"])
+        assert {r["game_index"] for r in round_records} == {0, 1}
+        assert all(
+            r["iteration"] == 1 and r["checkpoint_artifact_id"] for r in round_records
+        )
+        assert all(r["decisions"] == 2 * r["turns"] + 2 for r in round_records)
+        concepts = [e for e in trace if e["kind"] == "concept_checks"]
+        assert [e["progress"]["iteration"] for e in concepts] == [0, 1]
+        training_metrics = next(e["metrics"] for e in trace if e["kind"] == "training")
+        assert (
+            training_metrics["policy/all/positions"]
+            == training_metrics["training/sampled_positions"]
+        )
+        iteration_metrics = next(
+            e["metrics"] for e in trace if e["kind"] == "iteration_completed"
+        )
+        assert iteration_metrics["round/count"] == len(round_records)
+        assert iteration_metrics["generation/decisions_per_second"] > 0
+        log = (run_path / "logs/train.log").read_text()
+        assert "games/s" in log and "replay-equivalent passes" in log
+        assert "[TARGETS]" not in log and " tasks" not in log
+        assert log.count("[SELF-PLAY]") == 1
+        assert log.count("[TRAIN]") == 1
+        assert log.count("[GAMES]") == 1
+        assert "p90=" not in log and "Action rates:" not in log
+        assert "Phase timings" not in log and "Mean losses" not in log
         replay = buffer.ReplayBuffer.load(run_path / data_record["path"])
         assert replay.dataset_id == data_record["metadata"]["dataset_id"]
         assert replay.game_count == 2

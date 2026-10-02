@@ -133,6 +133,59 @@ class LossFunction(typing.Protocol):
     ) -> tuple[torch.Tensor, LossDetails]: ...
 
 
+@dataclasses.dataclass
+class TrainingDiagnostics:
+    """Position-weighted policy statistics, independent of optimization and I/O."""
+
+    totals: dict[str, torch.Tensor] = dataclasses.field(default_factory=dict)
+
+    @torch.no_grad()
+    def update(
+        self, logits: torch.Tensor, targets: torch.Tensor, masks: torch.Tensor
+    ) -> None:
+        logits, targets = logits.detach(), targets.detach()
+        log_probs = logits.masked_fill(~masks.bool(), -torch.inf).log_softmax(dim=-1)
+        probabilities = log_probs.exp()
+        # Zero-probability entries (including masked actions) contribute zero.
+        safe_logs = log_probs.masked_fill(~masks.bool(), 0)
+        target_entropy = -torch.special.xlogy(targets, targets).sum(dim=-1)
+        predicted_entropy = -(probabilities * safe_logs).sum(dim=-1)
+        cross_entropy = -(targets * safe_logs).sum(dim=-1)
+        values = torch.stack(
+            (target_entropy, predicted_entropy, cross_entropy - target_entropy), dim=-1
+        )
+        groups = {
+            "all": torch.ones(len(logits), dtype=torch.bool, device=logits.device),
+            "initial_reveal": masks[:, : sj.MASK_DRAW].bool().any(dim=-1),
+            "draw_take": masks[:, sj.MASK_DRAW].bool(),
+            "flip_replace": masks[:, sj.MASK_FLIP : sj.MASK_REPLACE].bool().any(dim=-1),
+        }
+        groups["replace_only"] = ~(
+            groups["initial_reveal"] | groups["draw_take"] | groups["flip_replace"]
+        )
+        for name, selected in groups.items():
+            total = torch.cat((selected.sum().reshape(1), values[selected].sum(dim=0)))
+            if name not in self.totals:
+                self.totals[name] = total
+            else:
+                self.totals[name] += total
+
+    def summary(self) -> dict[str, float | int]:
+        metrics = {}
+        names = ("target_entropy", "predicted_entropy", "target_kl")
+        for group, total in self.totals.items():
+            count, *sums = total.cpu().tolist()
+            metrics[f"policy/{group}/positions"] = int(count)
+            if count:
+                metrics.update(
+                    {
+                        f"policy/{group}/{key}": value / count
+                        for key, value in zip(names, sums)
+                    }
+                )
+        return metrics
+
+
 def as_numpy_training_targets(targets: typing.Any) -> NumpyTrainingTargets:
     target_dict = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
     return NumpyTrainingTargets(
