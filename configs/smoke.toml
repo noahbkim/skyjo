@@ -1,0 +1,36 @@
+name = "smoke"
+description = "Real self-play, optimizer, and persistence pipeline check. Not suitable for judging model quality."
+tags = ["smoke"]
+seed = 0
+players = 2
+
+[model]
+embedding_dimensions = 8
+global_state_embedding_dimensions = 16
+num_heads = 1
+
+[training]
+batch_size = 16
+replay_ratio = 0.1
+learn_rate = 0.001
+value_scale = 1.0
+policy_scale = 1.0
+
+[selfplay]
+games_per_iteration = 2
+games_per_task = 1
+
+[search]
+iterations = 1
+
+[replay]
+capacity = 4096
+
+[budget]
+iterations = 1
+checkpoint_interval = 1
+
+[execution]
+device = "cpu"
+workers = 1
+threads_per_worker = 1

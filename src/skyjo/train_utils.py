@@ -20,10 +20,39 @@ PolicyTarget: typing.TypeAlias = FloatArray
 TargetArrays: typing.TypeAlias = dict[str, FloatArray]
 VALUE_TARGET_NAME: typing.Final[str] = "value"
 POLICY_TARGET_NAME: typing.Final[str] = "policy"
+ROUND_SCORE_TARGET_NAME: typing.Final[str] = skynet.ROUND_SCORE_TARGET_NAME
+FUTURE_CLEAR_TARGET_NAME: typing.Final[str] = skynet.FUTURE_CLEAR_TARGET_NAME
 CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = (
     VALUE_TARGET_NAME,
     POLICY_TARGET_NAME,
 )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class AuxiliaryExperimentPreset:
+    name: str
+    round_score_scale: float
+    future_clear_scale: float
+    score_utility_weight: float
+    clear_positive_weight: float = 10.0
+
+
+AUXILIARY_EXPERIMENT_PRESETS: typing.Final[
+    dict[str, AuxiliaryExperimentPreset]
+] = {
+    "control": AuxiliaryExperimentPreset("control", 0.0, 0.0, 0.0),
+    "score": AuxiliaryExperimentPreset("score", 0.1, 0.0, 0.05),
+    "clear": AuxiliaryExperimentPreset("clear", 0.0, 0.1, 0.0),
+    "combined": AuxiliaryExperimentPreset("combined", 0.1, 0.1, 0.05),
+}
+
+
+def get_auxiliary_experiment_preset(name: str) -> AuxiliaryExperimentPreset:
+    try:
+        return AUXILIARY_EXPERIMENT_PRESETS[name]
+    except KeyError as error:
+        choices = ", ".join(AUXILIARY_EXPERIMENT_PRESETS)
+        raise ValueError(f"unknown experiment preset {name!r}; choose from {choices}") from error
 
 
 class NumpyTrainingTargets(typing.NamedTuple):
@@ -31,14 +60,24 @@ class NumpyTrainingTargets(typing.NamedTuple):
     policy: PolicyTarget
 
 
-@dataclasses.dataclass
-class TensorTrainingTargets:
+class TensorTrainingTargets(typing.NamedTuple):
     value: torch.Tensor
     policy: torch.Tensor
-    auxiliary: dict[str, torch.Tensor] = dataclasses.field(default_factory=dict)
+    target_tensors: dict[str, torch.Tensor] | None = None
 
+    @property
+    def targets(self) -> dict[str, torch.Tensor]:
+        if self.target_tensors is not None:
+            return self.target_tensors
+        return {
+            VALUE_TARGET_NAME: self.value,
+            POLICY_TARGET_NAME: self.policy,
+        }
 
-TrainingTargets: typing.TypeAlias = TensorTrainingTargets
+    def __getitem__(self, key: typing.Any) -> torch.Tensor:
+        if isinstance(key, str):
+            return self.targets[key]
+        return tuple.__getitem__(self, key)
 
 
 class TrainingDataPoint(typing.NamedTuple):
@@ -94,6 +133,59 @@ class LossFunction(typing.Protocol):
     ) -> tuple[torch.Tensor, LossDetails]: ...
 
 
+@dataclasses.dataclass
+class TrainingDiagnostics:
+    """Position-weighted policy statistics, independent of optimization and I/O."""
+
+    totals: dict[str, torch.Tensor] = dataclasses.field(default_factory=dict)
+
+    @torch.no_grad()
+    def update(
+        self, logits: torch.Tensor, targets: torch.Tensor, masks: torch.Tensor
+    ) -> None:
+        logits, targets = logits.detach(), targets.detach()
+        log_probs = logits.masked_fill(~masks.bool(), -torch.inf).log_softmax(dim=-1)
+        probabilities = log_probs.exp()
+        # Zero-probability entries (including masked actions) contribute zero.
+        safe_logs = log_probs.masked_fill(~masks.bool(), 0)
+        target_entropy = -torch.special.xlogy(targets, targets).sum(dim=-1)
+        predicted_entropy = -(probabilities * safe_logs).sum(dim=-1)
+        cross_entropy = -(targets * safe_logs).sum(dim=-1)
+        values = torch.stack(
+            (target_entropy, predicted_entropy, cross_entropy - target_entropy), dim=-1
+        )
+        groups = {
+            "all": torch.ones(len(logits), dtype=torch.bool, device=logits.device),
+            "initial_reveal": masks[:, : sj.MASK_DRAW].bool().any(dim=-1),
+            "draw_take": masks[:, sj.MASK_DRAW].bool(),
+            "flip_replace": masks[:, sj.MASK_FLIP : sj.MASK_REPLACE].bool().any(dim=-1),
+        }
+        groups["replace_only"] = ~(
+            groups["initial_reveal"] | groups["draw_take"] | groups["flip_replace"]
+        )
+        for name, selected in groups.items():
+            total = torch.cat((selected.sum().reshape(1), values[selected].sum(dim=0)))
+            if name not in self.totals:
+                self.totals[name] = total
+            else:
+                self.totals[name] += total
+
+    def summary(self) -> dict[str, float | int]:
+        metrics = {}
+        names = ("target_entropy", "predicted_entropy", "target_kl")
+        for group, total in self.totals.items():
+            count, *sums = total.cpu().tolist()
+            metrics[f"policy/{group}/positions"] = int(count)
+            if count:
+                metrics.update(
+                    {
+                        f"policy/{group}/{key}": value / count
+                        for key, value in zip(names, sums)
+                    }
+                )
+        return metrics
+
+
 def as_numpy_training_targets(targets: typing.Any) -> NumpyTrainingTargets:
     target_dict = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
     return NumpyTrainingTargets(
@@ -112,9 +204,6 @@ def normalize_numpy_targets(
             POLICY_TARGET_NAME: targets.policy,
         }
     if isinstance(targets, collections.abc.Mapping):
-        missing = set(target_names) - targets.keys()
-        if missing:
-            raise ValueError(f"Missing required training targets: {sorted(missing)}")
         return {name: targets[name] for name in target_names}
     if all(hasattr(targets, field) for field in target_names):
         return {name: getattr(targets, name) for name in target_names}
@@ -132,14 +221,18 @@ def numpy_targets_to_tensors(
     *,
     device: torch.device,
 ) -> TensorTrainingTargets:
-    if not isinstance(targets, collections.abc.Mapping):
-        targets = normalize_numpy_targets(targets)
-    tensors = {
-        name: torch.as_tensor(value, dtype=torch.float32, device=device)
-        for name, value in targets.items()
+    if isinstance(targets, collections.abc.Mapping):
+        target_arrays = dict(targets)
+    else:
+        target_arrays = normalize_numpy_targets(targets, CORE_TARGET_NAMES)
+    target_tensors = {
+        name: torch.tensor(target, dtype=torch.float32, device=device)
+        for name, target in target_arrays.items()
     }
     return TensorTrainingTargets(
-        tensors.pop(VALUE_TARGET_NAME), tensors.pop(POLICY_TARGET_NAME), tensors
+        target_tensors[VALUE_TARGET_NAME],
+        target_tensors[POLICY_TARGET_NAME],
+        target_tensors,
     )
 
 
@@ -220,17 +313,80 @@ def policy_value_losses(
 def base_loss(
     model_output: skynet.SupportsCoreSkyNetOutput,
     targets: TensorTrainingTargets,
-    value_scale: float = 1 / (skynet.SCORE_DIFFERENTIAL_CAP**2),
+    value_scale: float = 1.0,
     policy_scale: float = 1.0,
 ) -> tuple[torch.Tensor, LossDetails]:
     value_loss, policy_loss = policy_value_losses(model_output, targets)
     return (
         value_scale * value_loss + policy_scale * policy_loss,
         {
-            "score_differential_value_loss": value_loss.item(),
+            "outcome_value_loss": value_loss.item(),
             "policy_loss": policy_loss.item(),
         },
     )
+
+
+def outcome_policy_auxiliary_loss(
+    model_output: skynet.SupportsCoreSkyNetOutput,
+    targets: TensorTrainingTargets,
+    value_scale: float = 1.0,
+    policy_scale: float = 1.0,
+    round_score_scale: float = 0.1,
+    future_clear_scale: float = 0.1,
+    clear_positive_weight: float = 10.0,
+) -> tuple[torch.Tensor, LossDetails]:
+    if round_score_scale < 0 or future_clear_scale < 0:
+        raise ValueError("auxiliary loss scales cannot be negative")
+    if clear_positive_weight <= 0:
+        raise ValueError("clear_positive_weight must be positive")
+    base, details = base_loss(
+        model_output,
+        targets,
+        value_scale=value_scale,
+        policy_scale=policy_scale,
+    )
+    total = base
+    auxiliary_outputs = getattr(model_output, "auxiliary_outputs", None)
+    if round_score_scale > 0:
+        assert auxiliary_outputs is not None, (
+            "expected model output with auxiliary_outputs"
+        )
+        round_score_prediction = auxiliary_outputs[ROUND_SCORE_TARGET_NAME]
+        round_score_target = targets[ROUND_SCORE_TARGET_NAME]
+        assert round_score_prediction.shape == round_score_target.shape, (
+            f"expected {ROUND_SCORE_TARGET_NAME} of shape {round_score_target.shape}, "
+            f"got {round_score_prediction.shape}"
+        )
+        round_score_loss = mse_value_loss(round_score_prediction, round_score_target)
+        details[f"{ROUND_SCORE_TARGET_NAME}_loss"] = round_score_loss.item()
+        total = total + round_score_scale * round_score_loss
+
+    if future_clear_scale > 0:
+        assert auxiliary_outputs is not None, (
+            "expected model output with auxiliary_outputs"
+        )
+        future_clear_logits = auxiliary_outputs[FUTURE_CLEAR_TARGET_NAME]
+        future_clear_target = targets[FUTURE_CLEAR_TARGET_NAME]
+        assert future_clear_logits.shape == future_clear_target.shape, (
+            f"expected {FUTURE_CLEAR_TARGET_NAME} of shape "
+            f"{future_clear_target.shape}, got {future_clear_logits.shape}"
+        )
+        eligible = future_clear_target >= 0
+        if eligible.any():
+            future_clear_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                future_clear_logits[eligible],
+                future_clear_target[eligible],
+                pos_weight=torch.tensor(
+                    clear_positive_weight,
+                    dtype=future_clear_logits.dtype,
+                    device=future_clear_logits.device,
+                ),
+            )
+        else:
+            future_clear_loss = future_clear_logits.sum() * 0.0
+        details[f"{FUTURE_CLEAR_TARGET_NAME}_loss"] = future_clear_loss.item()
+        total = total + future_clear_scale * future_clear_loss
+    return total, details
 
 
 def compute_model_loss_on_game_data(
@@ -239,12 +395,8 @@ def compute_model_loss_on_game_data(
     loss_function: typing.Callable[
         [skynet.SupportsCoreSkyNetOutput, TensorTrainingTargets], typing.Any
     ],
-    *,
-    target_names: typing.Sequence[str] = CORE_TARGET_NAMES,
 ) -> typing.Any:
-    # Hand-authored validation positions may provide only core labels even when
-    # the model has auxiliary heads. Callers choose the labels their loss needs.
-    batch = game_data_to_training_batch(game_data, target_names)
+    batch = game_data_to_training_batch(game_data)
     spatial_tensor = torch.tensor(
         batch.spatial_inputs, dtype=torch.float32, device=model.device
     )
@@ -267,3 +419,29 @@ def compute_model_loss_on_game_data(
 
 def loss_details_summary(loss_details_list: list[LossDetails]) -> pd.DataFrame:
     return pd.DataFrame.from_records(loss_details_list).describe().T
+
+
+def future_clear_target_for_state(
+    state: sj.Skyjo,
+    fixed_perspective_final_clears: np.ndarray[tuple[int, int], np.float32],
+) -> np.ndarray[tuple[int, int], np.float32]:
+    """Return active-relative future-clear labels, masking existing clears."""
+    expected_shape = (sj.get_player_count(state), sj.COLUMN_COUNT)
+    if fixed_perspective_final_clears.shape == (
+        expected_shape[0] * expected_shape[1],
+    ):
+        fixed_perspective_final_clears = fixed_perspective_final_clears.reshape(
+            expected_shape
+        )
+    if fixed_perspective_final_clears.shape != expected_shape:
+        raise ValueError(
+            "fixed_perspective_final_clears must have shape "
+            f"{expected_shape}, got {fixed_perspective_final_clears.shape}"
+        )
+    target = np.roll(
+        fixed_perspective_final_clears,
+        -sj.get_player(state),
+        axis=0,
+    ).astype(np.float32, copy=True)
+    target[sj.get_cleared_columns(state).astype(bool)] = -1.0
+    return target

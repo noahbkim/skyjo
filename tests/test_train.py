@@ -56,18 +56,21 @@ def _loss(
     return loss, {"loss": loss.item()}
 
 
-def test_train_epoch_reuses_supplied_optimizer_across_batches():
+def test_train_steps_runs_exact_optimizer_step_count():
     model = ToyModel()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     replay_buffer = FakeReplayBuffer(_batch(), length=3)
 
-    train.train_epoch(
+    losses = train.train_steps(
         model,
         replay_buffer,
         training_batch_size=2,
+        optimizer_steps=3,
         optimizer=optimizer,
         loss_function=_loss,
     )
 
     parameter = next(model.parameters())
-    assert optimizer.state[parameter]["step"].item() == 2
+    assert optimizer.state[parameter]["step"].item() == 3
+    assert len(losses) == 3
+    assert all("total_loss" in details for details in losses)

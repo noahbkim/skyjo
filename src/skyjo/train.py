@@ -3,35 +3,77 @@ Module to Train Skyjo models
 """
 
 import dataclasses
-import itertools
-import logging
-import pathlib
-import random
+import math
+import time
 import typing
 
 import torch
-import torch.multiprocessing as mp
 
-from . import buffer
-from . import config, objectives, targets
-from . import explain
-from . import factory
-from . import play
-from . import player
-from . import predictor
-from . import game as sj
-from . import skynet
-from . import train_utils
+from . import buffer, config, gradient_diagnostic, skynet, train_utils
 
 # MARK: Training
 
 
 @dataclasses.dataclass(slots=True)
-class TrainConfig(config.Config):
+class ReplayRatioTrainConfig(config.Config):
+    """Training budget expressed as sampled positions per new position."""
+
     batch_size: int
-    epochs: int
+    replay_ratio: float
     loss_function: train_utils.LossFunction
     learn_rate: float
+    gradient_diagnostic: bool = False
+    diagnostic_done: bool = dataclasses.field(default=False, init=False)
+
+    def __post_init__(self) -> None:
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be at least one")
+        if self.replay_ratio <= 0:
+            raise ValueError("replay_ratio must be positive")
+
+
+@dataclasses.dataclass(frozen=True)
+class TrainingResult:
+    losses: list[dict]
+    diagnostics: dict[str, float | int]
+    steps: int
+    sampled_positions: int
+    seconds: float
+    gradient_scales: dict | None = None
+
+
+def train_iteration(
+    model: skynet.SkyNet,
+    replay: buffer.ReplayBuffer,
+    optimizer: torch.optim.Optimizer,
+    config: ReplayRatioTrainConfig,
+    new_positions: int,
+) -> TrainingResult:
+    """Allocate a replay-ratio budget and collect detached diagnostics."""
+    steps = math.ceil(new_positions * config.replay_ratio / config.batch_size)
+    diagnostics = train_utils.TrainingDiagnostics()
+    started = time.perf_counter()
+    scales = {} if config.gradient_diagnostic and not config.diagnostic_done else None
+    losses = train_steps(
+        model,
+        replay,
+        training_batch_size=config.batch_size,
+        optimizer_steps=steps,
+        optimizer=optimizer,
+        loss_function=config.loss_function,
+        diagnostics=diagnostics,
+        gradient_scales=scales,
+    )
+    if scales:
+        config.diagnostic_done = True
+    return TrainingResult(
+        losses,
+        diagnostics.summary(),
+        steps,
+        steps * config.batch_size,
+        time.perf_counter() - started,
+        scales,
+    )
 
 
 def train_step(
@@ -39,6 +81,8 @@ def train_step(
     batch: train_utils.TrainingBatch,
     loss_function: train_utils.LossFunction,
     optimizer: torch.optim.Optimizer,
+    diagnostics: train_utils.TrainingDiagnostics | None = None,
+    gradient_scales: dict | None = None,
 ) -> tuple[float, train_utils.LossDetails]:
     """Performs a single training step on the model."""
     model.train()
@@ -57,41 +101,103 @@ def train_step(
     )
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
     loss, loss_detail = loss_function(model_output, tensor_targets)
-    resolved = getattr(model, "objectives", objectives.resolve())
-    loss, loss_detail = resolved.add_losses(
-        loss, dict(loss_detail), model_output, tensor_targets.auxiliary
-    )
+    if diagnostics is not None:
+        diagnostics.update(
+            model_output.policy_logits, tensor_targets.policy, masks_tensor
+        )
+    if gradient_scales is not None:
+        gradient_scales.update(
+            gradient_diagnostic.measure(
+                model,
+                model_output,
+                tensor_targets,
+                **getattr(loss_function, "keywords", {}),
+            )
+        )
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    return loss.item(), loss_detail
+    return loss.item(), {"total_loss": loss.item(), **loss_detail}
 
 
-def train_epoch(
+def train_steps(
     model: skynet.SkyNet,
     training_data_buffer: buffer.ReplayBuffer,
     training_batch_size: int,
+    optimizer_steps: int,
     optimizer: torch.optim.Optimizer,
     loss_function: train_utils.LossFunction,
-):
-    """Performs a single training epoch.
-
-    Runs train() for specified number of batches.
-
-    Args:
-        model (skynet.SkyNet): The model to train.
-        training_data_buffer (buffer.ReplayBuffer): The training data buffer to sample batches from.
-        training_batch_size (int): The size of each batch.
-        optimizer (torch.optim.Optimizer): The optimizer to use for training.
-        loss_function (typing.Callable): The loss function to use for training.
-    """
-    training_loss_details = []
-    for _ in range(len(training_data_buffer) // training_batch_size + 1):
+    diagnostics: train_utils.TrainingDiagnostics | None = None,
+    gradient_scales: dict | None = None,
+) -> list[train_utils.LossDetails]:
+    """Run exactly ``optimizer_steps`` updates sampled from the replay buffer."""
+    if optimizer_steps < 0:
+        raise ValueError("optimizer_steps cannot be negative")
+    if training_batch_size < 1:
+        raise ValueError("training_batch_size must be at least one")
+    loss_details = []
+    for _ in range(optimizer_steps):
         batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
-        loss, loss_detail = train_step(model, batch, loss_function, optimizer)
-        training_loss_details.append(loss_detail)
-    return training_loss_details
+        _, step_loss_details = train_step(
+            model,
+            batch,
+            loss_function,
+            optimizer,
+            diagnostics,
+            gradient_scales,
+        )
+        gradient_scales = None
+        loss_details.append(step_loss_details)
+    return loss_details
+
+
+@torch.inference_mode()
+def evaluate_loss(
+    model: skynet.SkyNet,
+    evaluation_data_buffer: buffer.ReplayBuffer,
+    evaluation_batch_size: int,
+    loss_function: train_utils.LossFunction,
+) -> train_utils.LossDetails:
+    """Evaluate position-weighted total and component losses."""
+    if not evaluation_data_buffer:
+        raise ValueError("evaluation_data_buffer cannot be empty")
+    if evaluation_batch_size < 1:
+        raise ValueError("evaluation_batch_size must be at least one")
+    model.eval()
+    weighted_totals: dict[str, float] = {}
+    evaluated_positions = 0
+    for start in range(0, len(evaluation_data_buffer), evaluation_batch_size):
+        stop = min(start + evaluation_batch_size, len(evaluation_data_buffer))
+        batch = evaluation_data_buffer.batch_range(start, stop)
+        spatial_inputs_tensor = torch.tensor(
+            batch.spatial_inputs, dtype=torch.float32, device=model.device
+        )
+        non_spatial_inputs_tensor = torch.tensor(
+            batch.non_spatial_inputs, dtype=torch.float32, device=model.device
+        )
+        masks_tensor = torch.tensor(
+            batch.action_masks, dtype=torch.float32, device=model.device
+        )
+        tensor_targets = train_utils.numpy_targets_to_tensors(
+            batch.targets,
+            device=model.device,
+        )
+        model_output = model(
+            spatial_inputs_tensor,
+            non_spatial_inputs_tensor,
+            masks_tensor,
+        )
+        loss, details = loss_function(model_output, tensor_targets)
+        batch_size = stop - start
+        for name, value in {"total_loss": loss.item(), **details}.items():
+            weighted_totals[name] = (
+                weighted_totals.get(name, 0.0) + float(value) * batch_size
+            )
+        evaluated_positions += batch_size
+    return {
+        name: total / evaluated_positions for name, total in weighted_totals.items()
+    }
 
 
 def make_optimizer(
@@ -102,713 +208,12 @@ def make_optimizer(
     return torch.optim.Adam(model.parameters(), lr=learn_rate, weight_decay=1e-4)
 
 
-# MARK: Learning Loops
-
-
 @dataclasses.dataclass(slots=True)
 class LearnConfig(config.Config):
     torch_device: torch.device
     learn_steps: int
     games_generated_per_iteration: int
-    training_epochs: int
-    training_batch_size: int
-    training_learn_rate: float
-    training_loss_function: train_utils.LossFunction
-    loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None
-    validation_interval: int | None
-    validation_function: typing.Callable[[skynet.SkyNet], None] | None
-    update_model_interval: int | None
-    model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
-
-
-def learn(
-    model_factory: factory.SkyNetModelFactory,
-    predictor_clients: dict[int, predictor.AbstractPredictorClient],
-    training_data_buffer: buffer.ReplayBuffer,
-    training_data_queue: mp.Queue,
-    torch_device: torch.device,
-    learn_steps: int,
-    games_generated_per_iteration: int,
-    training_epochs: int,
-    training_batch_size: int,
-    training_learn_rate: float,
-    training_loss_function: train_utils.LossFunction,
-    loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], str] | None,
-    validation_interval: int,
-    validation_function: typing.Callable[[skynet.SkyNet], None] | None,
-    update_model_interval: int,
-    model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
-    | None,
-    outcome_rollouts: int = 1,
-    target_seed: int = 0,
-):
-    """Core learning loop; the queue contains completed, unlabeled histories."""
-
-    logging.info(f"[LEARN] Starting learning loop for {learn_steps} steps")
-    logging.info(f"[LEARN] Parameters: {locals()}")
-
-    model = model_factory.get_latest_model()
-    model.set_device(torch_device)
-    optimizer = make_optimizer(model, training_learn_rate)
-    resolved = getattr(model, "objectives", objectives.resolve())
-    training_data_buffer.validate_objectives(resolved)
-    target_rng = random.Random(target_seed)
-    logging.info("[LEARN] Auxiliary objectives: %s; terminal samples: %s; target seed: %s",
-                 resolved.weights, outcome_rollouts, target_seed)
-    games_count = 0
-    previous_games_count = 0
-    for iteration in range(learn_steps):
-        if validation_interval is not None and validation_function is not None and iteration % validation_interval == 0:
-            logging.info("[LEARN] Validating model")
-            validation_function(model)
-
-        if update_model_interval is not None and iteration > 0 and iteration % update_model_interval == 0:
-            if model_faceoff_function is not None:
-                logging.info("[LEARN] Model Faceoff")
-                faceoff_result = model_faceoff_function(
-                    model, model_factory.get_latest_model()
-                )
-                if faceoff_result:
-                    logging.info("[LEARN] New Model Faceoff Passed")
-                else:
-                    logging.info(
-                        "[LEARN] Model Faceoff Failed, reverting to previous model"
-                    )
-                    model = model_factory.get_latest_model()
-                    model.set_device(torch_device)
-                    optimizer = make_optimizer(model, training_learn_rate)
-
-            logging.info("[LEARN] Saving model")
-            saved_path = model_factory.save_model(model)
-            logging.info(f"[LEARN] Saved model to {saved_path}")
-            logging.info("[LEARN] Updating predictor clients")
-            for id, client in predictor_clients.items():
-                client.trigger_model_update()
-
-        # Add training data from the queue into the buffer
-        logging.info(f"[LEARN] Generating {games_generated_per_iteration} games")
-        game_stats_list = []
-        while (
-            not training_data_queue.empty()
-            or len(game_stats_list) < games_generated_per_iteration
-        ):
-            history = training_data_queue.get()
-            game_data, game_stats = targets.build_targets(
-                history, resolved, terminal_rollouts=outcome_rollouts, rng=target_rng
-            )
-            training_data_buffer.add_game_data(game_data)
-            game_stats_list.append(game_stats)
-        logging.info(
-            f"[LEARN] Finished generating {len(game_stats_list)} games "
-            f"with {sum([game_stats.game_length for game_stats in game_stats_list])} data points"
-        )
-        logging.info(
-            f"[LEARN] Training data buffer length: {len(training_data_buffer)}, "
-        )
-        buffer_saved_path = training_data_buffer.save()
-        logging.info(f"Saving training data buffer to {buffer_saved_path}")
-        logging.info(
-            f"Generated game stats:\n{train_utils.game_stats_summary(game_stats_list)}"
-        )
-        previous_games_count = previous_games_count + len(game_stats_list)
-        logging.info(f"[LEARN] Training for {training_epochs} epochs")
-        for i in range(training_epochs):
-            loss_details = train_epoch(
-                model,
-                training_data_buffer,
-                training_batch_size=training_batch_size,
-                optimizer=optimizer,
-                loss_function=training_loss_function,
-            )
-            if loss_stats_function is not None:
-                loss_stats = loss_stats_function(loss_details)
-                logging.info(f"[LEARN] Training Epoch {i} stats:\n{loss_stats}")
-        logging.info(
-            f"[LEARN] Finished training for {training_epochs} epochs with "
-            f"{len(training_data_buffer) // training_batch_size + 1} batches"
-        )
-
-
-# MARK: Full Learning
-
-
-def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
-    process_count: int,
-    players: int,
-    model_factory: factory.SkyNetModelFactory,
-    learn_config: LearnConfig,
-    training_config: TrainConfig,
-    predictor_config: predictor.PredictorProcessConfig,
-    training_data_buffer_config: buffer.Config,
-    model_player_config: player.ModelPlayerConfig,
-    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
-    outcome_rollouts: int = 1,
-    debug: bool = False,
-    log_level: int = logging.INFO,
-    log_dir: pathlib.Path | None = None,
-    target_seed: int = 0,
-):
-    """Runs a distributed training loop.
-
-    Runs a loop that:
-    - Creates a predictor process and clients
-    - Creates selfplay actors
-    - Collects training data from the actors
-    - Trains the model on the collected data
-    - Saves the model periodically
-    - Validates the model periodically
-    - Terminates the actors and predictor process
-    - Joins the actors and predictor process
-    """
-    training_data_buffer_config = buffer.for_objectives(
-        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
-    )
-    logging.info(f"learning config: {learn_config}")
-    logging.info(f"training config: {training_config}")
-    logging.info(f"predictor config: {predictor_config}")
-    logging.info(f"model player config: {model_player_config}")
-    logging.info(f"Using start position generator: {start_state_generator}")
-    predictor_process, selfplay_actors = None, []
-    try:
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
-        )
-
-        # Predictor setup
-        predictor_model_update_queue = mp.Queue()
-        predictor_input_queues = {
-            i: predictor.PredictorInputQueue(
-                queue_id=i,
-                max_batch_size=predictor_config.max_batch_size,
-            )
-            for i in range(process_count)
-        }
-        predictor_output_queues = {
-            i: predictor.PredictorOutputQueue(
-                queue_id=i,
-                max_batch_size=predictor_config.max_batch_size,
-            )
-            for i in range(process_count)
-        }
-        predictor_process = predictor.PredictorProcess(
-            model_factory,
-            predictor_model_update_queue,
-            predictor_input_queues,
-            predictor_output_queues,
-            debug=debug,
-            log_level=log_level,
-            log_dir=log_dir,
-            **predictor_config.kwargs(),
-        )
-        predictor_process.start()
-        predictor_clients = {
-            i: predictor.DistributedPredictorClient(
-                predictor_input_queues[i],
-                predictor_output_queues[i],
-            )
-            for i in range(process_count)
-        }
-
-        # Selfplay setup
-        selfplay_data_queue = mp.Queue()
-        logging.info(f"Starting {process_count} selfplay processes")
-        selfplay_actors = [
-            play.SelfplayGenerator(
-                id=f"selfplay_{i}",
-                player=player.ModelPlayer(
-                    predictor_clients[i], **model_player_config.kwargs()
-                ),
-                player_count=players,
-                game_data_queue=selfplay_data_queue,
-                start_state_generator=start_state_generator,
-                debug=debug,
-                log_level=log_level,
-                log_dir=log_dir,
-                play_callable=play.model_player_selfplay,
-            )
-            for i in range(process_count)
-        ]
-        for actor in selfplay_actors:
-            actor.start()
-
-        # Main training loop
-        learn(
-            model_factory=model_factory,
-            predictor_clients=predictor_clients,
-            training_data_buffer=training_data_buffer,
-            training_data_queue=selfplay_data_queue,
-            outcome_rollouts=outcome_rollouts,
-            target_seed=target_seed,
-            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
-        )
-
-    finally:
-        predictor_process.cleanup(timeout=5)
-        for actor in selfplay_actors:
-            actor.cleanup(timeout=5)
-
-
-def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
-    process_count: int,
-    players: int,
-    model_factory: factory.SkyNetModelFactory,
-    learn_config: LearnConfig,
-    training_config: TrainConfig,
-    predictor_config: predictor.PredictorProcessConfig,
-    training_data_buffer_config: buffer.Config,
-    batched_model_player_config: player.BatchedModelPlayerConfig,
-    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
-    outcome_rollouts: int = 1,
-    debug: bool = False,
-    log_level: int = logging.INFO,
-    log_dir: pathlib.Path | None = None,
-    target_seed: int = 0,
-):
-    """Runs a distributed training loop.
-
-    Runs a loop that:
-    - Creates a predictor process and clients
-    - Creates selfplay and greedy play actors
-    - Collects training data from the actors
-    - Trains the model on the collected data
-    - Saves the model periodically
-    - Validates the model periodically
-    - Terminates the actors and predictor process
-    - Joins the actors and predictor process
-    """
-    training_data_buffer_config = buffer.for_objectives(
-        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
-    )
-    logging.info(f"learning config: {learn_config}")
-    logging.info(f"training config: {training_config}")
-    logging.info(f"predictor config: {predictor_config}")
-    logging.info(f"training data buffer config: {training_data_buffer_config}")
-    logging.info(f"batched model player config: {batched_model_player_config}")
-    logging.info(f"Using start position generator: {start_state_generator}")
-    predictor_process = None
-    selfplay_actors = []
-    try:
-        # Predictor setup
-        predictor_model_update_queue = mp.Queue()
-        predictor_input_queues = {
-            i: predictor.PredictorInputQueue(
-                queue_id=i,
-                max_batch_size=predictor_config.max_batch_size,
-            )
-            for i in range(process_count)
-        }
-        predictor_output_queues = {
-            i: predictor.PredictorOutputQueue(
-                queue_id=i,
-                max_batch_size=predictor_config.max_batch_size,
-            )
-            for i in range(process_count)
-        }
-        predictor_process = predictor.PredictorProcess(
-            model_factory,
-            predictor_model_update_queue,
-            predictor_input_queues,
-            predictor_output_queues,
-            **predictor_config.kwargs(),
-            debug=debug,
-            log_level=log_level,
-            log_dir=log_dir,
-        )
-        predictor_process.start()
-        predictor_clients = {
-            i: predictor.DistributedPredictorClient(
-                predictor_input_queues[i], predictor_output_queues[i]
-            )
-            for i in range(process_count)
-        }
-
-        # Selfplay setup
-        selfplay_data_queue = mp.Queue()
-        logging.info(f"Starting {process_count} selfplay processes")
-        selfplay_actors = [
-            play.SelfplayGenerator(
-                id=f"selfplay_{i}",
-                player=player.BatchedModelPlayer(
-                    predictor_clients[i], **batched_model_player_config.kwargs()
-                ),
-                player_count=players,
-                game_data_queue=selfplay_data_queue,
-                start_state_generator=start_state_generator,
-                debug=debug,
-                log_level=log_level,
-                log_dir=log_dir,
-                play_callable=play.batched_model_player_selfplay,
-            )
-            for i in range(process_count)
-        ]
-        for actor in selfplay_actors:
-            actor.start()
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
-        )
-        learn(
-            model_factory=model_factory,
-            predictor_clients=predictor_clients,
-            training_data_buffer=training_data_buffer,
-            training_data_queue=selfplay_data_queue,
-            outcome_rollouts=outcome_rollouts,
-            target_seed=target_seed,
-            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
-        )
-
-    finally:
-        if predictor_process is not None:
-            predictor_process.cleanup(timeout=1)
-        for actor in selfplay_actors:
-            actor.cleanup(timeout=1)
-
-
-def run_multiprocessed_selfplay_with_local_predictor_learning(
-    process_count: int,
-    players: int,
-    model_factory: factory.SkyNetModelFactory,
-    learn_config: LearnConfig,
-    training_config: TrainConfig,
-    training_data_buffer_config: buffer.Config,
-    model_player_config: player.ModelPlayerConfig,
-    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
-    outcome_rollouts: int = 1,
-    debug: bool = False,
-    log_level: int = logging.INFO,
-    log_dir: pathlib.Path | None = None,
-    target_seed: int = 0,
-):
-    """Runs a distributed training loop.
-
-    Runs a loop that:
-    - Creates selfplay actors each with local predictor
-    - Collects training data from the actors
-    - Trains the model on the collected data
-    - Saves the model periodically
-    - Validates the model periodically
-    - Terminates the actors and predictor process
-    - Joins the actors and predictor process
-    """
-    training_data_buffer_config = buffer.for_objectives(
-        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
-    )
-    logging.info(f"learning config: {learn_config}")
-    logging.info(f"training config: {training_config}")
-    logging.info(f"model player config: {model_player_config}")
-    logging.info(f"Using start position generator: {start_state_generator}")
-    selfplay_actors = []
-    try:
-        training_data_buffer = buffer.ReplayBuffer(
-            **training_data_buffer_config.kwargs()
-        )
-
-        # Predictor clients setup
-        model_update_queues = {i: mp.Queue() for i in range(process_count)}
-        predictor_clients = {
-            i: predictor.LocalPredictorClient(
-                model=model_factory.get_latest_model(),
-                # TODO: make this a parameter (but properly not just add parameter)
-                max_batch_size=512,
-                factory=model_factory,
-                model_update_queue=model_update_queues[i],
-            )
-            for i in range(process_count)
-        }
-
-        # Selfplay setup
-        selfplay_data_queue = mp.Queue()
-        logging.info(f"Starting {process_count} selfplay processes")
-        selfplay_actors = [
-            play.SelfplayGenerator(
-                id=f"selfplay_{i}",
-                player=player.ModelPlayer(
-                    predictor_clients[i], **model_player_config.kwargs()
-                ),
-                player_count=players,
-                game_data_queue=selfplay_data_queue,
-                start_state_generator=start_state_generator,
-                debug=debug,
-                log_level=log_level,
-                log_dir=log_dir,
-                play_callable=play.model_player_selfplay,
-            )
-            for i in range(process_count)
-        ]
-        for actor in selfplay_actors:
-            actor.start()
-
-        # Main training loop
-        learn(
-            model_factory=model_factory,
-            predictor_clients=predictor_clients,
-            training_data_buffer=training_data_buffer,
-            training_data_queue=selfplay_data_queue,
-            outcome_rollouts=outcome_rollouts,
-            target_seed=target_seed,
-            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
-        )
-
-    finally:
-        for actor in selfplay_actors:
-            actor.cleanup(timeout=5)
-
-
-def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
-    process_count: int,
-    players: int,
-    model_factory: factory.SkyNetModelFactory,
-    learn_config: LearnConfig,
-    training_config: TrainConfig,
-    training_data_buffer_config: buffer.Config,
-    batched_model_player_config: player.BatchedModelPlayerConfig,
-    start_state_generator: typing.Callable[[], sj.Skyjo] | None = None,
-    outcome_rollouts: int = 1,
-    debug: bool = False,
-    log_level: int = logging.INFO,
-    log_dir: pathlib.Path | None = None,
-    load_training_data_buffer_path: pathlib.Path | None = None,
-    target_seed: int = 0,
-):
-    """Runs a distributed training loop.
-
-    Runs a loop that:
-    - Creates selfplay actors each with local predictor
-    - Collects training data from the actors
-    - Trains the model on the collected data
-    - Saves the model periodically
-    - Validates the model periodically
-    - Terminates the actors and predictor process
-    - Joins the actors and predictor process
-    """
-    training_data_buffer_config = buffer.for_objectives(
-        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
-    )
-    logging.info(f"learning config: {learn_config}")
-    logging.info(f"training config: {training_config}")
-    logging.info(f"batched model player config: {batched_model_player_config}")
-    logging.info(f"Using start position generator: {start_state_generator}")
-    selfplay_actors = []
-    try:
-        if load_training_data_buffer_path is not None:
-            logging.info(
-                f"Loading existing training data buffer from {load_training_data_buffer_path}"
-            )
-            training_data_buffer = buffer.ReplayBuffer.load(
-                load_training_data_buffer_path
-            )
-        else:
-            training_data_buffer = buffer.ReplayBuffer(
-                **training_data_buffer_config.kwargs()
-            )
-
-        # Predictor clients setup
-        model_update_queues = {i: mp.Queue() for i in range(process_count)}
-        predictor_clients = {
-            i: predictor.LocalPredictorClient(
-                model=model_factory.get_latest_model(),
-                # TODO: make this a parameter (but properly not just add parameter)
-                max_batch_size=512,
-                factory=model_factory,
-                model_update_queue=model_update_queues[i],
-            )
-            for i in range(process_count)
-        }
-
-        # Selfplay setup
-        selfplay_data_queue = mp.Queue()
-        logging.info(f"Starting {process_count} selfplay processes")
-        selfplay_actors = [
-            play.SelfplayGenerator(
-                id=f"selfplay_{i}",
-                player=player.BatchedModelPlayer(
-                    predictor_clients[i], **batched_model_player_config.kwargs()
-                ),
-                player_count=players,
-                game_data_queue=selfplay_data_queue,
-                start_state_generator=start_state_generator,
-                debug=debug,
-                log_level=log_level,
-                log_dir=log_dir,
-                play_callable=play.batched_model_player_selfplay,
-            )
-            for i in range(process_count)
-        ]
-        for actor in selfplay_actors:
-            actor.start()
-
-        # Main training loop
-        learn(
-            model_factory=model_factory,
-            predictor_clients=predictor_clients,
-            training_data_buffer=training_data_buffer,
-            training_data_queue=selfplay_data_queue,
-            outcome_rollouts=outcome_rollouts,
-            target_seed=target_seed,
-            **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
-        )
-
-    finally:
-        for actor in selfplay_actors:
-            actor.cleanup(timeout=5)
-
-
-def run_single_process_learning(
-    model: skynet.SkyNet,
-    models_dir: pathlib.Path,
-    learn_config: LearnConfig,
-    training_config: TrainConfig,
-    model_player_config: player.ModelPlayerConfig,
-    buffer_config: buffer.Config,
-    start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
-    debug: bool = False,
-    outcome_rollouts: int = 1,
-    target_seed: int = 0,
-):
-    """Generate histories, construct targets, and train within one learner process."""
-    resolved = getattr(model, "objectives", objectives.resolve())
-    logging.info("[LEARN] Auxiliary objectives: %s; terminal samples: %s; target seed: %s",
-                 resolved.weights, outcome_rollouts, target_seed)
-    replay = buffer.ReplayBuffer.from_config(buffer.for_objectives(buffer_config, resolved))
-    target_rng = random.Random(target_seed)
-    client = predictor.LocalPredictorClient(model, max_batch_size=512)
-    model_player = player.ModelPlayer(client, **model_player_config.kwargs())
-    players = [model_player] * model.spatial_input_shape[0]
-    optimizer = make_optimizer(model, training_config.learn_rate)
-    models_dir.mkdir(parents=True, exist_ok=True)
-    for step in range(learn_config.learn_steps):
-        if (learn_config.validation_function is not None
-                and learn_config.validation_interval is not None
-                and step % learn_config.validation_interval == 0):
-            learn_config.validation_function(model)
-        model.eval()
-        for _ in range(learn_config.games_generated_per_iteration):
-            history = play.model_player_selfplay(
-                players, debug=debug,
-                start_state=None if start_position_generator is None else start_position_generator(),
-            )
-            game_data, _ = targets.build_targets(
-                history, resolved, terminal_rollouts=outcome_rollouts, rng=target_rng
-            )
-            replay.add_game_data(game_data)
-        if len(replay) >= training_config.batch_size:
-            for _ in range(training_config.epochs):
-                details = train_epoch(model, replay, training_config.batch_size,
-                                      optimizer, training_config.loss_function)
-                if learn_config.loss_stats_function is not None:
-                    logging.info("%s", learn_config.loss_stats_function(details))
-        if learn_config.update_model_interval is not None and step % learn_config.update_model_interval == 0:
-            model.save(models_dir)
-
-
-def main_train_on_greedy_ev_player_games(
-    model: skynet.SkyNet,
-    models_dir: pathlib.Path,
-    validation_batch: train_utils.TrainingBatch | None = None,
-    learn_steps: int = 100,
-    training_epochs: int = 1,
-    batch_count: int = 10_000,
-    buffer_max_size: int = 10_000_000,
-    games_per_step: int = 100_000,
-    training_batch_size: int = 512,
-    outcome_rollouts: int = 1,
-    target_seed: int = 0,
-):
-    """Trains the model on greedy ev player games.
-
-    Runs a loop that:
-    1. Generates games from greedy ev heuristic players
-    2. Adds the games to the training data buffer
-    3. Trains the model on the collected data
-    4. Saves and validates the model periodically
-    """
-    models_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model.save(models_dir)
-    logging.info(f"Saved model to {model_path}")
-
-    resolved = getattr(model, "objectives", objectives.resolve())
-    training_data_buffer = buffer.ReplayBuffer.from_config(buffer.for_objectives(buffer.Config(
-        max_size=buffer_max_size, spatial_input_shape=model.spatial_input_shape,
-        non_spatial_input_shape=model.non_spatial_input_shape,
-        action_mask_shape=model.policy_output_shape,
-    ), resolved))
-    target_rng = random.Random(target_seed)
-    players = [player.GreedyExpectedValuePlayer() for _ in range(model.spatial_input_shape[0])]
-    optimizer = make_optimizer(model, 1e-3)
-    logging.info("Starting Training")
-    for _ in range(learn_steps):
-        for _ in range(games_per_step):
-            history = play.play(players)
-            game_data, _ = targets.build_targets(
-                history, resolved, terminal_rollouts=outcome_rollouts, rng=target_rng
-            )
-            training_data_buffer.add_game_data(game_data)
-
-        logging.info(f"Added {games_per_step} games to the buffer")
-        logging.info(f"Training data buffer size: {len(training_data_buffer)}")
-        for learn_iter in range(training_epochs):
-            explain.validate_model(model, validation_batch)
-            training_losses = []
-            for batch_iter in range(batch_count):
-                batch = training_data_buffer.sample_batch(
-                    batch_size=training_batch_size
-                )
-                loss = train_step(
-                    model,
-                    batch,
-                    loss_function=train_utils.base_loss,
-                    optimizer=optimizer,
-                )
-                training_losses.append(loss)
-            logging.info(
-                f"Mean training loss: {sum(loss for loss, _ in training_losses) / len(training_losses)}"
-            )
-        model_path = model.save(models_dir)
-        logging.info(f"Saved model to {model_path}")
-
-
-def main_overfit_small_training_sample(
-    model: skynet.SkyNet,
-    models_dir: pathlib.Path,
-    training_sample: train_utils.TrainingBatch,
-    learn_steps: int = 100,
-    training_epochs: int = 1,
-    batch_count: int = 1000,
-    buffer_max_size: int = 10_000_000,
-    training_batch_size: int = 512,
-):
-    """Trains the model on a small fixed training sample.
-
-    Mainly used for debugging to determine whether a model is capable of
-    overfitting a small training sample.
-    """
-    models_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model.save(models_dir)
-    logging.info(f"Saved model to {model_path}")
-    training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
-    optimizer = make_optimizer(model, 1e-3)
-    logging.info("Adding fixed training data sample to buffer")
-    for game_data in training_sample:
-        training_data_buffer.add_game_data(game_data)
-    validation_games_data = list(itertools.chain.from_iterable(training_sample))
-    logging.info("Starting Training")
-    for _ in range(learn_steps):
-        logging.info(f"Training data buffer size: {len(training_data_buffer)}")
-        for learn_iter in range(training_epochs):
-            explain.validate_model(model, validation_games_data)
-            training_losses = []
-            for batch_iter in range(batch_count):
-                batch = training_data_buffer.sample_batch(
-                    batch_size=training_batch_size
-                )
-                loss = train_step(
-                    model,
-                    batch,
-                    loss_function=train_utils.base_loss,
-                    optimizer=optimizer,
-                )
-                training_losses.append(loss)
-            logging.info(
-                f"Mean training loss: {sum(training_losses) / len(training_losses)}"
-            )
-        model_path = model.save(models_dir)
-        logging.info(f"Saved model to {model_path}")
+    checkpoint_interval: int
+    loss_stats_function: (
+        typing.Callable[[list[train_utils.LossDetails]], object] | None
+    ) = None

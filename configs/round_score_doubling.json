@@ -1,8 +1,0 @@
-{
-  "auxiliary_objectives": {
-    "round_raw_score": 0.1,
-    "round_doubled": 0.1
-  },
-  "outcome_rollouts": 32,
-  "target_seed": 0
-}

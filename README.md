@@ -2,6 +2,256 @@
 
 AI model, training, and gameplay for Skyjo
 
+## Recorded experiments
+
+The experiment workflow preserves the inputs and evidence needed for architecture
+research. Config resolution belongs to the current distributed training recipe;
+the reusable `skyjo.runs.RunRecorder` accepts arbitrary JSON-compatible metrics,
+progress counters, context, and artifact metadata. New diagnostics do not require
+a metric registry or changes to the recorder.
+
+Run the small pipeline check first, then the full-game baseline recipe:
+
+```sh
+uv run python distributed_main.py --config configs/smoke.toml
+uv run python distributed_main.py --config configs/baseline.toml
+```
+
+The smoke configuration performs two complete self-play games and optimizer updates
+on CPU, then saves checkpoints and replay data. It checks the pipeline, not model
+quality. The baseline runs 100 iterations of 256 full games (25,600 total),
+with 32 search iterations per decision, eight single-threaded CPU workers, and
+a 524,288-position replay buffer. Replay ratio 4 means four sampled training
+positions per newly generated position, sampled with replacement; it is not an
+epoch count. The prior 15,360-game run took 7h 41m. Its late throughput projects
+roughly 14 hours for this budget, but changing game lengths affect runtime.
+Evaluate saved checkpoints against fixed opponents with balanced seats to measure
+playing strength; that evaluation is separate from this training recipe.
+
+By default, launching requires a Git commit and no staged edits, tracked edits,
+or non-ignored untracked files. During development, explicitly permit dirty code:
+
+```sh
+uv run python distributed_main.py --config configs/smoke.toml --allow-dirty
+```
+
+The commit, dirty flag, and override are recorded. Patches, changed-file lists,
+and untracked source files are **not** saved; a dirty run may be impossible to
+reconstruct. Ignored run outputs do not make the repository dirty.
+
+Each launch prints a fresh `.runs/<run-id>/` directory (gitignored). Use
+`--runs-dir PATH` to choose another local root. It contains:
+
+| File or directory | Purpose |
+| --- | --- |
+| `run.json` | Identity, status, code/runtime provenance, config digest, final progress |
+| `input-config.toml` or `.json` | Exact original input bytes |
+| `resolved-config.json` | Rerunnable settings, expanded defaults, derived shapes, input dataset identity |
+| `notes.md` | Editable description, observations, caveats, and findings |
+| `trajectory.jsonl` | Ordered structured events and measurements |
+| `artifacts.jsonl` | Artifact registrations and supersession events |
+| `checkpoints/` | Existing Torch checkpoint format, with recorded SHA-256 checksums |
+| `data/replay/` | Latest replay dataset in the existing NumPy format |
+| `metrics/rounds-*.jsonl` | Immutable per-round observations with game/seed/checkpoint provenance |
+| `metrics/concepts-*.jsonl` | Per-example heuristic concept checks |
+| `logs/train.log` | Compact progress, iteration summaries, and failure tracebacks |
+
+The baseline uses `EquivariantSkyNet`, the policy/game-win base loss, and core
+replay targets. The ordinary runner also supports configured round objectives. All decisions across a
+game receive its observed final winner label, with ties shared equally. Cumulative
+scores are already part of the model observation. Round-score and future-clear
+auxiliaries are disabled.
+
+MCTS searches within the current round. On first reaching a round boundary, it
+applies the final action once. A finished game supplies its exact outcome;
+otherwise it deals the next round once and uses the model's prediction there.
+That value is cached for subsequent visits to the same boundary node. This is a
+single-sample baseline approximation: observed full-game value targets are never
+resampled. Ordinary chance-node sampling during a round is unchanged.
+Search utility is game-win probability alone.
+
+Every generated/replayed game count refers to a complete game, not a round.
+Replay retains and evicts complete games, and dataset splits keep all rounds of
+a game together. Full-game scores
+and outcomes remain available alongside round statistics. Completed turns count
+post-setup flips or replacements; a draw followed by a replacement is one turn
+and two model decisions. Partial starting rounds are flagged and excluded from
+whole-round length distributions. Score and clear distributions use player-rounds;
+action rates pool counts and eligible opportunities. No-progress endings are
+identified before automatic final reveals, and score adjustments compare raw
+board points with the scored round points.
+
+`logging.progress_interval_seconds` defaults to 0: one completion summary per
+generation phase, including elapsed time, games/sec, and decisions/sec. Set a
+positive interval (for example, 300 seconds) to also report progress and ETA while
+generation runs. Task and target-conversion messages require `execution.debug = true`.
+Game summaries show round averages and the no-progress ending rate; full
+distributions, action rates, loss components, and phase timings remain in the
+structured metrics and DEBUG logs. Training summaries
+show sampled positions, optimizer updates, replay ratio, and replay-equivalent
+passes. Structured policy diagnostics include position-weighted target entropy,
+predicted entropy, and KL(target || prediction), overall and by decision phase.
+
+`validation.concept_interval` defaults to 5 iterations, plus initialization and
+completion; 0 disables checks. The current concept suite is two-player-only,
+so games with more players skip it with an explicit log message. These handcrafted positions are heuristic concept
+checks, not calibrated win-probability or playing-strength validation. Evaluating
+them preserves training mode and RNG state. Checkpoint frequency is independent
+of both reporting intervals.
+
+Checkpoints are saved initially, every `budget.checkpoint_interval` iterations,
+and at the final iteration. A final iteration on the periodic schedule is saved
+once.
+
+The pool runner is full-game-only. Single-round gameplay helpers remain available.
+Optional `selfplay.start_state = "potential_clear"` starts a two-player game from that
+position, then continues through later rounds; `standard` starts a fresh game.
+
+Replay and checkpoint loading check artifact format, configuration, and tensor
+shapes. They do not identify or guard against older training objectives; use fresh
+artifacts for this baseline.
+
+An optional `replay.initial_dataset` path is relative to the input config file.
+The resolved config stores its absolute path and dataset ID; reruns reject a
+different dataset at that path. Move an input dataset by updating its path while
+retaining its identity. Output directories never appear as rerunnable inputs.
+
+To repeat a run under the current compatible code, launch its saved settings:
+
+```sh
+uv run python distributed_main.py --config .runs/RUN_ID/resolved-config.json
+```
+
+This creates a new run with fresh model initialization and the saved seed; it is
+not a resume. For historical reproduction, read the commit from `run.json`, create
+a separate Git worktree at that commit, run `uv sync --locked` there, restore any
+required input dataset, and launch the saved JSON by absolute path. Saved code and
+seeds do not guarantee bit-identical results across devices or runtime versions.
+Only committed implementation changes can be recovered from the recorded commit.
+
+An iteration generates games, adds their positions to replay, and trains for a
+replay-ratio budget of optimizer steps. One cumulative progress record counts
+iterations, generated games, optimizer steps, and sampled positions. The saved counters describe the saved
+model's continuous training history. The shared checkpoint format is unchanged.
+A snapshot reference contains only a checkpoint path and artifact ID. A null checkpoint reference
+means the in-memory model has no exact saved checkpoint at that point. Loss means
+are over optimizer steps; game statistics are means over the generated games.
+Compare their definitions, data, and budgets before interpreting similarly named
+metrics as equivalent.
+
+Artifact paths are relative to the run directory. Replay is latest-only: apply
+`superseded` records before resolving historical registrations. Supersession is
+recorded before replacement; on save failure it conservatively marks the old
+snapshot unavailable even if its files survived. Checkpoints and replay are saved
+independently and do **not** constitute a coherent run recovery point.
+
+Replay provenance records the initial buffer's path and dataset ID (when supplied),
+the previous replay dataset ID, and the latest batch's run ID, generation iteration,
+generating checkpoint, and game count. Generation iterations are one-based: games
+for iteration 1 use the initial model, and games for iteration N use the model
+after iteration N-1. Between saved boundaries the checkpoint ID and path are null;
+an older checkpoint is never substituted for the actual unsaved model. The
+generating checkpoint describes only that newly added batch, not the entire mixed
+replay buffer. No per-game provenance index is maintained; these references
+describe how the buffer was built, not precisely which sources remain after
+eviction. The replay manifest therefore has no single `source_checkpoint` for the
+whole snapshot.
+
+Completed, failed, and caught interrupted runs have explicit lifecycle events.
+An uncatchable termination may leave status `running` or an incomplete final JSONL
+line; only complete lines are evidence. There is no automatic recovery service.
+
+The next increments are curated Git-tracked experiment reports and findings,
+coherent resume, and focused comparison/evaluation tools. Historical compatibility,
+schema migrations, automated Git checkout, and dashboards are outside this milestone.
+
+## Complete-run round objective comparisons
+
+The suite launcher calls the ordinary runner sequentially for each named variant
+and paired training seed. Every invocation initializes fresh weights, replay,
+checkpoints, and RNG streams, and generates its own self-play. Nested overrides
+are validated by the ordinary configuration resolver before any training starts.
+Paths are resolved relative to the file declaring them. Failures stop the suite;
+completed child runs remain recorded and are not automatically rerun.
+
+```sh
+# Three variants, one training seed, two games per run, four evaluation games total.
+uv run python run_auxiliary_ablation.py --config configs/round_objectives_smoke.toml
+
+# Full training budgets: configured for later use, not part of the smoke check.
+uv run python run_auxiliary_ablation.py --config configs/round_objectives.toml
+```
+
+The full suite inherits `configs/baseline.toml` and uses training seeds `[0, 1, 2]`.
+Its variants are control (no auxiliaries), penalized score (`round_score = 0.1`),
+and raw score plus doubling (both `0.1`). Add `--allow-dirty` for development runs.
+Any combination of the three heads is supported in an ordinary training config:
+
+```toml
+[auxiliary_objectives]
+round_raw_score = 0.1
+round_doubled = 0.1
+round_score = 0.1
+
+[auxiliary_targets]
+mode = "observed" # alternatively "resampled"
+samples = 32      # used only for auxiliary terminal resampling
+
+[training]
+gradient_diagnostic = true
+```
+
+Omitted or zero-weight objectives create no head, replay label, or loss term.
+Raw scores predict `raw / 144` with a linear head and MSE; doubling predicts
+logits with BCE; charged scores retain the sigmoid head and `(score + 48) / 336`
+normalization with MSE. Score errors are logged as MAE in points. All auxiliary
+losses have separate unweighted and weighted metrics. The experimental `0.1`
+weights are fixed; there is no automatic balancing.
+
+The learner builds labels separately for each completed round, before replay
+insertion. Observed endings are the default. Optional terminal resampling fixes
+the round's last decision, samples that transition and its automatic reveals,
+and applies clearing and penalties before averaging. Enabled heads share the
+same endings; deterministic transitions run once. This does not simulate earlier
+alternative continuations. Seed streams depend on training seed, global game
+index, and round index. Full-game outcome labels, policy symmetrization, observed
+statistics, subsequent rounds, and outcome-only MCTS utility stay unchanged.
+Auxiliary initialization preserves core initialization and subsequent RNG streams.
+
+Each experimental checkpoint is evaluated against the same training seed's
+control. The default is 32 evaluation seeds with both seat assignments (64 full
+games per pair), 128 MCTS iterations, temperature zero, and no Dirichlet noise.
+The reusable `skyjo.evaluation.evaluate_checkpoints` accepts two versioned
+checkpoint paths and an `EvaluationConfig`, restores caller RNG state, and
+returns per-game identities, scores, shared-tie win credit, and summary metrics.
+Evaluation currently requires two-player checkpoints, checked before suite launch.
+
+The parent recorded run contains child configurations, independent child runs,
+per-pair comparison artifacts, and `comparison.json`. The report contains per-seed
+win fractions and control-minus-variant score margins, then averages over training
+seeds. It also retains elapsed training time, generated games/positions, optimizer
+steps, sampled positions, and phase timings. Evaluation time is separate. Equal
+iterations do not guarantee equal compute or sampled-position budgets.
+
+Comparison configs enable a first-actual-batch diagnostic of shared-network
+weighted core and unweighted/weighted auxiliary gradient norms and their ratios.
+It reuses the forward graph and does not sample a batch, write `.grad`, advance
+RNG, or take an extra optimizer step. Diagnostic time is recorded separately
+(and remains included in elapsed training time). Smoke results only establish
+working integration, not improved playing strength.
+
+Shared-data diagnostics remain available through the offline trainer:
+
+```sh
+uv run python run_train_epoch.py PATH_TO_REPLAY --steps 10 \
+  --auxiliary-objectives '{"round_raw_score": 0.1, "round_doubled": 0.1}'
+```
+
+The offline selection uses the same heads and losses, requires its named labels,
+and accepts extra unused replay labels. Online replay compatibility continues to
+use the ordinary runner's versioned dataset checks. No legacy dataset migration
+or sidecar checkpoint format is introduced.
+
 ## Usage
 
 Install the project in editable mode while developing:
@@ -21,94 +271,93 @@ state = sj.new(players=2)
 model_cls = skynet.EquivariantSkyNet
 ```
 
-## Auxiliary objectives
+## Full games and individual rounds
 
-Set `auxiliary_objectives` on `EquivariantSkyNet` (or in the model factory's
-`model_kwargs`). The experiment configurations in `main.py` and
-`distributed_main.py` expose this mapping and use 32 terminal samples for every
-ablation, including the baseline:
+Play a full game with the existing player implementations:
 
 ```python
-auxiliary_objectives = {}  # baseline
-auxiliary_objectives = {"round_raw_score": 0.1}  # score only
-auxiliary_objectives = {"round_doubled": 0.1}  # doubling only
-auxiliary_objectives = {"round_raw_score": 0.1, "round_doubled": 0.1}
+from skyjo import play, player
+
+result = play.play_game([player.RandomPlayer(), player.RandomPlayer()])
+print(result.final_scores)  # Cumulative scores in fixed player order
+print(result.winners)       # All winning player indices, including ties
+
+for round_result in result.rounds:
+    print(round_result.round_scores, round_result.cumulative_scores)
+    print(round_result.ending_player)
+    history = round_result.history  # Decisions followed by the final snapshot
 ```
 
-The named configuration `configs/round_score_doubling.json` enables both
-objectives at weight 0.1, with 32 terminal samples and target seed 0:
+A game ends after a fully scored round brings any cumulative score to **100
+or more**. The lowest cumulative total wins, with shared winners for ties.
+Player zero starts the first round; the player who ends a round starts the
+next one. Existing round penalties still apply.
+
+`play.play_round(players)` plays one round and returns a `RoundHistory` of
+`RoundHistoryEntry` decisions followed by a terminal snapshot. Both gameplay
+functions accept an optional `start_state`. Use
+`play.game_result_to_game_data(result)` for observed full-game win/policy labels;
+every round's terminal snapshot is excluded from training rows.
+
+For direct state control, `sj.get_round_over(state)` identifies a completed
+round, while **`sj.get_game_over(state)` now checks the full-game threshold**.
+`sj.apply_action()` stops at the completed round; call
+`sj.start_next_round(state)` explicitly to reset and deal another round. It
+raises `ValueError` if the round is still active or the game has finished.
+Completed rounds have no legal actions and remain available for inspection.
+
+`sj.get_game_scores(state)` returns cumulative scores in current-player
+order; `sj.get_fixed_perspective_game_scores(state)` uses fixed player order.
+During a round they include only previous rounds; at completion they also
+include the current round's penalized points. Reading them never mutates the
+state. The stored `GAME_SCORES` slots always exclude the current round.
+
+`sj.get_round_about_to_end(state)` indicates that the next action ends the
+round. Existing winner helpers report round winners; use `GameResult.winners`
+for full-game winners.
+
+The separate interactive gameplay application is also available:
 
 ```sh
-uv run python distributed_main.py --config configs/round_score_doubling.json
+uv run python -m skyjo2 interactive random
 ```
 
-This selects the learning objectives while retaining the distributed runner's
-other settings (currently 2 learning iterations, 8 games per iteration, and
-2 training epochs). Running without `--config` selects the core-only baseline.
+## Reusable components
 
-The model's resolved configuration controls its heads, replay fields, and
-additional losses in `train_step`. Omitted or zero-weight objectives are fully
-disabled. Core-only forward calls retain their original two-field output;
-enabled models additionally expose an `auxiliary` mapping. Search and gameplay
-adapters use only the existing value and policy outputs.
+The shared scalar and batched MCTS implementations, player implementations,
+auxiliary models and losses, replay datasets, optimizer primitives, checkpoint
+persistence, and run recorder remain available independently of the pool recipe.
+The recipe exposes only its model dimensions, base loss scales, replay budget,
+self-play/search settings, checkpoint schedule, and execution settings in
+`configs/baseline.toml` and `configs/smoke.toml`.
 
-Self-play workers return completed histories. The learner calls
-`targets.build_targets(history, model.objectives, terminal_rollouts=32,
-rng=target_rng)` before inserting rows into replay. Create one dedicated
-`random.Random(target_seed)` per learning run and reuse it across histories.
-Both auxiliary objectives share the terminal sampling pass already needed by
-the core value target. Minibatch training never resimulates an ending.
+Handcrafted concept-check positions and their expected policies remain in
+`skyjo.explain.VALIDATION_EXAMPLES`. For a standalone inspection of a loaded model,
+call `explain.validate_model_on_validation_examples(model)` with INFO logging
+enabled to see predictions and target comparisons. Their value targets are
+heuristic round-level expectations, not calibrated full-game win probabilities.
+The recipe also records compact checks on the configured concept schedule.
 
-The sampler fixes the final decision and resamples its random transition and
-automatic reveals. Raw scores are measured after clearing and before doubling;
-doubling labels are the frequency of the rule applying, including ties and
-no-progress penalties. Each earlier state receives these averaged labels in
-current-player order. This is supervision conditional on the played trajectory,
-not a continuation search from every state. Penalized scores and value targets
-are computed per sampled ending before averaging.
+## Offline training
 
-Raw score uses `MSE(prediction / 144, target / 144)`; doubling uses
-`BCEWithLogits` against the sampled frequency. Logs include each unweighted and
-weighted loss and raw-score MAE in points. The default experimental weight is
-0.1 for each enabled objective.
+Replay buffers are saved as versioned NumPy dataset directories containing only
+retained positions and complete-game metadata. Legacy replay pickle files are
+not supported.
 
-New replay buffers are configured with
-`buffer.for_objectives(buffer_config, model.objectives)`. Saved buffers must
-contain all enabled labels; extra labels can be ignored when training a subset
-of objectives. Start each ablation with fresh weights. Checkpoints retain a
-`.pth` state dictionary and add a neighboring `.json` model configuration; keep
-both files together. `EquivariantSkyNet.from_checkpoint(path, device)` restores
-the architecture and objective weights. Model factories also use this metadata.
-
-To train one epoch from labeled replay:
+Train to an exact cumulative optimizer-step target with a deterministic
+game-level validation split:
 
 ```sh
-uv run python run_train_epoch.py data/replay.pkl \
-  --auxiliary-objectives '{"round_raw_score": 0.1, "round_doubled": 0.1}'
+uv run python run_train_epoch.py .runs/RUN_ID/data/replay \
+  --steps 100 \
+  --output-checkpoint models/offline/step_100.pth
 ```
 
-When `--weights` references a new checkpoint, the CLI inherits its objective
-configuration unless an explicitly supplied configuration matches it.
-
-To run a reproducible offline comparison of all four ablations:
+Resume by passing the prior checkpoint and a larger cumulative target:
 
 ```sh
-uv run python run_auxiliary_ablation.py --seeds 0,1 --terminal-rollouts 32
+uv run python run_train_epoch.py .runs/RUN_ID/data/replay \
+  --checkpoint models/offline/step_100.pth \
+  --steps 200 \
+  --output-checkpoint models/offline/step_200.pth
 ```
-
-This shares initial-model MCTS histories, core initialization, target samples,
-and minibatch indices across arms. The JSON report records target construction
-time, training time, losses, and policy-only play against greedy EV in both
-seats. Small budgets validate wiring; larger multi-seed experiments are needed
-to establish playing strength.
-
-### Adding another auxiliary objective
-
-Register an `objectives.Objective` with a target-shape function, context
-dependency name, per-state target extractor, head factory, and loss/metrics
-function. Add a builder to `targets.CONTEXT_BUILDERS` if it needs new
-history-derived context. Builders run once per history; objectives sharing a
-dependency reuse its result. Extractors return labels in the state's current
-perspective. No changes to the generic training loop are needed. Context
-builders receive isolated random streams keyed by dependency name so adding
-one cannot perturb existing targets.
