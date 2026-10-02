@@ -315,3 +315,79 @@ def test_full_game_replay_keeps_rounds_together(tmp_path, equal_hands):
         assert batch.non_spatial_inputs[:, sj.GAME_SCORES:sj.GAME_SCORES + 3].any()
         resaved = buffer.ReplayBuffer.load(selected.save(tmp_path / f"split-{number}"))
         np.testing.assert_array_equal(resaved.ordered_batch().value_targets, batch.value_targets)
+
+
+def test_round_statistics_count_turns_and_player_rounds(equal_hands):
+    from skyjo import game_stats
+
+    result = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    stats = game_stats.analyze_game(result)
+    summary = game_stats.summarize_games([stats])
+    assert len(stats.rounds) == 3
+    for observed in stats.rounds:
+        assert observed.turns == 30
+        assert observed.decisions == 63  # Three setup reveals, two decisions/turn.
+        assert observed.raw_scores == (21, 21, 21)
+        assert observed.scores == (42, 21, 21)
+        assert observed.ending_reason == "natural"
+        assert not observed.partial_start
+    assert summary["round/score/count"] == 9
+    assert summary["round/score/mean"] == 28
+    assert summary["round/score_adjustment_rate"] == pytest.approx(1 / 3)
+    assert summary["round/turns/p90"] == 30
+    assert summary["round/no_progress_rate"] == 0
+    assert summary["game/rounds/mean"] == 3
+
+
+def test_round_statistics_preserve_seats_clears_and_partial_history():
+    from skyjo import game_stats
+
+    final = completed_round(
+        ((-2, 0, 1), (0, 1, 2), (1, 2, 3)), (10, 20, 90), ending_player=2
+    )
+    # A partial round already in its last turn. Its end trigger is not observed.
+    before = (*final[:6], 1)
+    history = [
+        play.RoundHistoryEntry(before, sj.MASK_REPLACE, None),
+        play.RoundHistoryEntry(final, None, None),
+    ]
+    result = play.GameResult((play.RoundResult(history, (-1, 3, 12), (9, 23, 102), 2),))
+    stats = game_stats.analyze_game(result)
+    observed = stats.rounds[0]
+    assert observed.raw_scores == (-1, 3, 6)
+    assert observed.cumulative_scores == (9, 23, 102)
+    assert observed.cleared_columns == (3, 3, 3)
+    assert observed.partial_start and observed.ending_reason == "unknown"
+    summary = game_stats.summarize_games([stats])
+    assert summary["round/turns/count"] == 0
+    assert "round/turns/mean" not in summary
+    assert "round/no_progress_rate" not in summary
+    assert summary["round/score/count"] == 3
+
+
+def test_no_progress_end_is_identified_before_automatic_reveals():
+    from skyjo import game_stats
+
+    class StallPlayer(player.AbstractPlayer):
+        def get_action_probabilities(self, state):
+            phase = sj.get_action(state)
+            if phase == sj.ACTION_FLIP_SECOND:
+                action = sj.MASK_FLIP_SECOND_RIGHT
+            elif phase == sj.ACTION_DRAW_OR_TAKE:
+                action = sj.MASK_TAKE
+            else:
+                action = sj.MASK_REPLACE  # Repeatedly replace a known card.
+            return self._action_to_action_probabilities(action, state)
+
+    history = play.play_round([StallPlayer(), StallPlayer()])
+    final = history[-1].state
+    result = play.RoundResult(
+        history,
+        tuple(sj.get_fixed_perspective_round_scores(final)),
+        tuple(sj.get_fixed_perspective_game_scores(final)),
+        sj.get_player(final),
+    )
+    stats = game_stats.analyze_round(result)
+    assert stats.ending_reason == "no_progress"
+    assert not stats.partial_start
+    assert all(sj.get_is_visible(final, i) for i in range(2))

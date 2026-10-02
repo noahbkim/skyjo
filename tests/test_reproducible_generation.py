@@ -176,3 +176,56 @@ def test_target_generation_is_sorted_and_does_not_need_randomness(monkeypatch):
         ordered_buffer.ordered_batch().value_targets,
         reversed_buffer.ordered_batch().value_targets,
     )
+
+
+def test_generation_collects_out_of_order_completions_and_restores_game_order():
+    from types import SimpleNamespace
+
+    class CompletingPool:
+        def __init__(self):
+            self.tasks = []
+
+        def apply_async(self, worker, *, kwds, callback, error_callback):
+            self.tasks.append((kwds, callback))
+            if len(self.tasks) == 3:
+                for settings, complete in reversed(self.tasks):
+                    index = settings["first_game_index"]
+                    complete(
+                        [
+                            distributed_main.GeneratedGame(
+                                index,
+                                index,
+                                SimpleNamespace(
+                                    rounds=[SimpleNamespace(history=[None] * 3)]
+                                ),
+                            )
+                        ]
+                    )
+
+    result = distributed_main.generate_iteration(
+        CompletingPool(),
+        total_games=3,
+        games_per_task=1,
+        first_game_index=10,
+        worker_kwargs={},
+    )
+    assert [game.global_game_index for game in result] == [10, 11, 12]
+
+
+def test_generation_propagates_later_worker_failure_without_waiting_for_first():
+    import pytest
+
+    class FailingPool:
+        def apply_async(self, worker, *, kwds, callback, error_callback):
+            if kwds["first_game_index"] == 1:
+                error_callback(RuntimeError("worker failed"))
+            # Task zero never completes.
+
+    with pytest.raises(RuntimeError, match="worker failed"):
+        distributed_main.generate_iteration(
+            FailingPool(),
+            total_games=2,
+            games_per_task=1,
+            first_game_index=0,
+            worker_kwargs={},
+        )

@@ -1,17 +1,18 @@
 """Handcrafted positions and standalone checks of learned Skyjo concepts.
 
 The target values are heuristic round-level expectations, not calibrated full-game
-win probabilities. These examples are for qualitative inspection and are not
-part of the pool training loop or its replay targets.
+win probabilities. These examples are qualitative diagnostics evaluated periodically by the pool
+recipe; their heuristic labels never become replay targets.
 """
 
+import dataclasses
 import logging
 
 import numpy as np
 import torch
 
 from . import game as sj
-from . import play, skynet, train_utils
+from . import checkpoint, skynet, train_utils
 
 # MARK: Game state creation
 
@@ -446,49 +447,85 @@ VALIDATION_EXAMPLES = [
 ]
 
 
+@dataclasses.dataclass(frozen=True)
+class ConceptReport:
+    examples: list[dict]
+
+    def summary(self) -> dict[str, float | int]:
+        return {
+            "example_count": len(self.examples),
+            "target_action_matches": sum(
+                e["target_action_match"] for e in self.examples
+            ),
+            "mean_target_probability": float(
+                np.mean([e["target_probability"] for e in self.examples])
+            ),
+            "heuristic_value_mse": float(
+                np.mean([e["value_loss"] for e in self.examples])
+            ),
+            "policy_loss": float(np.mean([e["policy_loss"] for e in self.examples])),
+        }
+
+
+@torch.inference_mode()
+def evaluate_concepts(model: skynet.SkyNet) -> ConceptReport:
+    """Inspect heuristic positions without perturbing training mode or RNG streams."""
+    rng = checkpoint.capture_rng_state()
+    modes = [(module, module.training) for module in model.modules()]
+    examples = []
+    try:
+        model.eval()
+        for description, state, targets in VALIDATION_EXAMPLES:
+            prediction = model.predict(state)
+            tensor_targets = train_utils.TensorTrainingTargets(
+                torch.tensor(targets.value[None, :], dtype=torch.float32),
+                torch.tensor(targets.policy[None, :], dtype=torch.float32),
+            )
+            value_loss, policy_loss = train_utils.policy_value_losses(
+                prediction.to_output(), tensor_targets
+            )
+            action = int(prediction.policy_output.argmax())
+            examples.append(
+                {
+                    "name": description,
+                    "value": prediction.value_output.tolist(),
+                    "policy": prediction.policy_output.tolist(),
+                    "value_target": targets.value.tolist(),
+                    "policy_target": targets.policy.tolist(),
+                    "preferred_action": action,
+                    "preferred_action_name": sj.get_action_name(action),
+                    "target_probability": float(
+                        prediction.policy_output[targets.policy > 0].sum()
+                    ),
+                    "target_action_match": bool(targets.policy[action] > 0),
+                    "value_loss": value_loss.item(),
+                    "policy_loss": policy_loss.item(),
+                }
+            )
+        return ConceptReport(examples)
+    finally:
+        for module, training in modes:
+            module.training = training
+        checkpoint.restore_rng_state(rng)
+
+
 def validate_model_on_validation_examples(
     model: skynet.SkyNet,
     value_loss_scale: float = 1.0,
     policy_loss_scale: float = 1.0,
 ) -> dict[str, float]:
-    game_data = []
-    for description, game_state, targets in VALIDATION_EXAMPLES:
-        game_data.append(
-            play.GameDataPoint(
-                game_state,
-                None,
-                targets,
-            )
-        )
-    value_loss, policy_loss = train_utils.compute_model_loss_on_game_data(
-        model, game_data, train_utils.policy_value_losses
-    )
-    logging.info("[VALIDATION] VALIDATION SET LOSS")
-    logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
-    logging.info(f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}")
-
+    """Verbose standalone rendering of the heuristic concept suite."""
+    report = evaluate_concepts(model)
+    summary = report.summary()
     metrics = {
-        "value_loss": value_loss_scale * value_loss.item(),
-        "policy_loss": policy_loss_scale * policy_loss.item(),
-        "example_count": len(VALIDATION_EXAMPLES),
+        "value_loss": value_loss_scale * summary["heuristic_value_mse"],
+        "policy_loss": policy_loss_scale * summary["policy_loss"],
+        "example_count": summary["example_count"],
     }
-
-    logging.info("[VALIDATION] INDIVIDUAL EXAMPLES")
-    for description, game_state, targets in VALIDATION_EXAMPLES:
-        model_prediction = model.predict(game_state)
-        tensor_targets = train_utils.TensorTrainingTargets(
-            torch.tensor(np.expand_dims(targets.value, 0), dtype=torch.float32),
-            torch.tensor(np.expand_dims(targets.policy, 0), dtype=torch.float32),
-        )
-        value_loss, policy_loss = train_utils.policy_value_losses(
-            model_prediction.to_output(), tensor_targets
-        )
-        logging.info(f"[VALIDATION] validation example: {description}")
-        logging.info(f"[VALIDATION] value loss: {value_loss_scale * value_loss.item()}")
-        logging.info(
-            f"[VALIDATION] policy loss: {policy_loss_scale * policy_loss.item()}"
-        )
-        logging.info(f"[VALIDATION] model prediction:\n{model_prediction}")
-        logging.info(f"[VALIDATION] value target: {targets.value}")
-        logging.info(f"[VALIDATION] policy target:\n{targets.policy}")
+    logging.info(
+        "[VALIDATION] Heuristic concept checks (not calibrated full-game validation): %s",
+        metrics,
+    )
+    for example in report.examples:
+        logging.info("[VALIDATION] %s", example)
     return metrics

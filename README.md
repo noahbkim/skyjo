@@ -19,8 +19,14 @@ uv run python distributed_main.py --config configs/baseline.toml
 
 The smoke configuration performs two complete self-play games and optimizer updates
 on CPU, then saves checkpoints and replay data. It checks the pipeline, not model
-quality. The full configuration preserves the existing 10-iteration, 1024-games-
-per-iteration recipe and is substantially more expensive.
+quality. The baseline runs 100 iterations of 256 full games (25,600 total),
+with 32 search iterations per decision, eight single-threaded CPU workers, and
+a 524,288-position replay buffer. Replay ratio 4 means four sampled training
+positions per newly generated position, sampled with replacement; it is not an
+epoch count. The prior 15,360-game run took 7h 41m. Its late throughput projects
+roughly 14 hours for this budget, but changing game lengths affect runtime.
+Evaluate saved checkpoints against fixed opponents with balanced seats to measure
+playing strength; that evaluation is separate from this training recipe.
 
 By default, launching requires a Git commit and no staged edits, tracked edits,
 or non-ignored untracked files. During development, explicitly permit dirty code:
@@ -46,7 +52,9 @@ Each launch prints a fresh `.runs/<run-id>/` directory (gitignored). Use
 | `artifacts.jsonl` | Artifact registrations and supersession events |
 | `checkpoints/` | Existing Torch checkpoint format, with recorded SHA-256 checksums |
 | `data/replay/` | Latest replay dataset in the existing NumPy format |
-| `logs/train.log` | Verbose training diagnostics and failure tracebacks |
+| `metrics/rounds-*.jsonl` | Immutable per-round observations with game/seed/checkpoint provenance |
+| `metrics/concepts-*.jsonl` | Per-example heuristic concept checks |
+| `logs/train.log` | Compact progress, iteration summaries, and failure tracebacks |
 
 The baseline uses `EquivariantSkyNet`, the policy/game-win base loss, and core
 replay targets. These are fixed by the pool runner. All decisions across a
@@ -64,9 +72,28 @@ Search utility is game-win probability alone.
 
 Every generated/replayed game count refers to a complete game, not a round.
 Replay retains and evicts complete games, and dataset splits keep all rounds of
-a game together. Existing action statistics are aggregated across rounds; scores
-and outcomes describe the final game. Losses, timing, and progress continue to be
-recorded. Per-round monitoring and new evaluation suites are deferred.
+a game together. Full-game scores
+and outcomes remain available alongside round statistics. Completed turns count
+post-setup flips or replacements; a draw followed by a replacement is one turn
+and two model decisions. Partial starting rounds are flagged and excluded from
+whole-round length distributions. Score and clear distributions use player-rounds;
+action rates pool counts and eligible opportunities. No-progress endings are
+identified before automatic final reveals, and score adjustments compare raw
+board points with the scored round points.
+
+`logging.progress_interval_seconds` defaults to 30. Generation reports games/sec,
+decisions/sec, and ETA, including idle intervals and final completion. Task and
+target-conversion messages require `execution.debug = true`. Training summaries
+show sampled positions, optimizer updates, replay ratio, and replay-equivalent
+passes. Structured policy diagnostics include position-weighted target entropy,
+predicted entropy, and KL(target || prediction), overall and by decision phase.
+
+`validation.concept_interval` defaults to 5 iterations, plus initialization and
+completion; 0 disables checks. The current concept suite is two-player-only,
+so games with more players skip it with an explicit log message. These handcrafted positions are heuristic concept
+checks, not calibrated win-probability or playing-strength validation. Evaluating
+them preserves training mode and RNG state. Checkpoint frequency is independent
+of both reporting intervals.
 
 Checkpoints are saved initially, every `budget.checkpoint_interval` iterations,
 and at the final iteration. A final iteration on the periodic schedule is saved
@@ -218,7 +245,7 @@ Handcrafted concept-check positions and their expected policies remain in
 call `explain.validate_model_on_validation_examples(model)` with INFO logging
 enabled to see predictions and target comparisons. Their value targets are
 heuristic round-level expectations, not calibrated full-game win probabilities.
-These checks run independently of the training loop.
+The recipe also records compact checks on the configured concept schedule.
 
 ## Offline training
 
