@@ -566,11 +566,13 @@ class PredictorProcess(mp.Process):
 
                     # Model Inference
                     with torch.no_grad():
-                        value_output, policy_output = model(
+                        output = model(
                             spatial_input_tensor,
                             non_spatial_input_tensor,
                             mask_tensor,
                         )
+
+                    value_output, policy_output = output.value, output.policy_logits
 
                     # Send outputs back to clients
                     processed_count = 0
@@ -935,9 +937,10 @@ class LocalPredictorClient(AbstractPredictorClient):
             dtype=torch.float32,
         )
         with torch.no_grad():
-            value_output, policy_output = self.model(
+            output = self.model(
                 spatial_input_tensor, nonspatial_input_tensor, mask_tensor
             )
+            value_output, policy_output = output.value, output.policy_logits
             if self.device != torch.device("cpu"):
                 value_output = value_output.cpu()
                 policy_output = policy_output.cpu()

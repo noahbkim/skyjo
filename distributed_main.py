@@ -1,3 +1,8 @@
+"""Status: experimental
+Purpose: Run distributed self-play learning with selectable auxiliary objectives.
+Promote when: A shared training CLI replaces the experiment entrypoints.
+"""
+
 from __future__ import annotations
 
 import datetime
@@ -9,9 +14,11 @@ import typing
 import numpy as np
 import torch
 import torch.multiprocessing as mp
+import typer
 
 from skyjo import (
     buffer,
+    config,
     explain,
     factory,
     mcts,
@@ -21,6 +28,8 @@ from skyjo import (
     skynet,
     train,
     train_utils,
+    objectives,
+    targets,
 )
 from skyjo import game as sj
 
@@ -108,9 +117,19 @@ def run_apply_async_local_selfplay_learning(
     games_per_task: int = 1,
     start_state_generator: StartStateGenerator | None = None,
     outcome_rollouts: int = 1,
+    target_seed: int = 0,
 ) -> None:
-    training_data_buffer = buffer.ReplayBuffer(**training_data_buffer_config.kwargs())
     model = model_factory.get_latest_model()
+    resolved = model.objectives
+    expected_worker_objectives = objectives.resolve(model_kwargs.get("auxiliary_objectives"))
+    if expected_worker_objectives != resolved:
+        raise ValueError("Worker and learner auxiliary objectives differ")
+    training_data_buffer = buffer.ReplayBuffer.from_config(
+        buffer.for_objectives(training_data_buffer_config, resolved)
+    )
+    target_rng = random.Random(target_seed)
+    logging.info("Auxiliary objectives: %s; terminal samples: %s; target seed: %s",
+                 resolved.weights, outcome_rollouts, target_seed)
     model.set_device(learn_config.torch_device)
     optimizer = train.make_optimizer(model, training_config.learn_rate)
 
@@ -156,9 +175,9 @@ def run_apply_async_local_selfplay_learning(
 
             game_stats_list = []
             for game_history in game_histories:
-                game_data, game_stats = play.game_history_to_game_data(
-                    game_history,
-                    terminal_rollouts=outcome_rollouts,
+                game_data, game_stats = targets.build_targets(
+                    game_history, resolved,
+                    terminal_rollouts=outcome_rollouts, rng=target_rng,
                 )
                 training_data_buffer.add_game_data(game_data)
                 game_stats_list.append(game_stats)
@@ -218,14 +237,25 @@ def create_random_potential_clear_position() -> sj.Skyjo:
     )
 
 
-if __name__ == "__main__":
+def run_learning(
+    config_path: typing.Annotated[
+        pathlib.Path | None,
+        typer.Option("--config", help="JSON objective and target-generation configuration."),
+    ] = None,
+) -> None:
+    learning_objectives = (
+        config.LearningObjectivesConfig()
+        if config_path is None
+        else config.LearningObjectivesConfig.load(config_path)
+    )
     seed = 0
     debug = False
     process_count = 8
     players = 2
     games_per_task = 1
     start_state_generator = None
-    outcome_rollouts = 100
+    outcome_rollouts = learning_objectives.outcome_rollouts
+    auxiliary_objectives = learning_objectives.auxiliary_objectives
     device = torch.device("cpu")
 
     np.random.seed(seed)
@@ -242,8 +272,10 @@ if __name__ == "__main__":
         filename=log_dir / "main.log",
         filemode="w",
     )
+    logging.info("Learning objectives configuration: %s", learning_objectives.kwargs())
 
     model_kwargs = {
+        "auxiliary_objectives": auxiliary_objectives,
         "embedding_dimensions": 32,
         "global_state_embedding_dimensions": 64,
         "num_heads": 2,
@@ -325,4 +357,13 @@ if __name__ == "__main__":
         games_per_task=games_per_task,
         start_state_generator=start_state_generator,
         outcome_rollouts=outcome_rollouts,
+        target_seed=learning_objectives.target_seed,
     )
+
+
+def main() -> None:
+    typer.run(run_learning)
+
+
+if __name__ == "__main__":
+    main()

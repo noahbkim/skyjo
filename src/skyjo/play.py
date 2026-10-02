@@ -111,139 +111,27 @@ GeneratedEpisode: typing.TypeAlias = tuple[GameData, GameStats]
 # MARK: Helpers
 
 
-def simulate_game_end(
-    penultimate_state: sj.Skyjo,
-    last_action: sj.SkyjoAction,
-    simulations: int = 1,
-) -> tuple[
-    np.ndarray[tuple[int], np.float32],
-    np.ndarray[tuple[int], np.float32],
-    np.ndarray[tuple[int], np.float32],
-    np.ndarray[tuple[int], np.float32],
-]:
-    """Returns expected outcome, score value, scores, and cleared columns."""
-    players = sj.get_player_count(penultimate_state)
-    outcomes, score_differential_values, scores, cleared_columns = (
-        np.zeros(players, dtype=np.float32),
-        np.zeros(players, dtype=np.float32),
-        np.zeros(players, dtype=np.float32),
-        np.zeros(players * sj.COLUMN_COUNT, dtype=np.float32),
-    )
+def simulate_game_end(penultimate_state, last_action, simulations=1, *, rng=None):
+    """Compatibility adapter for the learner's terminal target computation."""
+    from .targets import summarize_terminal
 
-    for _ in range(simulations):
-        game_state = penultimate_state
-        final_state = sj.apply_action(game_state, last_action)
-        outcomes[sj.get_fixed_perspective_winner(final_state)] += 1 / simulations
-        score_differential_values += (
-            skynet.skyjo_to_score_differential_state_value(final_state) / simulations
-        )
-        scores += sj.get_fixed_perspective_round_scores(final_state) / simulations
-        cleared_columns += (
-            sj.get_fixed_perspective_cleared_columns(final_state).reshape(-1)
-            / simulations
-        )
-    return outcomes, score_differential_values, scores, cleared_columns
+    summary = summarize_terminal(penultimate_state, last_action, simulations, rng=rng)
+    return summary.outcome, summary.value, summary.scores, summary.cleared_columns
 
 
 def game_history_to_game_data(
     game_history: GameHistory,
     terminal_rollouts: int = 1,
-) -> tuple[GameData, GameStats]:
-    """Convert self-play history into training rows and aggregate game stats.
+    *,
+    auxiliary_objectives=None,
+    rng=None,
+) -> GeneratedEpisode:
+    """Construct labels for a completed history; call on the learner side."""
+    from .targets import build_targets
 
-    Args:
-        game_history: Observed decision points from a completed game.
-        terminal_rollouts: The number of terminal rollouts to use to compute the outcome
-            state value and fixed perspective score.
-
-    Returns:
-        A list of training data points.
-    """
-    assert len(game_history) >= 20, f"Game history is too short: {len(game_history)}"
-    training_data = []
-    penultimate_state = game_history[-2].state
-    penultimate_action = game_history[-2].action
-    assert penultimate_action is not None, "expected penultimate action"
-    if sj.is_action_random(penultimate_action, penultimate_state):
-        (
-            outcome_state_value,
-            score_differential_state_value,
-            fixed_perspective_score,
-            fixed_perspective_cleared_columns,
-        ) = simulate_game_end(penultimate_state, penultimate_action, terminal_rollouts)
-    else:
-        terminal_state = game_history[-1].state
-        outcome_state_value = skynet.skyjo_to_state_value(terminal_state)
-        score_differential_state_value = (
-            skynet.skyjo_to_score_differential_state_value(terminal_state)
-        )
-        fixed_perspective_score = sj.get_fixed_perspective_round_scores(terminal_state)
-        fixed_perspective_cleared_columns = sj.get_fixed_perspective_cleared_columns(
-            terminal_state
-        ).reshape(-1)
-
-    # outcome_state_value = skynet.skyjo_to_state_value(game_data[-1][0])
-    # fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_data[-1][0])
-    action_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-    action_possibility_counts = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-    flip_count, flip_possibility_count = 0, 0
-    replace_face_up_count, replace_face_down_count, replace_possibility_count = 0, 0, 0
-    for game_state, action, mcts_probs in game_history[:-1]:
-        action_mask = sj.actions(game_state).astype(np.float32)
-        assert action is not None, "expected non-terminal action"
-        assert mcts_probs is not None, "expected non-terminal action probabilities"
-        training_data.append(
-            GameDataPoint(
-                game_state,  # game
-                action,  # realized action
-                {
-                    "value": np.roll(
-                        score_differential_state_value, -sj.get_player(game_state)
-                    ),
-                    "policy": mcts_probs,
-                },
-            )
-        )
-        action_counts[action] += 1
-        action_possibility_counts += action_mask
-        if action < sj.MASK_FLIP:
-            continue
-
-        # Always possible to replace a face up card or face down card
-        replace_possibility_count += 1
-        if np.any(action_mask[sj.MASK_FLIP : sj.MASK_FLIP + sj.FINGER_COUNT]):
-            flip_possibility_count += 1
-
-        if sj.MASK_FLIP <= action < sj.MASK_REPLACE:
-            flip_count += 1
-        else:
-            row, col = divmod(action - sj.MASK_REPLACE, sj.COLUMN_COUNT)
-            if sj.get_finger(game_state, row, col, 0) == sj.FINGER_HIDDEN:
-                replace_face_down_count += 1
-            else:
-                replace_face_up_count += 1
-
-    cleared_cards = (
-        sj.get_table(game_history[-2].state)[:, :, :, sj.FINGER_CLEARED].sum()
+    return build_targets(
+        game_history, auxiliary_objectives, terminal_rollouts=terminal_rollouts, rng=rng
     )
-    assert cleared_cards % 3 == 0, (
-        f"Cleared cards is not divisible by 3: {cleared_cards}"
-    )
-    clear_count = cleared_cards // 3
-    game_stats = GameStats(
-        game_length=len(game_history) - 1,
-        outcome_state_value=outcome_state_value,
-        scores_state_value=fixed_perspective_score,
-        action_counts=action_counts,
-        action_possibility_counts=action_possibility_counts,
-        clear_count=clear_count,
-        flip_count=flip_count,
-        flip_possibility_count=flip_possibility_count,
-        replace_face_up_count=replace_face_up_count,
-        replace_face_down_count=replace_face_down_count,
-        replace_possibility_count=replace_possibility_count,
-    )
-    return training_data, game_stats
 
 
 def print_game_history(
@@ -501,11 +389,11 @@ class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
         self._stop_event = mp.Event()
 
     @abc.abstractmethod
-    def generate_episode(self) -> GeneratedEpisode:
+    def generate_episode(self) -> GameHistory:
         pass
 
     @abc.abstractmethod
-    def add_game_data(self, game_data: GeneratedEpisode):
+    def add_game_data(self, game_data: GameHistory):
         pass
 
     def stop(self):
@@ -551,6 +439,8 @@ class AbstractTrainingDataGenerator(mp.Process, abc.ABC):
             if self.episode_count % 1 == 0:
                 logging.info(f"Selfplay count: {self.episode_count}")
             episode_data = self.generate_episode()
+            if self._stop_event.is_set():
+                break
             self.add_game_data(episode_data)
             self.episode_count += 1
 
@@ -566,7 +456,6 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
         debug: bool = False,
         log_level: int = logging.INFO,
         log_dir: pathlib.Path | None = None,
-        outcome_rollouts: int = 1,
         play_callable: typing.Callable[[], GameHistory] | None = play,
     ):
         super().__init__(id=id, debug=debug, log_level=log_level, log_dir=log_dir)
@@ -574,10 +463,9 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
         self.players = [self.player for _ in range(player_count)]
         self.game_data_queue = game_data_queue
         self.start_state_generator = start_state_generator
-        self.outcome_rollouts = outcome_rollouts
         self.play_callable = play_callable
 
-    def generate_episode(self) -> GeneratedEpisode:
+    def generate_episode(self) -> GameHistory:
         start_state = None
         if self.start_state_generator is not None:
             start_state = self.start_state_generator()
@@ -587,9 +475,9 @@ class SelfplayGenerator(AbstractTrainingDataGenerator):
             start_state=start_state,
             stop_event=self._stop_event,
         )
-        return game_history_to_game_data(game_history, self.outcome_rollouts)
+        return game_history
 
-    def add_game_data(self, game_data: GeneratedEpisode):
+    def add_game_data(self, game_data: GameHistory):
         self.game_data_queue.put(game_data)
 
 

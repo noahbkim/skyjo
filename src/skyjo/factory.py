@@ -8,7 +8,7 @@ import typing
 import torch
 
 from . import game as sj
-from . import skynet
+from . import objectives, skynet
 
 
 class SkyNetModelFactory:
@@ -24,7 +24,12 @@ class SkyNetModelFactory:
         self.models_dir = models_dir
         self.players = players
         self.device = device
-        self.model_kwargs = model_kwargs
+        self.model_kwargs = dict(model_kwargs)
+        if initial_model is not None and hasattr(initial_model, "objectives"):
+            configured = model_kwargs.get("auxiliary_objectives", initial_model.objectives)
+            if objectives.resolve(configured) != initial_model.objectives:
+                raise ValueError("Initial model and factory auxiliary objectives differ")
+            self.model_kwargs["auxiliary_objectives"] = initial_model.objectives.weights
         self.model_callable = model_callable
         if initial_model is None:
             initial_model = self.model_callable(
@@ -85,6 +90,12 @@ class SkyNetModelFactory:
 
     def get_latest_model(self) -> skynet.SkyNet:
         latest_model_path = self._get_latest_model_path()
+        if self.model_callable is skynet.EquivariantSkyNet and latest_model_path.with_suffix(".json").exists():
+            model = skynet.EquivariantSkyNet.from_checkpoint(latest_model_path, self.device)
+            expected = objectives.resolve(self.model_kwargs.get("auxiliary_objectives"))
+            if model.objectives != expected:
+                raise ValueError("Checkpoint and factory auxiliary objectives differ")
+            return model
         model = self.model_callable(
             spatial_input_shape=(
                 self.players,

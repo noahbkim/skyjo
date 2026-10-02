@@ -6,14 +6,14 @@ import dataclasses
 import itertools
 import logging
 import pathlib
-import time
+import random
 import typing
 
 import torch
 import torch.multiprocessing as mp
 
 from . import buffer
-from . import config
+from . import config, objectives, targets
 from . import explain
 from . import factory
 from . import play
@@ -57,6 +57,10 @@ def train_step(
     )
     model_output = model(spatial_inputs_tensor, non_spatial_inputs_tensor, masks_tensor)
     loss, loss_detail = loss_function(model_output, tensor_targets)
+    resolved = getattr(model, "objectives", objectives.resolve())
+    loss, loss_detail = resolved.add_losses(
+        loss, dict(loss_detail), model_output, tensor_targets.auxiliary
+    )
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
@@ -135,8 +139,10 @@ def learn(
     update_model_interval: int,
     model_faceoff_function: typing.Callable[[skynet.SkyNet, skynet.SkyNet], bool]
     | None,
+    outcome_rollouts: int = 1,
+    target_seed: int = 0,
 ):
-    """Core learning loop"""
+    """Core learning loop; the queue contains completed, unlabeled histories."""
 
     logging.info(f"[LEARN] Starting learning loop for {learn_steps} steps")
     logging.info(f"[LEARN] Parameters: {locals()}")
@@ -144,14 +150,19 @@ def learn(
     model = model_factory.get_latest_model()
     model.set_device(torch_device)
     optimizer = make_optimizer(model, training_learn_rate)
+    resolved = getattr(model, "objectives", objectives.resolve())
+    training_data_buffer.validate_objectives(resolved)
+    target_rng = random.Random(target_seed)
+    logging.info("[LEARN] Auxiliary objectives: %s; terminal samples: %s; target seed: %s",
+                 resolved.weights, outcome_rollouts, target_seed)
     games_count = 0
     previous_games_count = 0
     for iteration in range(learn_steps):
-        if iteration % validation_interval == 0 and validation_interval is not None:
+        if validation_interval is not None and validation_function is not None and iteration % validation_interval == 0:
             logging.info("[LEARN] Validating model")
             validation_function(model)
 
-        if iteration > 0 and iteration % update_model_interval == 0:
+        if update_model_interval is not None and iteration > 0 and iteration % update_model_interval == 0:
             if model_faceoff_function is not None:
                 logging.info("[LEARN] Model Faceoff")
                 faceoff_result = model_faceoff_function(
@@ -181,7 +192,10 @@ def learn(
             not training_data_queue.empty()
             or len(game_stats_list) < games_generated_per_iteration
         ):
-            game_data, game_stats = training_data_queue.get()
+            history = training_data_queue.get()
+            game_data, game_stats = targets.build_targets(
+                history, resolved, terminal_rollouts=outcome_rollouts, rng=target_rng
+            )
             training_data_buffer.add_game_data(game_data)
             game_stats_list.append(game_stats)
         logging.info(
@@ -232,6 +246,7 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
     debug: bool = False,
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
+    target_seed: int = 0,
 ):
     """Runs a distributed training loop.
 
@@ -245,6 +260,9 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
     - Terminates the actors and predictor process
     - Joins the actors and predictor process
     """
+    training_data_buffer_config = buffer.for_objectives(
+        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
+    )
     logging.info(f"learning config: {learn_config}")
     logging.info(f"training config: {training_config}")
     logging.info(f"predictor config: {predictor_config}")
@@ -303,7 +321,6 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
                 player_count=players,
                 game_data_queue=selfplay_data_queue,
                 start_state_generator=start_state_generator,
-                outcome_rollouts=outcome_rollouts,
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
@@ -320,6 +337,8 @@ def run_multiprocessed_selfplay_with_dedicated_predictor_learning(
             predictor_clients=predictor_clients,
             training_data_buffer=training_data_buffer,
             training_data_queue=selfplay_data_queue,
+            outcome_rollouts=outcome_rollouts,
+            target_seed=target_seed,
             **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
         )
 
@@ -343,6 +362,7 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
     debug: bool = False,
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
+    target_seed: int = 0,
 ):
     """Runs a distributed training loop.
 
@@ -356,6 +376,9 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
     - Terminates the actors and predictor process
     - Joins the actors and predictor process
     """
+    training_data_buffer_config = buffer.for_objectives(
+        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
+    )
     logging.info(f"learning config: {learn_config}")
     logging.info(f"training config: {training_config}")
     logging.info(f"predictor config: {predictor_config}")
@@ -411,7 +434,6 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
                 player_count=players,
                 game_data_queue=selfplay_data_queue,
                 start_state_generator=start_state_generator,
-                outcome_rollouts=outcome_rollouts,
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
@@ -429,6 +451,8 @@ def run_multiprocessed_batched_mcts_selfplay_with_dedicated_predictor_learning(
             predictor_clients=predictor_clients,
             training_data_buffer=training_data_buffer,
             training_data_queue=selfplay_data_queue,
+            outcome_rollouts=outcome_rollouts,
+            target_seed=target_seed,
             **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
         )
 
@@ -452,6 +476,7 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
     debug: bool = False,
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
+    target_seed: int = 0,
 ):
     """Runs a distributed training loop.
 
@@ -464,6 +489,9 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
     - Terminates the actors and predictor process
     - Joins the actors and predictor process
     """
+    training_data_buffer_config = buffer.for_objectives(
+        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
+    )
     logging.info(f"learning config: {learn_config}")
     logging.info(f"training config: {training_config}")
     logging.info(f"model player config: {model_player_config}")
@@ -499,7 +527,6 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
                 player_count=players,
                 game_data_queue=selfplay_data_queue,
                 start_state_generator=start_state_generator,
-                outcome_rollouts=outcome_rollouts,
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
@@ -516,6 +543,8 @@ def run_multiprocessed_selfplay_with_local_predictor_learning(
             predictor_clients=predictor_clients,
             training_data_buffer=training_data_buffer,
             training_data_queue=selfplay_data_queue,
+            outcome_rollouts=outcome_rollouts,
+            target_seed=target_seed,
             **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
         )
 
@@ -538,6 +567,7 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
     log_level: int = logging.INFO,
     log_dir: pathlib.Path | None = None,
     load_training_data_buffer_path: pathlib.Path | None = None,
+    target_seed: int = 0,
 ):
     """Runs a distributed training loop.
 
@@ -550,6 +580,9 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
     - Terminates the actors and predictor process
     - Joins the actors and predictor process
     """
+    training_data_buffer_config = buffer.for_objectives(
+        training_data_buffer_config, model_factory.model_kwargs.get("auxiliary_objectives")
+    )
     logging.info(f"learning config: {learn_config}")
     logging.info(f"training config: {training_config}")
     logging.info(f"batched model player config: {batched_model_player_config}")
@@ -593,7 +626,6 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
                 player_count=players,
                 game_data_queue=selfplay_data_queue,
                 start_state_generator=start_state_generator,
-                outcome_rollouts=outcome_rollouts,
                 debug=debug,
                 log_level=log_level,
                 log_dir=log_dir,
@@ -610,6 +642,8 @@ def run_multiprocessed_batched_mcts_selfplay_with_local_predictor_learning(
             predictor_clients=predictor_clients,
             training_data_buffer=training_data_buffer,
             training_data_queue=selfplay_data_queue,
+            outcome_rollouts=outcome_rollouts,
+            target_seed=target_seed,
             **(learn_config.kwargs() | training_config.kwargs(prefix="training")),
         )
 
@@ -627,86 +661,43 @@ def run_single_process_learning(
     buffer_config: buffer.Config,
     start_position_generator: typing.Callable[[], sj.Skyjo] | None = None,
     debug: bool = False,
+    outcome_rollouts: int = 1,
+    target_seed: int = 0,
 ):
-    """Single-processed training loop.
-
-    Runs a loop that:
-    1. Generates selfplay games
-    2. Adds the games to the training data buffer
-    3. Trains the model on the collected data
-    4. Saves and validates the model periodically
-    """
-    logging.info(f"learning config: {learn_config}")
-    logging.info(f"training config: {training_config}")
-    logging.info(f"training data buffer config: {buffer_config}")
-    logging.info(f"model player config: {model_player_config}")
-    logging.info(f"Using start position generator: {start_position_generator}")
-    training_data_buffer = buffer.ReplayBuffer.from_config(buffer_config)
-    start_time = time.time()
-    predictor_client = predictor.NaivePredictorClient(model, max_batch_size=512)
+    """Generate histories, construct targets, and train within one learner process."""
+    resolved = getattr(model, "objectives", objectives.resolve())
+    logging.info("[LEARN] Auxiliary objectives: %s; terminal samples: %s; target seed: %s",
+                 resolved.weights, outcome_rollouts, target_seed)
+    replay = buffer.ReplayBuffer.from_config(buffer.for_objectives(buffer_config, resolved))
+    target_rng = random.Random(target_seed)
+    client = predictor.LocalPredictorClient(model, max_batch_size=512)
+    model_player = player.ModelPlayer(client, **model_player_config.kwargs())
+    players = [model_player] * model.spatial_input_shape[0]
     optimizer = make_optimizer(model, training_config.learn_rate)
-
-    if learn_config.validation_function is not None:
-        learn_config.validation_function(model)
-
-    for learn_step in range(learn_config.iterations):
-        selfplay_games_data = []
-        game_generation_start_time = time.time()
-
-        for game_count in range(learn_config.minimum_games_per_iteration):
-            selfplay_games_data.append(
-                play.model_selfplay(
-                    predictor_client,
-                    model_player_config.players,
-                    model_player_config.mcts_config,
-                    model_player_config.action_softmax_temperature,
-                    model_player_config.outcome_rollouts,
-                    start_position=None
-                    if start_position_generator is None
-                    else start_position_generator(),
-                    debug=debug,
-                )
-            )
-            if game_count % 1 == 0:
-                logging.info(f"Generated {game_count} games")
-        logging.info(
-            f"Generated {len(selfplay_games_data)} games in {time.time() - game_generation_start_time} seconds"
-        )
-        for game_data in selfplay_games_data:
-            training_data_buffer.add_game_data(game_data)
-        training_start_time = time.time()
-        training_losses = []
-        for _ in range(learn_config.training_epochs):
-            loss = train_epoch(
-                model,
-                training_data_buffer,
-                training_batch_size=training_config.batch_size,
-                optimizer=optimizer,
-                loss_function=training_config.loss_function,
-            )
-            training_losses.append(loss)
-        training_time = time.time() - training_start_time
-        logging.info(
-            f"Trained for {learn_config.training_epochs} epochs with "
-            f"{len(training_data_buffer) // training_config.training_batch_size + 1} batches in {training_time} seconds"
-        )
-
-        if (
-            learn_step % learn_config.validation_interval == 0
-            and learn_config.validation_function is not None
-        ):
+    models_dir.mkdir(parents=True, exist_ok=True)
+    for step in range(learn_config.learn_steps):
+        if (learn_config.validation_function is not None
+                and learn_config.validation_interval is not None
+                and step % learn_config.validation_interval == 0):
             learn_config.validation_function(model)
-
-        if learn_step > 0 and learn_step % learn_config.update_model_interval == 0:
-            logging.info(
-                f"Training data buffer length: {len(training_data_buffer)}, "
-                f"total buffer size: {len(training_data_buffer)}"
+        model.eval()
+        for _ in range(learn_config.games_generated_per_iteration):
+            history = play.model_player_selfplay(
+                players, debug=debug,
+                start_state=None if start_position_generator is None else start_position_generator(),
             )
-            logging.info(
-                f"Ran {learn_config.update_model_interval} train steps in {time.time() - start_time} seconds"
+            game_data, _ = targets.build_targets(
+                history, resolved, terminal_rollouts=outcome_rollouts, rng=target_rng
             )
-            saved_path = model.save(models_dir)
-            logging.info(f"Saved model to {saved_path}")
+            replay.add_game_data(game_data)
+        if len(replay) >= training_config.batch_size:
+            for _ in range(training_config.epochs):
+                details = train_epoch(model, replay, training_config.batch_size,
+                                      optimizer, training_config.loss_function)
+                if learn_config.loss_stats_function is not None:
+                    logging.info("%s", learn_config.loss_stats_function(details))
+        if learn_config.update_model_interval is not None and step % learn_config.update_model_interval == 0:
+            model.save(models_dir)
 
 
 def main_train_on_greedy_ev_player_games(
@@ -719,6 +710,8 @@ def main_train_on_greedy_ev_player_games(
     buffer_max_size: int = 10_000_000,
     games_per_step: int = 100_000,
     training_batch_size: int = 512,
+    outcome_rollouts: int = 1,
+    target_seed: int = 0,
 ):
     """Trains the model on greedy ev player games.
 
@@ -732,12 +725,22 @@ def main_train_on_greedy_ev_player_games(
     model_path = model.save(models_dir)
     logging.info(f"Saved model to {model_path}")
 
-    training_data_buffer = buffer.ReplayBuffer(max_size=buffer_max_size)
+    resolved = getattr(model, "objectives", objectives.resolve())
+    training_data_buffer = buffer.ReplayBuffer.from_config(buffer.for_objectives(buffer.Config(
+        max_size=buffer_max_size, spatial_input_shape=model.spatial_input_shape,
+        non_spatial_input_shape=model.non_spatial_input_shape,
+        action_mask_shape=model.policy_output_shape,
+    ), resolved))
+    target_rng = random.Random(target_seed)
+    players = [player.GreedyExpectedValuePlayer() for _ in range(model.spatial_input_shape[0])]
     optimizer = make_optimizer(model, 1e-3)
     logging.info("Starting Training")
     for _ in range(learn_steps):
         for _ in range(games_per_step):
-            game_data = play.multiprocessed_play_greedy_players()
+            history = play.play(players)
+            game_data, _ = targets.build_targets(
+                history, resolved, terminal_rollouts=outcome_rollouts, rng=target_rng
+            )
             training_data_buffer.add_game_data(game_data)
 
         logging.info(f"Added {games_per_step} games to the buffer")
@@ -757,7 +760,7 @@ def main_train_on_greedy_ev_player_games(
                 )
                 training_losses.append(loss)
             logging.info(
-                f"Mean training loss: {sum(training_losses) / len(training_losses)}"
+                f"Mean training loss: {sum(loss for loss, _ in training_losses) / len(training_losses)}"
             )
         model_path = model.save(models_dir)
         logging.info(f"Saved model to {model_path}")

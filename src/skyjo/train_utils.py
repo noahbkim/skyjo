@@ -1,4 +1,5 @@
 import collections.abc
+import dataclasses
 import typing
 
 import numpy as np
@@ -30,9 +31,11 @@ class NumpyTrainingTargets(typing.NamedTuple):
     policy: PolicyTarget
 
 
-class TensorTrainingTargets(typing.NamedTuple):
+@dataclasses.dataclass
+class TensorTrainingTargets:
     value: torch.Tensor
     policy: torch.Tensor
+    auxiliary: dict[str, torch.Tensor] = dataclasses.field(default_factory=dict)
 
 
 TrainingTargets: typing.TypeAlias = TensorTrainingTargets
@@ -109,6 +112,9 @@ def normalize_numpy_targets(
             POLICY_TARGET_NAME: targets.policy,
         }
     if isinstance(targets, collections.abc.Mapping):
+        missing = set(target_names) - targets.keys()
+        if missing:
+            raise ValueError(f"Missing required training targets: {sorted(missing)}")
         return {name: targets[name] for name in target_names}
     if all(hasattr(targets, field) for field in target_names):
         return {name: getattr(targets, name) for name in target_names}
@@ -126,10 +132,14 @@ def numpy_targets_to_tensors(
     *,
     device: torch.device,
 ) -> TensorTrainingTargets:
-    normalized_targets = as_numpy_training_targets(targets)
+    if not isinstance(targets, collections.abc.Mapping):
+        targets = normalize_numpy_targets(targets)
+    tensors = {
+        name: torch.as_tensor(value, dtype=torch.float32, device=device)
+        for name, value in targets.items()
+    }
     return TensorTrainingTargets(
-        torch.tensor(normalized_targets.value, dtype=torch.float32, device=device),
-        torch.tensor(normalized_targets.policy, dtype=torch.float32, device=device),
+        tensors.pop(VALUE_TARGET_NAME), tensors.pop(POLICY_TARGET_NAME), tensors
     )
 
 
@@ -229,8 +239,12 @@ def compute_model_loss_on_game_data(
     loss_function: typing.Callable[
         [skynet.SupportsCoreSkyNetOutput, TensorTrainingTargets], typing.Any
     ],
+    *,
+    target_names: typing.Sequence[str] = CORE_TARGET_NAMES,
 ) -> typing.Any:
-    batch = game_data_to_training_batch(game_data)
+    # Hand-authored validation positions may provide only core labels even when
+    # the model has auxiliary heads. Callers choose the labels their loss needs.
+    batch = game_data_to_training_batch(game_data, target_names)
     spatial_tensor = torch.tensor(
         batch.spatial_inputs, dtype=torch.float32, device=model.device
     )

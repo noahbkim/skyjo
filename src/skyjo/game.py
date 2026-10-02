@@ -474,19 +474,20 @@ def get_score(skyjo: Skyjo, player: int = 0) -> int:
     )
 
 
-def get_round_scores(
+def get_round_score_components(
     skyjo: Skyjo, round_ending_player: int = 0
-) -> np.ndarray[tuple[int], np.int16]:
-    """Get the scores of all players for the current round.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return raw scores and explicit doubling flags in current-player order.
 
-        This method accounts for the round ending player's score being doubled,
-    if they are not the lowest round score winner.
-
-    Round ending player parameter is relative to current perspective."""
+    Shares the existing scoring rules, including no-progress penalties. A flag
+    remains true when the raw score is zero (or negative).
+    """
     players = skyjo[3]
     base_scores = np.array(
         [get_score(skyjo, player=i) for i in range(players)], dtype=np.int16
     )
+    raw_scores = base_scores.copy()
+    doubled = np.zeros(players, dtype=np.bool_)
     turn = get_turn(skyjo)
     for player in range(players):
         if player == round_ending_player:
@@ -498,13 +499,23 @@ def get_round_scores(
                 >= NO_PROGRESS_TURN_THRESHOLD
                 + 1  # +1 because after last action turn is incremented again
             ):
+                doubled[round_ending_player] = True
                 base_scores[round_ending_player] *= 2
         else:
             if (
                 turn - get_last_revealed_turns(skyjo)[player]
             ) // players >= NO_PROGRESS_TURN_THRESHOLD:
+                doubled[player] = True
                 base_scores[player] *= 2
-    return base_scores
+    return raw_scores, doubled
+
+
+def get_round_scores(
+    skyjo: Skyjo, round_ending_player: int = 0
+) -> np.ndarray[tuple[int], np.int16]:
+    """Final scores including doubling, in current-player order."""
+    raw_scores, doubled = get_round_score_components(skyjo, round_ending_player)
+    return raw_scores * (1 + doubled.astype(np.int16))
 
 
 def get_fixed_perspective_round_scores(

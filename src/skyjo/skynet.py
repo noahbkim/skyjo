@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import json
 import pathlib
 import typing
 
@@ -11,6 +12,7 @@ import torch
 import torch.nn as nn
 
 from . import game as sj
+from . import objectives
 
 """
 einops and general dimension notation:
@@ -114,7 +116,13 @@ class EquivariantOutput(typing.NamedTuple):
     policy_logits: torch.Tensor
 
 
-SkyNetOutput: typing.TypeAlias = EquivariantOutput
+class AuxiliaryOutput(typing.NamedTuple):
+    value: torch.Tensor
+    policy_logits: torch.Tensor
+    auxiliary: dict[str, torch.Tensor]
+
+
+SkyNetOutput: typing.TypeAlias = EquivariantOutput | AuxiliaryOutput
 
 
 class SkyNetNumpyOutput(typing.NamedTuple):
@@ -177,10 +185,12 @@ def mask_and_renormalize_policy_probabilities(
 def get_single_model_output(
     model_output: SkyNetOutput | SkyNetNumpyOutput, idx: int
 ) -> SkyNetOutput | SkyNetNumpyOutput:
-    return type(model_output)(
-        model_output.value[idx],
-        model_output.policy_logits[idx],
-    )
+    if isinstance(model_output, AuxiliaryOutput):
+        return AuxiliaryOutput(
+            model_output.value[idx], model_output.policy_logits[idx],
+            {name: tensor[idx] for name, tensor in model_output.auxiliary.items()},
+        )
+    return type(model_output)(model_output.value[idx], model_output.policy_logits[idx])
 
 
 def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
@@ -774,8 +784,10 @@ class EquivariantSkyNet(nn.Module):
         embedding_dimensions: int = 16,
         global_state_embedding_dimensions: int = 32,
         num_heads: int = 4,
+        auxiliary_objectives: objectives.ObjectiveConfig = None,
     ):
         super(EquivariantSkyNet, self).__init__()
+        self.objectives = objectives.resolve(auxiliary_objectives)
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
@@ -879,6 +891,12 @@ class EquivariantSkyNet(nn.Module):
             embedding_dimensions=self.embedding_dimensions,
             global_state_embedding_dimensions=self.global_state_embedding_dimensions,
         )
+        # Core parameters initialize first. Isolate head initialization so enabling
+        # auxiliaries also preserves the caller's torch random stream.
+        with torch.random.fork_rng(devices=[]):
+            self.auxiliary_heads = self.objectives.make_heads(
+                self.global_state_embedding_dimensions, self.players
+            )
         self.set_device(device)
 
     def set_device(self, device: torch.device):
@@ -887,12 +905,32 @@ class EquivariantSkyNet(nn.Module):
 
     def save(self, dir: pathlib.Path) -> pathlib.Path:
         curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth"
-        torch.save(
-            self.state_dict(),
-            model_path,
-        )
-        return model_path
+        return self.save_checkpoint(dir / f"model_{curr_utc_dt.strftime('%Y%m%d_%H%M%S')}.pth")
+
+    def save_checkpoint(self, path: pathlib.Path) -> pathlib.Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(self.state_dict(), path)
+        path.with_suffix(".json").write_text(json.dumps(self.model_config(), indent=2))
+        return path
+
+    def model_config(self) -> dict[str, typing.Any]:
+        return {
+            "spatial_input_shape": self.spatial_input_shape,
+            "non_spatial_input_shape": self.non_spatial_input_shape,
+            "value_output_shape": self.value_output_shape,
+            "policy_output_shape": self.policy_output_shape,
+            "embedding_dimensions": self.embedding_dimensions,
+            "global_state_embedding_dimensions": self.global_state_embedding_dimensions,
+            "num_heads": self.num_heads,
+            "auxiliary_objectives": self.objectives.weights,
+        }
+
+    @classmethod
+    def from_checkpoint(cls, path: pathlib.Path, device: torch.device):
+        config = json.loads(path.with_suffix(".json").read_text())
+        model = cls(device=device, **config)
+        model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
+        return model
 
     def forward(
         self,
@@ -994,10 +1032,12 @@ class EquivariantSkyNet(nn.Module):
             global_state_embedding,
             mask,
         )
-        return EquivariantOutput(
-            value_out,
-            policy_out,
-        )
+        if self.auxiliary_heads:
+            return AuxiliaryOutput(
+                value_out, policy_out,
+                {name: head(global_state_embedding) for name, head in self.auxiliary_heads.items()},
+            )
+        return EquivariantOutput(value_out, policy_out)
 
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         spatial_tensor = einops.rearrange(

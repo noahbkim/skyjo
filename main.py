@@ -107,7 +107,9 @@ if __name__ == "__main__":
     )
     device = torch.device("cpu")
     players = 2
+    auxiliary_objectives = {}  # Or {"round_raw_score": 0.1, "round_doubled": 0.1}
     model = skynet.EquivariantSkyNet(
+        auxiliary_objectives=auxiliary_objectives,
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         value_output_shape=(players,),
@@ -119,7 +121,7 @@ if __name__ == "__main__":
         # non_spatial_embedding_dimensions=16,
         embedding_dimensions=32,
         global_state_embedding_dimensions=64,
-        num_heads=1,
+        num_heads=2,
     )
     # model.load_state_dict(
     #     torch.load(
@@ -150,6 +152,7 @@ if __name__ == "__main__":
         model_callable=skynet.EquivariantSkyNet,
         players=players,
         model_kwargs={
+            "auxiliary_objectives": auxiliary_objectives,
             # "card_embedding_dimensions": 8,
             # "column_embedding_dimensions": 16,
             # "board_embedding_dimensions": 32,
@@ -167,7 +170,7 @@ if __name__ == "__main__":
         batch_size=256,
         learn_rate=1e-3,
         loss_function=lambda model_outputs, targets: train_utils.base_loss(
-            model_outputs, targets, value_scale=1.0
+            model_outputs, targets, value_scale=1.0 / (skynet.SCORE_DIFFERENTIAL_CAP**2)
         ),
     )
     learn_config = train.LearnConfig(
@@ -242,10 +245,6 @@ if __name__ == "__main__":
         ),
         non_spatial_input_shape=(sj.GAME_SIZE,),
         action_mask_shape=(sj.MASK_SIZE,),
-        policy_target_shape=(sj.MASK_SIZE,),
-        outcome_target_shape=(players,),
-        points_target_shape=(players,),
-        cleared_columns_target_shape=(players * sj.COLUMN_COUNT,),
         path=pathlib.Path(
             f"./data/training_data/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}/buffer.pkl"
         ),
@@ -260,7 +259,7 @@ if __name__ == "__main__":
         training_data_buffer_config=training_data_buffer_config,
         model_player_config=model_player_config,
         # start_state_generator=create_random_potential_clear_position,
-        outcome_rollouts=100,
+        outcome_rollouts=32,
         debug=debug,
         log_level=logging.DEBUG if debug else logging.INFO,
         log_dir=log_dir,

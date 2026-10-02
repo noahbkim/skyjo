@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 import pathlib
 import pickle
@@ -5,7 +7,7 @@ import typing
 
 import numpy as np
 
-from . import config
+from . import config, objectives
 from . import play
 from . import game as sj
 from . import skynet
@@ -38,6 +40,39 @@ def core_target_specs(
             shape=action_mask_shape,
         ),
     )
+
+
+def objective_target_specs(
+    players: int,
+    action_mask_shape: tuple[int, ...],
+    auxiliary_objectives: objectives.ObjectiveConfig = None,
+) -> TargetSpecs:
+    resolved = objectives.resolve(auxiliary_objectives)
+    return core_target_specs(players, action_mask_shape) + tuple(
+        TargetShapeSpec(name, shape) for name, shape in resolved.shapes(players).items()
+    )
+
+
+def for_objectives(
+    config: Config, auxiliary_objectives: objectives.ObjectiveConfig = None
+) -> Config:
+    """Derive replay fields from the same configuration that creates model heads."""
+    required = objective_target_specs(
+        config.spatial_input_shape[0], config.action_mask_shape, auxiliary_objectives
+    )
+    specs = {
+        spec.name: spec
+        for spec in resolve_target_specs(
+            config.target_specs,
+            spatial_input_shape=config.spatial_input_shape,
+            action_mask_shape=config.action_mask_shape,
+        )
+    }
+    for spec in required:
+        if spec.name in specs and specs[spec.name].shape != spec.shape:
+            raise ValueError(f"Replay target shape mismatch: {spec.name}")
+        specs[spec.name] = spec
+    return dataclasses.replace(config, target_specs=tuple(specs.values()))
 
 
 def default_target_specs(
@@ -133,6 +168,15 @@ class ReplayBuffer:
     def load(cls, path: pathlib.Path) -> typing.Self:
         with open(path, "rb") as f:
             return pickle.load(f)
+
+    def validate_objectives(self, auxiliary_objectives=None):
+        for name, shape in objectives.resolve(auxiliary_objectives).shapes(
+            self.spatial_input_buffer.shape[1]
+        ).items():
+            if name not in self.target_buffers:
+                raise ValueError(f"Replay buffer is missing required target: {name}")
+            if self.target_buffers[name].shape[1:] != shape:
+                raise ValueError(f"Replay target shape mismatch: {name}")
 
     def __len__(self):
         return min(self.count, self.max_size)
