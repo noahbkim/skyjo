@@ -167,6 +167,17 @@ schema migrations, automated Git checkout, and dashboards are outside this miles
 
 ## Complete-run round objective comparisons
 
+For a single baseline-budget training run with raw-score and doubling losses,
+use the standalone configuration:
+
+```sh
+uv run python distributed_main.py --config configs/round_score_doubling.toml
+```
+
+This keeps the baseline model, search, replay ratio, and 25,600-game budget,
+adds both auxiliary losses at weight `0.1`, uses observed round endings, and
+enables the first-batch gradient diagnostic. Outputs go to a fresh `.runs/` directory.
+
 The suite launcher calls the ordinary runner sequentially for each named variant
 and paired training seed. Every invocation initializes fresh weights, replay,
 checkpoints, and RNG streams, and generates its own self-play. Nested overrides
