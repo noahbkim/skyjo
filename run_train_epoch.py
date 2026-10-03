@@ -9,15 +9,17 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import json
 import pathlib
 import random
 import time
+from typing import Annotated
 
 import numpy as np
 import torch
 import typer
 
-from skyjo import buffer, checkpoint, skynet, train, train_utils
+from skyjo import buffer, checkpoint, objectives, skynet, train, train_utils
 
 DEFAULT_SEED = 0
 DEFAULT_BATCH_SIZE = 256
@@ -43,30 +45,30 @@ def build_model(
     embedding_dimensions: int,
     global_state_embedding_dimensions: int,
     num_heads: int,
+    auxiliary_objectives: dict | None = None,
 ) -> skynet.SkyNet:
-    value_targets = training_data_buffer.target_buffers[
-        train_utils.VALUE_TARGET_NAME
-    ]
-    policy_targets = training_data_buffer.target_buffers[
-        train_utils.POLICY_TARGET_NAME
-    ]
+    value_targets = training_data_buffer.target_buffers[train_utils.VALUE_TARGET_NAME]
+    policy_targets = training_data_buffer.target_buffers[train_utils.POLICY_TARGET_NAME]
     model_class = (
         skynet.EquivariantSkyNetWithAuxiliaryHeads
-        if train_utils.FUTURE_CLEAR_TARGET_NAME
-        in training_data_buffer.target_buffers
+        if auxiliary_objectives is None
+        and train_utils.FUTURE_CLEAR_TARGET_NAME in training_data_buffer.target_buffers
         else skynet.EquivariantSkyNet
     )
     return model_class(
         spatial_input_shape=training_data_buffer.spatial_input_buffer.shape[1:],
-        non_spatial_input_shape=training_data_buffer.non_spatial_input_buffer.shape[
-            1:
-        ],
+        non_spatial_input_shape=training_data_buffer.non_spatial_input_buffer.shape[1:],
         value_output_shape=value_targets.shape[1:],
         policy_output_shape=policy_targets.shape[1:],
         device=device,
         embedding_dimensions=embedding_dimensions,
         global_state_embedding_dimensions=global_state_embedding_dimensions,
         num_heads=num_heads,
+        **(
+            {"auxiliary_objectives": auxiliary_objectives}
+            if auxiliary_objectives is not None
+            else {}
+        ),
     )
 
 
@@ -182,6 +184,13 @@ def main(
         "--policy-scale",
         help="Scale for the policy loss term.",
     ),
+    auxiliary_objectives: Annotated[
+        str | None,
+        typer.Option(
+            "--auxiliary-objectives",
+            help="JSON mapping of round objective names to weights; requires matching replay labels.",
+        ),
+    ] = None,
     experiment_arm: str = typer.Option(
         "control",
         "--experiment-arm",
@@ -194,6 +203,20 @@ def main(
 
     load_start = time.perf_counter()
     complete_buffer = buffer.ReplayBuffer.load(dataset_path)
+    selected_objectives = None
+    if auxiliary_objectives is not None:
+        selected_objectives = objectives.resolve(
+            json.loads(auxiliary_objectives)
+        ).weights
+        missing = selected_objectives.keys() - complete_buffer.target_buffers.keys()
+        if missing:
+            raise typer.BadParameter(
+                f"Missing required auxiliary targets: {sorted(missing)}"
+            )
+        if experiment_arm != "control":
+            raise typer.BadParameter(
+                "Select either --auxiliary-objectives or --experiment-arm"
+            )
     try:
         experiment = train_utils.get_auxiliary_experiment_preset(experiment_arm)
     except ValueError as error:
@@ -226,9 +249,17 @@ def main(
         embedding_dimensions=embedding_dimensions,
         global_state_embedding_dimensions=global_state_embedding_dimensions,
         num_heads=num_heads,
+        auxiliary_objectives=selected_objectives,
     )
     optimizer = train.make_optimizer(model, learn_rate)
-    if has_auxiliary_targets:
+    if selected_objectives is not None:
+        loss_function = functools.partial(
+            objectives.configured_loss,
+            auxiliary_objectives=selected_objectives,
+            value_scale=value_scale,
+            policy_scale=policy_scale,
+        )
+    elif has_auxiliary_targets:
         loss_function = functools.partial(
             train_utils.outcome_policy_auxiliary_loss,
             value_scale=value_scale,
@@ -254,9 +285,7 @@ def main(
         "model": {
             "name": getattr(model, "architecture_name", type(model).__name__),
             "embedding_dimensions": embedding_dimensions,
-            "global_state_embedding_dimensions": (
-                global_state_embedding_dimensions
-            ),
+            "global_state_embedding_dimensions": (global_state_embedding_dimensions),
             "num_heads": num_heads,
         },
         "training": {
@@ -284,6 +313,15 @@ def main(
         },
         "dataset": dataset_configuration,
     }
+    if selected_objectives is not None:
+        resume_configuration["model"]["auxiliary_objectives"] = selected_objectives
+        resume_configuration["training"]["loss"] = {
+            "name": "configured",
+            "auxiliary_objectives": selected_objectives,
+            "value_scale": value_scale,
+            "policy_scale": policy_scale,
+        }
+    resume_configuration["players"] = model.players
     progress = checkpoint.TrainingProgress()
     if resume_checkpoint is not None:
         progress = checkpoint.load_checkpoint(

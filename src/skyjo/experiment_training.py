@@ -254,6 +254,16 @@ class RecipeRecording:
         new_positions: int,
         replay_positions: int,
     ) -> None:
+        if result.gradient_scales:
+            self.event(
+                "gradient_scales",
+                state,
+                metrics=result.gradient_scales,
+                context={
+                    "batch": "first_actual_training_batch",
+                    "scope": "shared_network",
+                },
+            )
         losses = result.losses
         keys = sorted({key for detail in losses for key in detail})
         mean_losses = {

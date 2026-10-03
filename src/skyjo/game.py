@@ -480,19 +480,21 @@ def get_score(skyjo: Skyjo, player: int = 0) -> int:
     )
 
 
-def get_round_scores(
+def get_round_score_components(
     skyjo: Skyjo, round_ending_player: int = 0
-) -> np.ndarray[tuple[int], np.int16]:
-    """Get the scores of all players for the current round.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return raw board points and explicit scoring multipliers in player order.
 
-        This method accounts for the round ending player's score being doubled,
-    if they are not the lowest round score winner.
-
-    Round ending player parameter is relative to current perspective."""
+    The ending-player index is relative to the current perspective. Keep the
+    scoring order used by the engine, including ties and no-progress penalties.
+    Flags remain meaningful when raw points are zero or negative.
+    """
     players = skyjo[3]
     base_scores = np.array(
         [get_score(skyjo, player=i) for i in range(players)], dtype=np.int16
     )
+    raw_scores = base_scores.copy()
+    doubled = np.zeros(players, dtype=np.bool_)
     turn = get_turn(skyjo)
     for player in range(players):
         if player == round_ending_player:
@@ -503,13 +505,22 @@ def get_round_scores(
                 (turn - get_last_revealed_turns(skyjo)[round_ending_player]) // players
                 > NO_PROGRESS_TURN_THRESHOLD
             ):
+                doubled[round_ending_player] = True
                 base_scores[round_ending_player] *= 2
         else:
             if (
                 turn - get_last_revealed_turns(skyjo)[player]
             ) // players > NO_PROGRESS_TURN_THRESHOLD:
+                doubled[player] = True
                 base_scores[player] *= 2
-    return base_scores
+    return raw_scores, doubled
+
+
+def get_round_scores(
+    skyjo: Skyjo, round_ending_player: int = 0
+) -> np.ndarray[tuple[int], np.int16]:
+    raw, doubled = get_round_score_components(skyjo, round_ending_player)
+    return raw * (1 + doubled.astype(np.int16))
 
 
 def get_fixed_perspective_round_scores(
@@ -526,9 +537,7 @@ def get_game_scores(skyjo: Skyjo) -> np.ndarray[tuple[int], np.int16]:
     Scores are in current-player order. The returned array is independent of
     the state; the stored totals always exclude the current round.
     """
-    scores = get_game(skyjo)[
-        GAME_SCORES : GAME_SCORES + get_player_count(skyjo)
-    ].copy()
+    scores = get_game(skyjo)[GAME_SCORES : GAME_SCORES + get_player_count(skyjo)].copy()
     if get_round_over(skyjo):
         scores += get_round_scores(skyjo)
     return scores
@@ -730,7 +739,9 @@ def validate(skyjo: Skyjo) -> bool:
     # No card has been revealed for too long
     assert (
         get_turn(skyjo) - get_last_revealed_turns(skyjo)[0]
-    ) // players <= NO_PROGRESS_TURN_THRESHOLD + 1 or get_countdown(skyjo) is not None, (
+    ) // players <= NO_PROGRESS_TURN_THRESHOLD + 1 or get_countdown(
+        skyjo
+    ) is not None, (
         f"A card has not been revealed for too long: {get_turn(skyjo)=}, {get_last_revealed_turns(skyjo)=}, {get_countdown(skyjo)=}"
         f"{(get_turn(skyjo) - get_last_revealed_turns(skyjo)[0]) // players=}"
     )

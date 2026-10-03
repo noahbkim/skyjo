@@ -57,7 +57,7 @@ Each launch prints a fresh `.runs/<run-id>/` directory (gitignored). Use
 | `logs/train.log` | Compact progress, iteration summaries, and failure tracebacks |
 
 The baseline uses `EquivariantSkyNet`, the policy/game-win base loss, and core
-replay targets. These are fixed by the pool runner. All decisions across a
+replay targets. The ordinary runner also supports configured round objectives. All decisions across a
 game receive its observed final winner label, with ties shared equally. Cumulative
 scores are already part of the model observation. Round-score and future-clear
 auxiliaries are disabled.
@@ -66,8 +66,8 @@ MCTS searches within the current round. On first reaching a round boundary, it
 applies the final action once. A finished game supplies its exact outcome;
 otherwise it deals the next round once and uses the model's prediction there.
 That value is cached for subsequent visits to the same boundary node. This is a
-single-sample baseline approximation: there are no terminal outcome rollouts or
-target resampling. Ordinary chance-node sampling during a round is unchanged.
+single-sample baseline approximation: observed full-game value targets are never
+resampled. Ordinary chance-node sampling during a round is unchanged.
 Search utility is game-win probability alone.
 
 Every generated/replayed game count refers to a complete game, not a round.
@@ -164,6 +164,93 @@ line; only complete lines are evidence. There is no automatic recovery service.
 The next increments are curated Git-tracked experiment reports and findings,
 coherent resume, and focused comparison/evaluation tools. Historical compatibility,
 schema migrations, automated Git checkout, and dashboards are outside this milestone.
+
+## Complete-run round objective comparisons
+
+The suite launcher calls the ordinary runner sequentially for each named variant
+and paired training seed. Every invocation initializes fresh weights, replay,
+checkpoints, and RNG streams, and generates its own self-play. Nested overrides
+are validated by the ordinary configuration resolver before any training starts.
+Paths are resolved relative to the file declaring them. Failures stop the suite;
+completed child runs remain recorded and are not automatically rerun.
+
+```sh
+# Three variants, one training seed, two games per run, four evaluation games total.
+uv run python run_auxiliary_ablation.py --config configs/round_objectives_smoke.toml
+
+# Full training budgets: configured for later use, not part of the smoke check.
+uv run python run_auxiliary_ablation.py --config configs/round_objectives.toml
+```
+
+The full suite inherits `configs/baseline.toml` and uses training seeds `[0, 1, 2]`.
+Its variants are control (no auxiliaries), penalized score (`round_score = 0.1`),
+and raw score plus doubling (both `0.1`). Add `--allow-dirty` for development runs.
+Any combination of the three heads is supported in an ordinary training config:
+
+```toml
+[auxiliary_objectives]
+round_raw_score = 0.1
+round_doubled = 0.1
+round_score = 0.1
+
+[auxiliary_targets]
+mode = "observed" # alternatively "resampled"
+samples = 32      # used only for auxiliary terminal resampling
+
+[training]
+gradient_diagnostic = true
+```
+
+Omitted or zero-weight objectives create no head, replay label, or loss term.
+Raw scores predict `raw / 144` with a linear head and MSE; doubling predicts
+logits with BCE; charged scores retain the sigmoid head and `(score + 48) / 336`
+normalization with MSE. Score errors are logged as MAE in points. All auxiliary
+losses have separate unweighted and weighted metrics. The experimental `0.1`
+weights are fixed; there is no automatic balancing.
+
+The learner builds labels separately for each completed round, before replay
+insertion. Observed endings are the default. Optional terminal resampling fixes
+the round's last decision, samples that transition and its automatic reveals,
+and applies clearing and penalties before averaging. Enabled heads share the
+same endings; deterministic transitions run once. This does not simulate earlier
+alternative continuations. Seed streams depend on training seed, global game
+index, and round index. Full-game outcome labels, policy symmetrization, observed
+statistics, subsequent rounds, and outcome-only MCTS utility stay unchanged.
+Auxiliary initialization preserves core initialization and subsequent RNG streams.
+
+Each experimental checkpoint is evaluated against the same training seed's
+control. The default is 32 evaluation seeds with both seat assignments (64 full
+games per pair), 128 MCTS iterations, temperature zero, and no Dirichlet noise.
+The reusable `skyjo.evaluation.evaluate_checkpoints` accepts two versioned
+checkpoint paths and an `EvaluationConfig`, restores caller RNG state, and
+returns per-game identities, scores, shared-tie win credit, and summary metrics.
+Evaluation currently requires two-player checkpoints, checked before suite launch.
+
+The parent recorded run contains child configurations, independent child runs,
+per-pair comparison artifacts, and `comparison.json`. The report contains per-seed
+win fractions and control-minus-variant score margins, then averages over training
+seeds. It also retains elapsed training time, generated games/positions, optimizer
+steps, sampled positions, and phase timings. Evaluation time is separate. Equal
+iterations do not guarantee equal compute or sampled-position budgets.
+
+Comparison configs enable a first-actual-batch diagnostic of shared-network
+weighted core and unweighted/weighted auxiliary gradient norms and their ratios.
+It reuses the forward graph and does not sample a batch, write `.grad`, advance
+RNG, or take an extra optimizer step. Diagnostic time is recorded separately
+(and remains included in elapsed training time). Smoke results only establish
+working integration, not improved playing strength.
+
+Shared-data diagnostics remain available through the offline trainer:
+
+```sh
+uv run python run_train_epoch.py PATH_TO_REPLAY --steps 10 \
+  --auxiliary-objectives '{"round_raw_score": 0.1, "round_doubled": 0.1}'
+```
+
+The offline selection uses the same heads and losses, requires its named labels,
+and accepts extra unused replay labels. Online replay compatibility continues to
+use the ordinary runner's versioned dataset checks. No legacy dataset migration
+or sidecar checkpoint format is introduced.
 
 ## Usage
 

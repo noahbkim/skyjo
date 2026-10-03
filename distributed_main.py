@@ -28,6 +28,7 @@ from skyjo import (
     explain,
     factory,
     mcts,
+    objectives,
     play,
     player,
     predictor,
@@ -171,6 +172,9 @@ def add_generated_games_to_buffer(
     training_data_buffer: buffer.ReplayBuffer,
     *,
     log_progress: bool = False,
+    auxiliary_objectives=None,
+    auxiliary_targets=None,
+    run_seed=0,
 ) -> list[play.GameStats]:
     """Convert observed full-game results in global game order."""
     ordered_games = sorted(
@@ -182,7 +186,17 @@ def add_generated_games_to_buffer(
     converted_positions = 0
     game_stats_list = []
     for completed_games, generated_game in enumerate(ordered_games, start=1):
-        game_data, game_stats = play.game_result_to_game_data(generated_game.result)
+        options = {}
+        if objectives.resolve(auxiliary_objectives).entries:
+            options = dict(
+                auxiliary_objectives=auxiliary_objectives,
+                **(auxiliary_targets or {}),
+                seed=run_seed,
+                game_index=generated_game.global_game_index,
+            )
+        game_data, game_stats = play.game_result_to_game_data(
+            generated_game.result, **options
+        )
         training_data_buffer.add_game_data(
             game_data,
             game_index=generated_game.global_game_index,
@@ -278,12 +292,14 @@ def generate_iteration(
 
 
 def prepare_iteration(
-    generated: list[GeneratedGame], replay: buffer.ReplayBuffer
+    generated: list[GeneratedGame], replay: buffer.ReplayBuffer, **target_settings
 ) -> experiment_training.PreparedGames:
     started = time.perf_counter()
     before = (replay.game_count, len(replay))
     ordered = sorted(generated, key=lambda game: game.global_game_index)
-    games = add_generated_games_to_buffer(ordered, replay, log_progress=True)
+    games = add_generated_games_to_buffer(
+        ordered, replay, log_progress=True, **target_settings
+    )
     return experiment_training.PreparedGames(
         games,
         [(g.global_game_index, g.play_seed) for g in ordered],
@@ -309,6 +325,7 @@ def run_apply_async_local_selfplay_learning(
     initial_training_dataset_path: pathlib.Path | None = None,
     recorder: runs.RunRecorder | None = None,
     observations: experiment_training.ObservationConfig | None = None,
+    auxiliary_targets: dict | None = None,
 ) -> None:
     observations = observations or experiment_training.ObservationConfig()
     if players != 2 and observations.concept_interval:
@@ -318,7 +335,8 @@ def run_apply_async_local_selfplay_learning(
         observations = dataclasses.replace(observations, concept_interval=0)
     if model_player_config.mcts_score_utility_weight != 0:
         raise ValueError("Full-game training requires score_utility_weight=0")
-    expected_specs = buffer.core_target_specs(players, (sj.MASK_SIZE,))
+    auxiliary_objectives = model_kwargs.get("auxiliary_objectives", {})
+    expected_specs = experiment_config.target_specs(players, auxiliary_objectives)
     if (
         buffer.resolve_target_specs(
             training_data_buffer_config.target_specs,
@@ -327,7 +345,7 @@ def run_apply_async_local_selfplay_learning(
         )
         != expected_specs
     ):
-        raise ValueError("Full-game baseline requires core replay targets")
+        raise ValueError("Replay targets do not match enabled objectives")
     checkpoint_interval = learn_config.checkpoint_interval
     if checkpoint_interval < 1:
         raise ValueError("checkpoint interval must be positive")
@@ -345,6 +363,8 @@ def run_apply_async_local_selfplay_learning(
     model.set_device(learn_config.torch_device)
     optimizer = train.make_optimizer(model, training_config.learn_rate)
     run_configuration = {
+        "players": players,
+        "auxiliary_targets": auxiliary_targets or {"mode": "observed", "samples": 32},
         "model": {
             "name": getattr(model, "architecture_name", type(model).__name__),
             "non_spatial_input_shape": model.non_spatial_input_shape,
@@ -412,6 +432,7 @@ def run_apply_async_local_selfplay_learning(
         "players": players,
         "model": run_configuration["model"],
         "model_player": dataclasses.asdict(model_player_config),
+        "auxiliary_targets": run_configuration["auxiliary_targets"],
     }
     with mp.Pool(
         processes=process_count,
@@ -443,7 +464,13 @@ def run_apply_async_local_selfplay_learning(
             )
             timings["generation"] = time.perf_counter() - started
 
-            prepared = prepare_iteration(generated, training_data_buffer)
+            prepared = prepare_iteration(
+                generated,
+                training_data_buffer,
+                auxiliary_objectives=auxiliary_objectives,
+                auxiliary_targets=auxiliary_targets,
+                run_seed=run_seed,
+            )
             timings["target"] = prepared.seconds
             state = state.generated(
                 games=len(prepared.games), positions=prepared.positions
@@ -468,6 +495,9 @@ def run_apply_async_local_selfplay_learning(
                 prepared.positions,
             )
             timings["training"] = trained.seconds
+            timings["gradient_diagnostic"] = (trained.gradient_scales or {}).get(
+                "seconds", 0.0
+            )
             state = state.trained(
                 iteration=iteration,
                 steps=trained.steps,
@@ -555,6 +585,11 @@ def launch(
     logger.addHandler(handler)
     try:
         with recorder:
+            if resolved["experiment"]["suite_run_id"]:
+                recorder.record_event(
+                    "experiment_membership",
+                    context={**resolved["experiment"], "seed": resolved["seed"]},
+                )
             set_seed(resolved["seed"])
             execution, model_settings, training_settings = (
                 resolved[key] for key in ("execution", "model", "training")
@@ -563,6 +598,8 @@ def launch(
             device = torch.device(execution["device"])
             model_callable = skynet.EquivariantSkyNet
             model_kwargs = dict(model_settings)
+            if resolved["auxiliary_objectives"]:
+                model_kwargs["auxiliary_objectives"] = resolved["auxiliary_objectives"]
             model_factory = factory.SkyNetModelFactory(
                 model_callable=model_callable,
                 players=resolved["players"],
@@ -571,7 +608,8 @@ def launch(
                 model_kwargs=model_kwargs,
             )
             loss = functools.partial(
-                train_utils.base_loss,
+                objectives.configured_loss,
+                auxiliary_objectives=resolved["auxiliary_objectives"],
                 value_scale=training_settings["value_scale"],
                 policy_scale=training_settings["policy_scale"],
             )
@@ -580,6 +618,7 @@ def launch(
                 replay_ratio=training_settings["replay_ratio"],
                 learn_rate=training_settings["learn_rate"],
                 loss_function=loss,
+                gradient_diagnostic=training_settings["gradient_diagnostic"],
             )
             learn_config = train.LearnConfig(
                 torch_device=device,
@@ -615,6 +654,7 @@ def launch(
             )
             initial_dataset = resolved["replay"]["initial_dataset"]
             run_apply_async_local_selfplay_learning(
+                auxiliary_targets=resolved["auxiliary_targets"],
                 process_count=execution["workers"],
                 torch_threads_per_worker=execution["threads_per_worker"],
                 players=resolved["players"],

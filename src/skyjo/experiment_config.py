@@ -6,11 +6,11 @@ import copy
 import json
 import math
 import pathlib
-
 import tomllib
+
 import torch
 
-from . import buffer, game, skynet
+from . import buffer, game, objectives, skynet
 
 DEFAULTS = {
     "name": "full-game-baseline",
@@ -19,6 +19,9 @@ DEFAULTS = {
     "notes": "",
     "seed": 0,
     "players": 2,
+    "auxiliary_objectives": {name: 0.0 for name in objectives.REGISTRY},
+    "auxiliary_targets": {"mode": "observed", "samples": 32},
+    "experiment": {"name": "", "variant": "", "suite_run_id": ""},
     "model": {
         "embedding_dimensions": 16,
         "global_state_embedding_dimensions": 32,
@@ -30,6 +33,7 @@ DEFAULTS = {
         "learn_rate": 0.001,
         "value_scale": 1.0,
         "policy_scale": 1.0,
+        "gradient_diagnostic": False,
     },
     "selfplay": {
         "games_per_iteration": 1024,
@@ -90,6 +94,19 @@ def _merge(defaults: dict, supplied: dict, prefix: str = "") -> dict:
     return result
 
 
+def resolve_paths(config: dict, directory: pathlib.Path) -> dict:
+    """Resolve path-valued settings at their declaration, including partial overrides."""
+    config = copy.deepcopy(config)
+    replay = config.get("replay", {})
+    if isinstance(replay, dict) and replay.get("initial_dataset") is not None:
+        if not isinstance(replay["initial_dataset"], str):
+            raise ValueError("replay.initial_dataset must be a path string")
+        replay["initial_dataset"] = str(
+            (directory / replay["initial_dataset"]).resolve()
+        )
+    return config
+
+
 def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     """Resolve rerunnable settings without constructing a model or replay arrays."""
     raw = path.read_bytes()
@@ -99,10 +116,22 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         supplied = json.loads(raw)
     else:
         raise ValueError("Configuration must be .toml or .json")
+    return raw, resolve_configuration(supplied, base_directory=path.parent)
+
+
+def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> dict:
+    supplied = copy.deepcopy(supplied)
     if not isinstance(supplied, dict):
         raise ValueError("Configuration must be an object")
     prior_derived = supplied.pop("derived", None)
-    config = _merge(DEFAULTS, supplied)
+    config = resolve_paths(_merge(DEFAULTS, supplied), base_directory)
+    config["auxiliary_objectives"] = objectives.resolve(
+        config["auxiliary_objectives"]
+    ).weights
+    if config["auxiliary_targets"]["mode"] not in ("observed", "resampled"):
+        raise ValueError("auxiliary_targets.mode must be observed or resampled")
+    if config["auxiliary_targets"]["samples"] < 1:
+        raise ValueError("auxiliary_targets.samples must be positive")
     model, training, replay = (config[key] for key in ("model", "training", "replay"))
     for section, keys in {
         "model": (
@@ -173,7 +202,7 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     non_spatial = list(skynet.get_non_spatial_input_shape(players))
     targets = [
         {"name": spec.name, "shape": list(spec.shape)}
-        for spec in buffer.core_target_specs(players, (game.MASK_SIZE,))
+        for spec in target_specs(players, config["auxiliary_objectives"])
     ]
     derived = {
         "spatial_input_shape": spatial,
@@ -190,7 +219,7 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     if replay["initial_dataset"] is not None:
         if not isinstance(replay["initial_dataset"], str):
             raise ValueError("replay.initial_dataset must be a path string")
-        dataset_path = (path.parent / replay["initial_dataset"]).resolve()
+        dataset_path = (base_directory / replay["initial_dataset"]).resolve()
         manifest = json.loads((dataset_path / buffer.MANIFEST_FILE).read_text())
         if (
             manifest.get("format") != buffer.DATASET_FORMAT
@@ -217,4 +246,14 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         )
     elif replay["dataset_id"] is not None:
         raise ValueError("dataset_id requires initial_dataset")
-    return raw, config
+    return config
+
+
+def target_specs(players, configuration=None):
+    return (
+        *buffer.core_target_specs(players, (game.MASK_SIZE,)),
+        *(
+            buffer.TargetShapeSpec(name, shape)
+            for name, shape in objectives.resolve(configuration).shapes(players).items()
+        ),
+    )

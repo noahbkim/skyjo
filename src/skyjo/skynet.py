@@ -399,11 +399,7 @@ class SkyNetPrediction:
         # The logits from PolicyTail.forward are already masked (large negative numbers for invalid actions)
         # A standard softmax will handle these correctly, assigning near-zero probability to masked actions.
 
-        assert (
-            len(value_numpy.shape)
-            == len(policy_probabilities_numpy.shape)
-            == 1
-        ), (
+        assert len(value_numpy.shape) == len(policy_probabilities_numpy.shape) == 1, (
             "expected value_output and policy_output to be a single result and not batched results."
             f"value_output.shape: {value_numpy.shape}, policy_output.shape: {policy_probabilities_numpy.shape}"
         )
@@ -487,8 +483,7 @@ class SimplePolicyLogitTail(nn.Module):
 
 
 class SimpleOutcomeProbabilityTail(nn.Module):
-    """Reusable outcome tail to predict winner probabilities over players.
-    """
+    """Reusable outcome tail to predict winner probabilities over players."""
 
     def __init__(self, input_dimensions: int, players: int):
         super(SimpleOutcomeProbabilityTail, self).__init__()
@@ -952,6 +947,7 @@ class EquivariantSkyNet(nn.Module):
         embedding_dimensions: int = 16,
         global_state_embedding_dimensions: int = 32,
         num_heads: int = 4,
+        auxiliary_objectives: dict[str, float] | None = None,
     ):
         super(EquivariantSkyNet, self).__init__()
         self.spatial_input_shape = spatial_input_shape
@@ -966,9 +962,7 @@ class EquivariantSkyNet(nn.Module):
         self.columns = self.spatial_input_shape[2]
         self.card_types = self.spatial_input_shape[3]
 
-        expected_policy_output_shape = (
-            4 + 2 * self.rows * self.columns,
-        )
+        expected_policy_output_shape = (4 + 2 * self.rows * self.columns,)
         if self.policy_output_shape != expected_policy_output_shape:
             raise ValueError(
                 "policy_output_shape must be "
@@ -1046,6 +1040,13 @@ class EquivariantSkyNet(nn.Module):
             rows=self.rows,
             columns=self.columns,
         )
+        from . import objectives
+
+        resolved = objectives.resolve(auxiliary_objectives)
+        self.auxiliary_objectives = resolved.weights
+        self.auxiliary_heads = resolved.make_heads(
+            self.global_state_embedding_dimensions, self.players
+        )
         self.set_device(device)
 
     def set_device(self, device: torch.device):
@@ -1080,6 +1081,15 @@ class EquivariantSkyNet(nn.Module):
         features = self._forward_features(spatial_tensor, non_spatial_tensor)
         value_out = self.value_tail(features.global_state_embedding)
         policy_out = self._forward_policy(features, mask)
+        if self.auxiliary_heads:
+            return EquivariantAuxOutput(
+                value_out,
+                policy_out,
+                {
+                    name: head(features.global_state_embedding)
+                    for name, head in self.auxiliary_heads.items()
+                },
+            )
         return EquivariantOutput(
             value_out,
             policy_out,

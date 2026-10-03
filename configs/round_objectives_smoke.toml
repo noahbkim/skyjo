@@ -1,0 +1,23 @@
+name = "round-objectives-smoke"
+baseline = "smoke.toml"
+seeds = [0]
+control = "control"
+
+[evaluation]
+seed_count = 1
+seed = 0
+iterations = 1
+
+[variants.control.training]
+gradient_diagnostic = true
+
+[variants.penalized_score.training]
+gradient_diagnostic = true
+[variants.penalized_score.auxiliary_objectives]
+round_score = 0.1
+
+[variants.raw_score_doubling.training]
+gradient_diagnostic = true
+[variants.raw_score_doubling.auxiliary_objectives]
+round_raw_score = 0.1
+round_doubled = 0.1

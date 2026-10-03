@@ -9,10 +9,7 @@ import typing
 
 import torch
 
-from . import buffer
-from . import config
-from . import skynet
-from . import train_utils
+from . import buffer, config, gradient_diagnostic, skynet, train_utils
 
 # MARK: Training
 
@@ -25,6 +22,8 @@ class ReplayRatioTrainConfig(config.Config):
     replay_ratio: float
     loss_function: train_utils.LossFunction
     learn_rate: float
+    gradient_diagnostic: bool = False
+    diagnostic_done: bool = dataclasses.field(default=False, init=False)
 
     def __post_init__(self) -> None:
         if self.batch_size < 1:
@@ -40,6 +39,7 @@ class TrainingResult:
     steps: int
     sampled_positions: int
     seconds: float
+    gradient_scales: dict | None = None
 
 
 def train_iteration(
@@ -53,6 +53,7 @@ def train_iteration(
     steps = math.ceil(new_positions * config.replay_ratio / config.batch_size)
     diagnostics = train_utils.TrainingDiagnostics()
     started = time.perf_counter()
+    scales = {} if config.gradient_diagnostic and not config.diagnostic_done else None
     losses = train_steps(
         model,
         replay,
@@ -61,13 +62,17 @@ def train_iteration(
         optimizer=optimizer,
         loss_function=config.loss_function,
         diagnostics=diagnostics,
+        gradient_scales=scales,
     )
+    if scales:
+        config.diagnostic_done = True
     return TrainingResult(
         losses,
         diagnostics.summary(),
         steps,
         steps * config.batch_size,
         time.perf_counter() - started,
+        scales,
     )
 
 
@@ -77,6 +82,7 @@ def train_step(
     loss_function: train_utils.LossFunction,
     optimizer: torch.optim.Optimizer,
     diagnostics: train_utils.TrainingDiagnostics | None = None,
+    gradient_scales: dict | None = None,
 ) -> tuple[float, train_utils.LossDetails]:
     """Performs a single training step on the model."""
     model.train()
@@ -99,6 +105,15 @@ def train_step(
         diagnostics.update(
             model_output.policy_logits, tensor_targets.policy, masks_tensor
         )
+    if gradient_scales is not None:
+        gradient_scales.update(
+            gradient_diagnostic.measure(
+                model,
+                model_output,
+                tensor_targets,
+                **getattr(loss_function, "keywords", {}),
+            )
+        )
     # compute gradient and do SGD step
     optimizer.zero_grad()
     loss.backward()
@@ -114,6 +129,7 @@ def train_steps(
     optimizer: torch.optim.Optimizer,
     loss_function: train_utils.LossFunction,
     diagnostics: train_utils.TrainingDiagnostics | None = None,
+    gradient_scales: dict | None = None,
 ) -> list[train_utils.LossDetails]:
     """Run exactly ``optimizer_steps`` updates sampled from the replay buffer."""
     if optimizer_steps < 0:
@@ -129,7 +145,9 @@ def train_steps(
             loss_function,
             optimizer,
             diagnostics,
+            gradient_scales,
         )
+        gradient_scales = None
         loss_details.append(step_loss_details)
     return loss_details
 
@@ -178,8 +196,7 @@ def evaluate_loss(
             )
         evaluated_positions += batch_size
     return {
-        name: total / evaluated_positions
-        for name, total in weighted_totals.items()
+        name: total / evaluated_positions for name, total in weighted_totals.items()
     }
 
 
@@ -197,4 +214,6 @@ class LearnConfig(config.Config):
     learn_steps: int
     games_generated_per_iteration: int
     checkpoint_interval: int
-    loss_stats_function: typing.Callable[[list[train_utils.LossDetails]], object] | None = None
+    loss_stats_function: (
+        typing.Callable[[list[train_utils.LossDetails]], object] | None
+    ) = None
