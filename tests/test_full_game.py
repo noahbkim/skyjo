@@ -4,6 +4,8 @@ from itertools import cycle
 import numpy as np
 import pytest
 
+from helpers import NaiveQuickFinishPlayer
+
 from skyjo import game as sj
 from skyjo import play, player
 
@@ -140,7 +142,7 @@ def test_round_boundary_rejects_actions_and_invalid_transitions():
 
 
 def test_full_game_returns_round_histories_and_shared_winners(equal_hands):
-    result = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    result = play.play_game([NaiveQuickFinishPlayer() for _ in range(3)])
 
     assert len(result.rounds) == 3
     assert result.final_scores == (126, 63, 63)
@@ -164,7 +166,7 @@ def test_full_game_returns_round_histories_and_shared_winners(equal_hands):
 
 
 def test_play_round_stops_before_the_game_ends(equal_hands):
-    history = play.play_round([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    history = play.play_round([NaiveQuickFinishPlayer() for _ in range(3)])
 
     assert sj.get_round_over(history[-1].state)
     assert not sj.get_game_over(history[-1].state)
@@ -216,12 +218,11 @@ def test_full_game_targets_use_final_shared_winners_without_resampling(monkeypat
     assert stats.action_counts.sum() == 3
 
 
-@pytest.mark.parametrize("batched", [False, True])
 @pytest.mark.parametrize("finishes_game", [False, True])
 def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
-    monkeypatch, batched, finishes_game
+    monkeypatch, finishes_game
 ):
-    from skyjo import mcts, parallel_mcts, skynet
+    from skyjo import mcts, skynet
 
     # All replacement choices are deterministic. Ending the turn moves to seat 1.
     completed = completed_round(
@@ -235,28 +236,15 @@ def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
     class FixedPredictor:
         def __init__(self):
             self.states = []
-            self.pending = []
 
-        def put(self, state):
-            identifier = len(self.states)
+        def predict(self, state):
             self.states.append(state)
             mask = sj.actions(state).astype(np.float32)
             assert mask.any(), "Never send a completed round to the model"
-            self.pending.append((identifier, skynet.SkyNetPrediction(
+            return skynet.SkyNetPrediction(
                 value_output=np.array([0.1, 0.2, 0.7], dtype=np.float32),
                 policy_output=mask / mask.sum(),
-            )))
-            return identifier
-
-        def send(self):
-            pass
-
-        def get(self):
-            return self.pending.pop(0)
-
-        def get_all(self):
-            pending, self.pending = self.pending, []
-            return pending
+            )
 
     client = FixedPredictor()
     applications = []
@@ -267,9 +255,7 @@ def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
         return apply(state, action, **kwargs)
 
     monkeypatch.setattr(sj, "apply_action", record_apply)
-    search = parallel_mcts.run_mcts if batched else mcts.run_mcts
-    kwargs = {"batched_leaf_count": 3} if batched else {}
-    root = search(state, client, iterations=100, **kwargs)
+    root = mcts.run_mcts(state, client, iterations=100)
     assert len(applications) == 3  # Exactly one per legal boundary action.
     assert root.visit_count == sum(child.visit_count for child in root.children.values()) == 100
     expected = [0, 1, 0] if finishes_game else [0.7, 0.1, 0.2]
@@ -281,7 +267,7 @@ def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
             assert sj.get_game_scores(child.next_round_state).any()
     prediction_count = len(client.states)
     assert prediction_count == (1 if finishes_game else 4)
-    search(state, client, iterations=10, root_node=root, **kwargs)
+    mcts.run_mcts(state, client, iterations=10, root_node=root)
     assert len(applications) == 3
     assert len(client.states) == prediction_count
     assert root.visit_count == 110
@@ -290,7 +276,7 @@ def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
 def test_full_game_replay_keeps_rounds_together(tmp_path, equal_hands):
     from skyjo import buffer, skynet
 
-    result = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    result = play.play_game([NaiveQuickFinishPlayer() for _ in range(3)])
     assert len(result.rounds) == 3
     data, _ = play.game_result_to_game_data(result)
     game_length = sum(len(round_result.history) - 1 for round_result in result.rounds)
@@ -320,7 +306,7 @@ def test_full_game_replay_keeps_rounds_together(tmp_path, equal_hands):
 def test_round_statistics_count_turns_and_player_rounds(equal_hands):
     from skyjo import game_stats
 
-    result = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    result = play.play_game([NaiveQuickFinishPlayer() for _ in range(3)])
     stats = game_stats.analyze_game(result)
     summary = game_stats.summarize_games([stats])
     assert len(stats.rounds) == 3

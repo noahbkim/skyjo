@@ -119,9 +119,8 @@ def play_games_locally(
 ) -> list[GeneratedGame]:
     """Pool worker entrypoint.
 
-    This intentionally does not use PredictorProcess or any queues. Each task gets
-    a snapshot of the model weights, builds a local predictor client, and returns
-    game histories to the parent process.
+    Each task builds a local model from a weight snapshot, runs synchronous
+    inference, and returns game histories to the parent process.
     """
     model = build_local_model(
         model_callable=model_callable,
@@ -130,12 +129,12 @@ def play_games_locally(
         model_state_dict=model_state_dict,
     )
 
-    predictor_client = predictor.LocalPredictorClient(
+    inference = predictor.LocalPredictor(
         model=model,
         max_batch_size=512,
     )
     model_player = player.ModelPlayer(
-        predictor_client,
+        inference,
         **model_player_config.kwargs(),
     )
     model_players = [model_player for _ in range(players)]
@@ -334,8 +333,6 @@ def run_apply_async_local_selfplay_learning(
             "[CONCEPTS] Skipped: handcrafted concepts require a two-player model"
         )
         observations = dataclasses.replace(observations, concept_interval=0)
-    if model_player_config.mcts_score_utility_weight != 0:
-        raise ValueError("Full-game training requires score_utility_weight=0")
     auxiliary_objectives = model_kwargs.get("auxiliary_objectives", {})
     expected_specs = experiment_config.target_specs(players, auxiliary_objectives)
     if (

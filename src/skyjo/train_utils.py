@@ -21,38 +21,10 @@ TargetArrays: typing.TypeAlias = dict[str, FloatArray]
 VALUE_TARGET_NAME: typing.Final[str] = "value"
 POLICY_TARGET_NAME: typing.Final[str] = "policy"
 ROUND_SCORE_TARGET_NAME: typing.Final[str] = skynet.ROUND_SCORE_TARGET_NAME
-FUTURE_CLEAR_TARGET_NAME: typing.Final[str] = skynet.FUTURE_CLEAR_TARGET_NAME
 CORE_TARGET_NAMES: typing.Final[tuple[str, ...]] = (
     VALUE_TARGET_NAME,
     POLICY_TARGET_NAME,
 )
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class AuxiliaryExperimentPreset:
-    name: str
-    round_score_scale: float
-    future_clear_scale: float
-    score_utility_weight: float
-    clear_positive_weight: float = 10.0
-
-
-AUXILIARY_EXPERIMENT_PRESETS: typing.Final[
-    dict[str, AuxiliaryExperimentPreset]
-] = {
-    "control": AuxiliaryExperimentPreset("control", 0.0, 0.0, 0.0),
-    "score": AuxiliaryExperimentPreset("score", 0.1, 0.0, 0.05),
-    "clear": AuxiliaryExperimentPreset("clear", 0.0, 0.1, 0.0),
-    "combined": AuxiliaryExperimentPreset("combined", 0.1, 0.1, 0.05),
-}
-
-
-def get_auxiliary_experiment_preset(name: str) -> AuxiliaryExperimentPreset:
-    try:
-        return AUXILIARY_EXPERIMENT_PRESETS[name]
-    except KeyError as error:
-        choices = ", ".join(AUXILIARY_EXPERIMENT_PRESETS)
-        raise ValueError(f"unknown experiment preset {name!r}; choose from {choices}") from error
 
 
 class NumpyTrainingTargets(typing.NamedTuple):
@@ -326,69 +298,6 @@ def base_loss(
     )
 
 
-def outcome_policy_auxiliary_loss(
-    model_output: skynet.SupportsCoreSkyNetOutput,
-    targets: TensorTrainingTargets,
-    value_scale: float = 1.0,
-    policy_scale: float = 1.0,
-    round_score_scale: float = 0.1,
-    future_clear_scale: float = 0.1,
-    clear_positive_weight: float = 10.0,
-) -> tuple[torch.Tensor, LossDetails]:
-    if round_score_scale < 0 or future_clear_scale < 0:
-        raise ValueError("auxiliary loss scales cannot be negative")
-    if clear_positive_weight <= 0:
-        raise ValueError("clear_positive_weight must be positive")
-    base, details = base_loss(
-        model_output,
-        targets,
-        value_scale=value_scale,
-        policy_scale=policy_scale,
-    )
-    total = base
-    auxiliary_outputs = getattr(model_output, "auxiliary_outputs", None)
-    if round_score_scale > 0:
-        assert auxiliary_outputs is not None, (
-            "expected model output with auxiliary_outputs"
-        )
-        round_score_prediction = auxiliary_outputs[ROUND_SCORE_TARGET_NAME]
-        round_score_target = targets[ROUND_SCORE_TARGET_NAME]
-        assert round_score_prediction.shape == round_score_target.shape, (
-            f"expected {ROUND_SCORE_TARGET_NAME} of shape {round_score_target.shape}, "
-            f"got {round_score_prediction.shape}"
-        )
-        round_score_loss = mse_value_loss(round_score_prediction, round_score_target)
-        details[f"{ROUND_SCORE_TARGET_NAME}_loss"] = round_score_loss.item()
-        total = total + round_score_scale * round_score_loss
-
-    if future_clear_scale > 0:
-        assert auxiliary_outputs is not None, (
-            "expected model output with auxiliary_outputs"
-        )
-        future_clear_logits = auxiliary_outputs[FUTURE_CLEAR_TARGET_NAME]
-        future_clear_target = targets[FUTURE_CLEAR_TARGET_NAME]
-        assert future_clear_logits.shape == future_clear_target.shape, (
-            f"expected {FUTURE_CLEAR_TARGET_NAME} of shape "
-            f"{future_clear_target.shape}, got {future_clear_logits.shape}"
-        )
-        eligible = future_clear_target >= 0
-        if eligible.any():
-            future_clear_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                future_clear_logits[eligible],
-                future_clear_target[eligible],
-                pos_weight=torch.tensor(
-                    clear_positive_weight,
-                    dtype=future_clear_logits.dtype,
-                    device=future_clear_logits.device,
-                ),
-            )
-        else:
-            future_clear_loss = future_clear_logits.sum() * 0.0
-        details[f"{FUTURE_CLEAR_TARGET_NAME}_loss"] = future_clear_loss.item()
-        total = total + future_clear_scale * future_clear_loss
-    return total, details
-
-
 def compute_model_loss_on_game_data(
     model: skynet.SkyNet,
     game_data: play.GameData,
@@ -419,29 +328,3 @@ def compute_model_loss_on_game_data(
 
 def loss_details_summary(loss_details_list: list[LossDetails]) -> pd.DataFrame:
     return pd.DataFrame.from_records(loss_details_list).describe().T
-
-
-def future_clear_target_for_state(
-    state: sj.Skyjo,
-    fixed_perspective_final_clears: np.ndarray[tuple[int, int], np.float32],
-) -> np.ndarray[tuple[int, int], np.float32]:
-    """Return active-relative future-clear labels, masking existing clears."""
-    expected_shape = (sj.get_player_count(state), sj.COLUMN_COUNT)
-    if fixed_perspective_final_clears.shape == (
-        expected_shape[0] * expected_shape[1],
-    ):
-        fixed_perspective_final_clears = fixed_perspective_final_clears.reshape(
-            expected_shape
-        )
-    if fixed_perspective_final_clears.shape != expected_shape:
-        raise ValueError(
-            "fixed_perspective_final_clears must have shape "
-            f"{expected_shape}, got {fixed_perspective_final_clears.shape}"
-        )
-    target = np.roll(
-        fixed_perspective_final_clears,
-        -sj.get_player(state),
-        axis=0,
-    ).astype(np.float32, copy=True)
-    target[sj.get_cleared_columns(state).astype(bool)] = -1.0
-    return target

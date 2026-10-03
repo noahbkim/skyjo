@@ -6,22 +6,6 @@ import skyjo as sj
 from skyjo import skynet, train_utils
 
 
-def test_scores_to_score_differential_value_two_players():
-    scores = np.array([20, 35], dtype=np.float32)
-
-    actual = skynet.scores_to_score_differential_value(scores)
-
-    assert np.array_equal(actual, np.array([0, -15], dtype=np.float32))
-
-
-def test_scores_to_score_differential_value_multi_player_tie_for_best():
-    scores = np.array([10, 25, 10], dtype=np.float32)
-
-    actual = skynet.scores_to_score_differential_value(scores)
-
-    assert np.array_equal(actual, np.array([0, -15, 0], dtype=np.float32))
-
-
 def test_normalize_round_scores_uses_expanded_bounds():
     scores = np.array(
         [skynet.ROUND_SCORE_MIN, 0.0, 140.0, skynet.ROUND_SCORE_MAX],
@@ -80,7 +64,8 @@ def test_outcome_probability_tail_still_returns_probability_simplex():
 
 
 def test_auxiliary_round_score_model_returns_round_score_output():
-    model = skynet.EquivariantSkyNetWithRoundScoreAux(
+    model = skynet.EquivariantSkyNet(
+        auxiliary_objectives={"round_score": 0.1},
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         value_output_shape=(2,),

@@ -6,7 +6,6 @@ import dataclasses
 import typing
 
 import numpy as np
-import torch
 
 from . import config
 from . import predictor
@@ -23,7 +22,6 @@ class MCTSConfig(config.Config):
     after_state_evaluate_all_children: bool
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
-    score_utility_weight: float = 0.0
 
 
 # MARK: NODE SCORING
@@ -49,7 +47,7 @@ def ucb_score(
         * np.sqrt(parent.visit_count + 1)
         / (1 + child.visit_count)
     )
-    return value + exploration - getattr(child, "virtual_loss", 0.0)
+    return value + exploration
 
 
 # MARK: NODES
@@ -64,14 +62,11 @@ class DecisionStateNode:
     model_prediction: skynet.SkyNetPrediction | None = None
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
-    virtual_loss_total: float = 0.0
     is_expanded: bool = False
-    are_children_discovered: bool = False
     dirichlet_noise: np.ndarray[tuple[int], np.float32] | None = None
     dirichlet_epsilon: float = 0.0
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
-    score_utility_weight: float = 0.0
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -92,32 +87,20 @@ class DecisionStateNode:
         )
 
     @property
-    def total_count(self) -> int:
-        return self.visit_count
-
-    @property
-    def child_count(self) -> int:
-        return self.visit_count
-
-    @property
-    def virtual_loss(self) -> float:
-        return self.virtual_loss_total
-
-    @property
     def has_value_estimate(self) -> bool:
         return self.model_prediction is not None
 
     @property
     def model_value_for_current_player(self) -> float:
         assert self.model_prediction is not None, "expected an expanded decision node"
-        return self.model_prediction.search_value(self.score_utility_weight)[0].item()
+        return self.model_prediction.value_output[0].item()
 
     @property
     def state_value(self) -> skynet.StateValue:
         if self.visit_count == 0:
             if self.model_prediction is not None:
                 return skynet.to_state_value(
-                    self.model_prediction.search_value(self.score_utility_weight),
+                    self.model_prediction.value_output,
                     sj.get_player(self.state),
                 )
             return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
@@ -174,7 +157,6 @@ class DecisionStateNode:
             action=action,
             c_puct=self.c_puct,
             fpu_reduction=self.fpu_reduction,
-            score_utility_weight=self.score_utility_weight,
         )
 
     def policy_targets(
@@ -215,7 +197,6 @@ class AfterStateNode:
     child_weights: dict[int, float] = dataclasses.field(default_factory=dict)
     child_weight_total: float = 0.0
     visit_count: int = 0
-    virtual_loss_total: float = 0.0
     is_expanded: bool = False
     all_children_discovered: bool = False
 
@@ -234,14 +215,6 @@ class AfterStateNode:
             f"Is Expanded: {self.is_expanded}\n"
             f"Children: {len(self.children)}\n"
         )
-
-    @property
-    def child_count(self) -> int:
-        return self.visit_count
-
-    @property
-    def virtual_loss(self) -> float:
-        return self.virtual_loss_total
 
     @property
     def has_value_estimate(self) -> bool:
@@ -273,7 +246,6 @@ class AfterStateNode:
             action=self.action,
             c_puct=self.parent.c_puct,
             fpu_reduction=self.parent.fpu_reduction,
-            score_utility_weight=self.parent.score_utility_weight,
         )
 
     def realize_outcomes(self, n) -> None:
@@ -389,14 +361,9 @@ class RoundBoundaryNode:
     parent: AfterStateNode | DecisionStateNode
     action: sj.SkyjoAction
     visit_count: int = 0
-    virtual_loss: float = 0.0
     is_expanded: bool = False
     next_round_state: sj.Skyjo | None = None
     value: skynet.StateValue | None = None
-
-    @property
-    def child_count(self) -> int:
-        return self.visit_count
 
     @property
     def has_value_estimate(self) -> bool:
@@ -470,14 +437,13 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue) -> None
 
 def run_mcts(
     game_state: sj.Skyjo,
-    predictor_client: predictor.AbstractPredictorClient,
+    inference: predictor.LocalPredictor,
     iterations: int,
     *,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
     c_puct: float = 1.5,
     fpu_reduction: float = 0.0,
-    score_utility_weight: float = 0.0,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Search within a round, using one cached game-value sample at its boundary.
@@ -489,21 +455,16 @@ def run_mcts(
         raise ValueError("c_puct must be positive")
     if fpu_reduction < 0:
         raise ValueError("fpu_reduction cannot be negative")
-    if score_utility_weight != 0:
-        raise ValueError("Full-game search requires score_utility_weight=0")
 
     # Get model prediction for root state
     if root_node is None:
-        _ = predictor_client.put(game_state)
-        predictor_client.send()
-        _, prediction = predictor_client.get()
+        prediction = inference.predict(game_state)
         root_node = DecisionStateNode(
             state=game_state,
             parent=None,
             action=None,
             c_puct=c_puct,
             fpu_reduction=fpu_reduction,
-            score_utility_weight=score_utility_weight,
         )
         root_node.expand(model_prediction=prediction)
 
@@ -513,7 +474,6 @@ def run_mcts(
         if (
             root_node.c_puct != c_puct
             or root_node.fpu_reduction != fpu_reduction
-            or root_node.score_utility_weight != score_utility_weight
         ):
             raise ValueError("reused root scoring configuration does not match")
 
@@ -527,69 +487,37 @@ def run_mcts(
         )
         root_node.dirichlet_noise[sj.get_actions(root_node.state)] = dirichlet_noise
 
-    search_depths = []
     for _ in range(iterations):
         search_path = find_leaf(
             root_node,
             update_after_state_child_weights=not after_state_evaluate_all_children,
         )
-        search_depths.append(len(search_path))
         leaf = search_path[-1]
 
         if isinstance(leaf, RoundBoundaryNode):
             next_round = leaf.prepare()
             if next_round is not None:
-                prediction_id = predictor_client.put(next_round)
-                predictor_client.send()
-                returned_id, prediction = predictor_client.get()
-                assert prediction_id == returned_id
-                leaf.set_prediction(prediction)
+                leaf.set_prediction(inference.predict(next_round))
             backup_value = leaf.state_value.copy()
 
-        # AFTER STATE LEAF
-        # We want to pre-expand the afterstate and either realize all potential
-        # outcomes or just roll a single next state based on parameter
-        #
-        # We also need to queue all the children decision state for model prediction
+        # Evaluate the sampled outcome or every possible chance outcome.
         elif isinstance(leaf, AfterStateNode):
             leaf.discover(discover_all_children=after_state_evaluate_all_children)
 
-            afterstate_prediction_ids = {}
-            # Add realized outcome children to prediction
-            for hash_, child in leaf.children.items():
-                prediction_id = predictor_client.put(child.state)
-                afterstate_prediction_ids[prediction_id] = hash_
-
-            if afterstate_prediction_ids:
-                predictor_client.send()
-
-            for prediction_id, prediction in predictor_client.get_all():
-                child_hash = afterstate_prediction_ids[prediction_id]
-                child = leaf.children[child_hash]
+            children = list(leaf.children.values())
+            predictions = inference.predict_many([child.state for child in children])
+            for child, prediction in zip(children, predictions, strict=True):
                 child.expand(model_prediction=prediction)
-                del afterstate_prediction_ids[prediction_id]
 
             leaf.expand()
             backup_value = leaf.state_value.copy()
 
-        # DECISION STATE LEAF
-        # We want to queue the decision state for model prediction. Also
-        # we want to pre-expand the decision state, so that parallel threads
-        # can go deeper and queue a child state for model prediction.
         elif isinstance(leaf, DecisionStateNode):
-            prediction_id = predictor_client.put(leaf.state)
-            predictor_client.send()
-            returned_prediction_id, prediction = predictor_client.get()
-            assert prediction_id == returned_prediction_id, (
-                f"Returned prediction id: {returned_prediction_id} "
-                f"does NOT match given prediction id: {prediction_id}"
-            )
-            leaf.expand(model_prediction=prediction)
+            leaf.expand(model_prediction=inference.predict(leaf.state))
             backup_value = leaf.state_value.copy()
         else:
             backup_value = leaf.state_value.copy()
         backpropagate(search_path, backup_value)
-    # print(sum(search_depths) / len(search_depths))
     return root_node
 
 
@@ -597,29 +525,6 @@ def run_mcts(
 
 MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | RoundBoundaryNode
 
-
-if __name__ == "__main__":
-    import explain
-
-    np.random.seed(42)
-    torch.manual_seed(42)
-    players = 2
-    model = skynet.SimpleSkyNet(
-        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
-        value_output_shape=(players,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        hidden_layers=[64, 64],
-        device=torch.device("cpu"),
-    )
-    predictor_client = predictor.NaivePredictorClient(model)
-    winning_state = explain.create_almost_surely_winning_position()
-    root_node = run_mcts(
-        sj.apply_action(sj.apply_action(winning_state, sj.MASK_TAKE), sj.MASK_SIZE - 1),
-        predictor_client,
-        iterations=1600,
-    )
-    print(root_node)
 
 # MARK: Debugging
 

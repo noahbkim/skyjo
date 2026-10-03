@@ -190,7 +190,7 @@ def test_evaluation_balances_seats_shares_ties_and_restores_rng(tmp_path, monkey
     variant.write_bytes(b"variant")
     monkeypatch.setattr(evaluation, "load_model", lambda path: path.stem)
     monkeypatch.setattr(
-        evaluation.predictor, "LocalPredictorClient", lambda model, **kwargs: model
+        evaluation.predictor, "LocalPredictor", lambda model, **kwargs: model
     )
     settings_seen = []
 
@@ -231,8 +231,7 @@ def test_evaluation_balances_seats_shares_ties_and_restores_rng(tmp_path, monkey
     assert report["control_minus_variant_margin"] == 10
     assert report["checkpoints"]["control"]["sha256"] == runs.file_digest(control)
     assert all(
-        s["mcts_score_utility_weight"]
-        == s["action_softmax_temperature"]
+        s["action_softmax_temperature"]
         == s["mcts_dirichlet_epsilon"]
         == 0
         for s in settings_seen

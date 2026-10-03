@@ -9,13 +9,14 @@ import numpy as np
 import pytest
 import torch
 
+from helpers import NaiveQuickFinishPlayer
+
 from skyjo import (
     buffer,
     checkpoint,
     experiment_config,
     objectives,
     play,
-    player,
     predictor,
     skynet,
     targets,
@@ -71,7 +72,7 @@ def test_scoring_exposes_rule_flags_even_when_score_does_not_change(
 def result():
     random.seed(21)
     np.random.seed(21)
-    return play.play_game([player.NaiveQuickFinishPlayer() for _ in range(3)])
+    return play.play_game([NaiveQuickFinishPlayer() for _ in range(3)])
 
 
 def model(config, players=3):
@@ -240,16 +241,14 @@ def test_objectives_through_replay_training_and_inference(
     restored = model(configuration)
     checkpoint.load_checkpoint(saved, model=restored, restore_rng=False)
     direct = restored.predict(rows[0].state)
-    client = predictor.LocalPredictorClient(restored, max_batch_size=2)
-    ids = [client.put(row.state) for row in rows[:2]]
-    client.send()
-    predictions = client.get_all()
-    assert [item[0] for item in predictions] == ids
+    inference = predictor.LocalPredictor(restored, max_batch_size=2)
+    predictions = inference.predict_many([row.state for row in rows[:2]])
+    assert len(predictions) == 2
     np.testing.assert_allclose(
-        predictions[0][1].value_output, direct.value_output, atol=1e-5
+        predictions[0].value_output, direct.value_output, atol=1e-5
     )
     np.testing.assert_allclose(
-        predictions[0][1].policy_output, direct.policy_output, atol=1e-6
+        predictions[0].policy_output, direct.policy_output, atol=1e-6
     )
 
 
@@ -352,3 +351,20 @@ def test_final_reveal_clears_column_before_raw_score_target():
     summary = targets.terminal_summary(final)
     np.testing.assert_array_equal(summary.raw_scores, [0, 0])
     assert sj.get_table(final)[0, :, 0, sj.FINGER_CLEARED].all()
+
+
+def test_configured_auxiliary_heads_preserve_column_symmetry():
+    net = model(ALL).eval()
+    spatial = torch.rand(2, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
+    nonspatial = torch.rand(2, *skynet.get_non_spatial_input_shape(3))
+    mask = torch.ones(2, sj.MASK_SIZE)
+    permutation = torch.tensor([2, 0, 3, 1])
+    with torch.inference_mode():
+        original = net(spatial, nonspatial, mask)
+        permuted = net(spatial[:, :, :, permutation], nonspatial, mask)
+    for name in ALL:
+        assert original.auxiliary_outputs[name].shape == (2, 3)
+        torch.testing.assert_close(
+            original.auxiliary_outputs[name], permuted.auxiliary_outputs[name],
+            atol=1e-6, rtol=1e-5,
+        )

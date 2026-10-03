@@ -10,7 +10,7 @@ import time
 import numpy as np
 import torch
 
-from . import checkpoint, game, play, player, predictor, runs, skynet
+from . import checkpoint, play, player, predictor, runs
 
 
 @dataclasses.dataclass(frozen=True)
@@ -34,7 +34,6 @@ class EvaluationConfig:
             mcts_after_state_evaluate_all_children=False,
             mcts_c_puct=1.0,
             mcts_fpu_reduction=0.0,
-            mcts_score_utility_weight=0.0,
         )
 
 
@@ -82,7 +81,7 @@ def evaluate_checkpoints(
         }
         agents = {
             name: player.ModelPlayer(
-                predictor.LocalPredictorClient(load_model(path), max_batch_size=1),
+                predictor.LocalPredictor(load_model(path), max_batch_size=1),
                 **settings.search().kwargs(),
             )
             for name, path in (("control", control), ("variant", variant))

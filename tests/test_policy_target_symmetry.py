@@ -3,8 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from helpers import NaiveQuickFinishPlayer
+
 from skyjo import game as sj
-from skyjo import play, player, skynet
+from skyjo import play, skynet
 
 
 def state_with_symmetric_active_board() -> sj.Skyjo:
@@ -63,7 +65,7 @@ def test_full_game_conversion_symmetrizes_only_the_stored_target() -> None:
     posterior = np.arange(1, sj.MASK_SIZE + 1, dtype=np.float32)
     posterior /= posterior.sum()
     unchanged = posterior.copy()
-    completed = play.play_game([player.NaiveQuickFinishPlayer() for _ in range(2)])
+    completed = play.play_game([NaiveQuickFinishPlayer() for _ in range(2)])
     last_round = completed.rounds[-1]
     # Isolate one recorded decision and a genuine completed-game snapshot.
     history = [

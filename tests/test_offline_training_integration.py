@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 import typer
 from typer.testing import CliRunner
@@ -16,12 +17,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run_train_epoch  # noqa: E402
 
 
-def make_dataset(path):
+def make_dataset(path, extra_targets=None):
+    extra_targets = extra_targets or {}
     replay_buffer = buffer.ReplayBuffer(
         max_size=32,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
         non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
+        target_specs=(
+            *buffer.core_target_specs(2, (sj.MASK_SIZE,)),
+            *(
+                buffer.TargetShapeSpec(name, value.shape)
+                for name, value in extra_targets.items()
+            ),
+        ),
     )
     for game_index in range(4):
         state = sj.new(players=2, top=game_index)
@@ -37,6 +46,7 @@ def make_dataset(path):
                         dtype=np.float32,
                     ),
                     train_utils.POLICY_TARGET_NAME: policy,
+                    **extra_targets,
                 },
             )
             for _ in range(2)
@@ -355,3 +365,50 @@ def test_offline_training_rejects_unknown_game_index(tmp_path):
 
     assert result.exit_code != 0
     assert "unknown --game-index value(s): 99" in result.output
+
+
+@pytest.mark.parametrize("auxiliary", [None, '{"round_score": 0.1}'])
+def test_offline_objectives_are_explicit_even_with_legacy_extra_labels(
+    tmp_path, auxiliary
+):
+    dataset = make_dataset(
+        tmp_path / "dataset",
+        extra_targets={
+            "round_score": np.array([0.2, 0.4], dtype=np.float32),
+            # Archived datasets may contain labels from retired objectives.
+            "future_clear": np.zeros((2, sj.COLUMN_COUNT), dtype=np.float32),
+        },
+    )
+    saved = tmp_path / "trained.pth"
+    app = typer.Typer()
+    app.command()(run_train_epoch.main)
+    arguments = [
+        str(dataset.path), "--steps", "1", "--batch-size", "2",
+        "--validation-fraction", "0", "--embedding-dimensions", "4",
+        "--global-state-embedding-dimensions", "8", "--num-heads", "1",
+        "--output-checkpoint", str(saved),
+    ]
+    if auxiliary is not None:
+        arguments.extend(["--auxiliary-objectives", auxiliary])
+    result = CliRunner().invoke(app, arguments)
+    assert result.exit_code == 0, result.output
+    assert "train_total_loss:" in result.output
+    assert ("train_round_score_loss:" in result.output) == (auxiliary is not None)
+    payload = torch.load(saved, weights_only=False)
+    configuration = payload["configuration"]["model"]
+    assert configuration["name"] == skynet.EQUIVARIANT_ARCHITECTURE_NAME
+    assert configuration["auxiliary_objectives"] == (
+        {} if auxiliary is None else {"round_score": 0.1}
+    )
+
+
+def test_offline_enabled_objective_requires_matching_labels(tmp_path):
+    dataset = make_dataset(tmp_path / "dataset")
+    app = typer.Typer()
+    app.command()(run_train_epoch.main)
+    result = CliRunner().invoke(app, [
+        str(dataset.path), "--auxiliary-objectives", '{"round_score": 0.1}',
+    ])
+    assert result.exit_code != 0
+    assert "Missing required auxiliary" in result.output
+    assert "round_score" in result.output

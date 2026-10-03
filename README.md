@@ -2,6 +2,50 @@
 
 AI model, training, and gameplay for Skyjo
 
+## How the code fits together
+
+The maintained model is `EquivariantSkyNet`: its attention blocks summarize cards
+within columns and columns within each board. It predicts full-game win
+probabilities and masked action logits, with optional configured round objectives.
+`ModelPlayer` chooses actions through scalar MCTS; `RandomPlayer` and `HumanPlayer`
+provide a baseline and interactive gameplay.
+
+The training path is:
+
+1. `experiment_config` resolves the recipe; `models` constructs the network.
+2. `distributed_main.py` distributes self-play games across CPU workers. Each
+   worker uses `ModelPlayer` → `mcts` → `LocalPredictor` for local inference.
+   The predictor returns results directly and chunks exact-chance evaluations
+   without a separate process or request queue.
+3. `game` owns rules and transitions; `play` collects complete games. `targets`
+   and `objectives` build training labels, while `game_stats` summarizes results.
+4. `buffer.ReplayBuffer` retains and samples complete-game data. `train` owns
+   optimizer steps; `experiment_training` coordinates the recipe and recording.
+5. `checkpoint` saves model/training state. `evaluation` compares checkpoints;
+   `run_train_epoch.py` and `run_offline_comparison.py` train on saved replay data.
+
+The objective registry is shared by model heads, target generation, and losses.
+Supported auxiliary objectives are `round_score`, `round_raw_score`, and
+`round_doubled`. They affect training; search uses game-win probability alone.
+
+### Retired interfaces
+
+The older model players, batched tree search, predictor process/queue clients,
+`SimpleSkyNet`, unused `ResidualAttentionBlock`, legacy auxiliary model subclasses,
+future-clear objective, and standalone `stats`/`benchstats` utilities have been
+removed. The active network still uses `TransformerBlock`. Historical notebooks
+may require the original Git revision and its environment.
+
+Use `LocalPredictor.predict(state)` or `predict_many(states)` for local inference.
+The offline CLI uses `--auxiliary-objectives` instead of `--experiment-arm`;
+omitting it trains only the core value/policy outputs, even when a dataset contains
+extra labels. Enabled objectives require matching labels.
+
+Current model parameter names and replay/checkpoint container formats are
+unchanged. Loading retired model architectures and resuming older
+`run_train_epoch.py` configurations are unsupported; use their original revision
+for historical runs. Existing saved artifacts are not migrated.
+
 ## Recorded experiments
 
 The experiment workflow preserves the inputs and evidence needed for architecture
@@ -59,8 +103,8 @@ Each launch prints a fresh `.runs/<run-id>/` directory (gitignored). Use
 The baseline uses `EquivariantSkyNet`, the policy/game-win base loss, and core
 replay targets. The ordinary runner also supports configured round objectives. All decisions across a
 game receive its observed final winner label, with ties shared equally. Cumulative
-scores are already part of the model observation. Round-score and future-clear
-auxiliaries are disabled.
+scores are already part of the model observation. Auxiliary objectives are
+disabled in the baseline.
 
 MCTS searches within the current round. On first reaching a round boundary, it
 applies the final action once. A finished game supplies its exact outcome;
@@ -335,11 +379,11 @@ uv run python -m skyjo2 interactive random
 
 ## Reusable components
 
-The shared scalar and batched MCTS implementations, player implementations,
-auxiliary models and losses, replay datasets, optimizer primitives, checkpoint
-persistence, and run recorder remain available independently of the pool recipe.
-The recipe exposes only its model dimensions, base loss scales, replay budget,
-self-play/search settings, checkpoint schedule, and execution settings in
+Scalar MCTS, local inference, players, configured objectives, replay datasets,
+optimizer primitives, checkpoint persistence, and the run recorder are available
+independently of the pool recipe. The recipe exposes model dimensions, objective
+weights, base loss scales, replay budget, self-play/search settings, checkpoint
+schedule, and execution settings in
 `configs/baseline.toml` and `configs/smoke.toml`.
 
 Handcrafted concept-check positions and their expected policies remain in
