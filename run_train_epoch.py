@@ -19,7 +19,16 @@ import numpy as np
 import torch
 import typer
 
-from skyjo import buffer, checkpoint, objectives, skynet, train, train_utils
+from skyjo import (
+    buffer,
+    checkpoint,
+    models,
+    objectives,
+    offline,
+    skynet,
+    train,
+    train_utils,
+)
 
 DEFAULT_SEED = 0
 DEFAULT_BATCH_SIZE = 256
@@ -55,6 +64,17 @@ def build_model(
         and train_utils.FUTURE_CLEAR_TARGET_NAME in training_data_buffer.target_buffers
         else skynet.EquivariantSkyNet
     )
+    if model_class is skynet.EquivariantSkyNet:
+        return models.build(
+            {
+                "embedding_dimensions": embedding_dimensions,
+                "global_state_embedding_dimensions": global_state_embedding_dimensions,
+                "num_heads": num_heads,
+            },
+            players=training_data_buffer.spatial_input_buffer.shape[1],
+            device=device,
+            auxiliary_objectives=auxiliary_objectives,
+        )
     return model_class(
         spatial_input_shape=training_data_buffer.spatial_input_buffer.shape[1:],
         non_spatial_input_shape=training_data_buffer.non_spatial_input_buffer.shape[1:],
@@ -338,31 +358,15 @@ def main(
         )
     remaining_steps = optimizer_steps - progress.optimizer_steps
 
+    trainer = offline.OfflineTrainer(model, optimizer, loss_function)
     train_start = time.perf_counter()
-    train.train_steps(
-        model,
-        training_buffer,
-        training_batch_size=batch_size,
-        optimizer_steps=remaining_steps,
-        optimizer=optimizer,
-        loss_function=loss_function,
-    )
+    trainer.fit(training_buffer, batch_size=batch_size, steps=remaining_steps)
     train_seconds = time.perf_counter() - train_start
 
     validation_start = time.perf_counter()
-    training_loss = train.evaluate_loss(
-        model,
-        training_buffer,
-        evaluation_batch_size=batch_size,
-        loss_function=loss_function,
-    )
+    training_loss = trainer.evaluate(training_buffer, batch_size=batch_size)
     validation_loss = (
-        train.evaluate_loss(
-            model,
-            validation_buffer,
-            evaluation_batch_size=batch_size,
-            loss_function=loss_function,
-        )
+        trainer.evaluate(validation_buffer, batch_size=batch_size)
         if validation_buffer is not None
         else None
     )

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import json
 import logging
 import math
 import pathlib
@@ -556,7 +557,9 @@ def launch(
 ) -> pathlib.Path:
     """Start a fresh experiment and return its run directory."""
     config = config.resolve()
-    input_bytes, resolved = experiment_config.load_configuration(config)
+    supplied, configuration_sources = experiment_config.configuration_sources(config)
+    input_bytes = configuration_sources[-1]["content"].encode()
+    resolved = experiment_config.resolve_configuration(supplied, base_directory=config.parent)
     repository = pathlib.Path(__file__).resolve().parent
     recorder = runs.RunRecorder.create(
         root=runs_dir,
@@ -585,6 +588,11 @@ def launch(
     logger.addHandler(handler)
     try:
         with recorder:
+            sources_path = recorder.path / "input-sources.json"
+            sources_path.write_text(json.dumps(configuration_sources, indent=2) + "\n")
+            recorder.register_artifact(
+                sources_path, kind="configuration_sources", progress={}
+            )
             if resolved["experiment"]["suite_run_id"]:
                 recorder.record_event(
                     "experiment_membership",
@@ -596,8 +604,9 @@ def launch(
             )
             torch.set_num_threads(execution["threads_per_worker"])
             device = torch.device(execution["device"])
-            model_callable = skynet.EquivariantSkyNet
-            model_kwargs = dict(model_settings)
+            from skyjo import models
+
+            model_callable, model_kwargs = models.constructor_and_kwargs(model_settings)
             if resolved["auxiliary_objectives"]:
                 model_kwargs["auxiliary_objectives"] = resolved["auxiliary_objectives"]
             model_factory = factory.SkyNetModelFactory(

@@ -53,21 +53,14 @@ def load_model(path: pathlib.Path):
     if players != 2:
         raise ValueError("Checkpoint evaluation currently requires two players")
     settings = dict(configuration["model"])
-    if settings.pop("name") != skynet.EQUIVARIANT_ARCHITECTURE_NAME:
-        raise ValueError("Unsupported checkpoint architecture")
+    from . import models
+
     settings.pop("non_spatial_input_shape", None)
-    model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(
-            players,
-            game.ROW_COUNT,
-            game.COLUMN_COUNT,
-            game.FINGER_SIZE,
-        ),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
-        value_output_shape=(players,),
-        policy_output_shape=(game.MASK_SIZE,),
-        device=torch.device("cpu"),
-        **settings,
+    auxiliary = settings.pop(
+        "auxiliary_objectives", configuration.get("auxiliary_objectives", {})
+    )
+    model = models.build(
+        settings, players=players, device="cpu", auxiliary_objectives=auxiliary
     )
     checkpoint.load_checkpoint(path, model=model, restore_rng=False, map_location="cpu")
     model.eval()

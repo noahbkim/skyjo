@@ -72,7 +72,9 @@ def capture_rng_state() -> dict[str, typing.Any]:
         "python": random.getstate(),
         "numpy": np.random.get_state(),
         "torch_cpu": torch.get_rng_state(),
-        "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+        "torch_cuda": torch.cuda.get_rng_state_all()
+        if torch.cuda.is_available()
+        else [],
     }
 
 
@@ -92,6 +94,7 @@ def save_checkpoint(
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     configuration: typing.Any = None,
     progress: TrainingProgress | None = None,
+    sampling_rng: np.random.Generator | None = None,
 ) -> pathlib.Path:
     """Atomically save all state needed to resume a training run."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,6 +108,8 @@ def save_checkpoint(
         "configuration": normalize_configuration(configuration),
         "progress": dataclasses.asdict(progress or TrainingProgress()),
     }
+    if sampling_rng is not None:
+        payload["sampling_rng_state"] = sampling_rng.bit_generator.state
     temporary_path = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, temporary_path)
     temporary_path.replace(path)
@@ -119,6 +124,7 @@ def load_checkpoint(
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     expected_configuration: typing.Any = None,
     restore_rng: bool = True,
+    sampling_rng: np.random.Generator | None = None,
     map_location: torch.device | str | None = None,
 ) -> TrainingProgress:
     """Load a strict Skyjo checkpoint into supplied runtime objects."""
@@ -148,6 +154,12 @@ def load_checkpoint(
     scheduler_state = payload.get("scheduler_state_dict")
     if scheduler is not None and scheduler_state is not None:
         scheduler.load_state_dict(scheduler_state)
+    if sampling_rng is not None:
+        if "sampling_rng_state" not in payload:
+            raise CheckpointFormatError(
+                "Checkpoint has no independent sampling RNG state"
+            )
+        sampling_rng.bit_generator.state = payload["sampling_rng_state"]
     if restore_rng:
         restore_rng_state(payload["rng_state"])
     return TrainingProgress(**payload["progress"])
@@ -171,9 +183,7 @@ def load_auxiliary_warm_start(
     incompatible = model.load_state_dict(payload["model_state_dict"], strict=False)
     allowed_prefixes = ("round_score_tail.", "future_clear_tail.")
     invalid_missing = [
-        key
-        for key in incompatible.missing_keys
-        if not key.startswith(allowed_prefixes)
+        key for key in incompatible.missing_keys if not key.startswith(allowed_prefixes)
     ]
     if invalid_missing or incompatible.unexpected_keys:
         raise RuntimeError(

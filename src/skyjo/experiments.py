@@ -14,14 +14,7 @@ import numpy as np
 from . import evaluation, experiment_config, runs
 
 
-def overlay(base: dict, overrides: dict) -> dict:
-    result = copy.deepcopy(base)
-    for key, value in overrides.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = overlay(result[key], value)
-        else:
-            result[key] = copy.deepcopy(value)
-    return result
+overlay = experiment_config.overlay
 
 
 def load_suite(path: pathlib.Path) -> dict:

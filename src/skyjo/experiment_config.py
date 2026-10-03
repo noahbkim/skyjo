@@ -10,7 +10,7 @@ import tomllib
 
 import torch
 
-from . import buffer, game, objectives, skynet
+from . import buffer, game, models, objectives, skynet
 
 DEFAULTS = {
     "name": "full-game-baseline",
@@ -107,16 +107,57 @@ def resolve_paths(config: dict, directory: pathlib.Path) -> dict:
     return config
 
 
+def configuration_sources(path: pathlib.Path) -> tuple[dict, list[dict]]:
+    """Load inheritance before defaults, retaining declaring-file provenance."""
+    import hashlib
+
+    def read(current, ancestors):
+        current = current.resolve()
+        if current in ancestors:
+            raise ValueError(f"Configuration inheritance cycle: {current}")
+        raw = current.read_bytes()
+        if current.suffix == ".toml":
+            supplied = tomllib.loads(raw.decode("utf-8"))
+        elif current.suffix == ".json":
+            supplied = json.loads(raw)
+        else:
+            raise ValueError("Configuration must be .toml or .json")
+        if not isinstance(supplied, dict):
+            raise ValueError("Configuration must be an object")
+        parent = supplied.pop("extends", None)
+        base, sources = {}, []
+        if parent is not None:
+            if not isinstance(parent, str) or not parent:
+                raise ValueError("extends must be a configuration path")
+            base, sources = read(current.parent / parent, (*ancestors, current))
+        sources.append(
+            {
+                "path": str(current),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "content": raw.decode("utf-8"),
+            }
+        )
+        return overlay(base, resolve_paths(supplied, current.parent)), sources
+
+    return read(path, ())
+
+
+def overlay(base: dict, overrides: dict) -> dict:
+    result = copy.deepcopy(base)
+    for key, value in overrides.items():
+        result[key] = (
+            overlay(result[key], value)
+            if isinstance(value, dict) and isinstance(result.get(key), dict)
+            else copy.deepcopy(value)
+        )
+    return result
+
+
 def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
-    """Resolve rerunnable settings without constructing a model or replay arrays."""
-    raw = path.read_bytes()
-    if path.suffix == ".toml":
-        supplied = tomllib.loads(raw.decode("utf-8"))
-    elif path.suffix == ".json":
-        supplied = json.loads(raw)
-    else:
-        raise ValueError("Configuration must be .toml or .json")
-    return raw, resolve_configuration(supplied, base_directory=path.parent)
+    supplied, sources = configuration_sources(path)
+    return sources[-1]["content"].encode(), resolve_configuration(
+        supplied, base_directory=path.parent
+    )
 
 
 def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> dict:
@@ -124,7 +165,9 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
     if not isinstance(supplied, dict):
         raise ValueError("Configuration must be an object")
     prior_derived = supplied.pop("derived", None)
+    model_settings = models.resolve(supplied.pop("model", {}))
     config = resolve_paths(_merge(DEFAULTS, supplied), base_directory)
+    config["model"] = model_settings
     config["auxiliary_objectives"] = objectives.resolve(
         config["auxiliary_objectives"]
     ).weights
@@ -132,13 +175,8 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         raise ValueError("auxiliary_targets.mode must be observed or resampled")
     if config["auxiliary_targets"]["samples"] < 1:
         raise ValueError("auxiliary_targets.samples must be positive")
-    model, training, replay = (config[key] for key in ("model", "training", "replay"))
+    training, replay = (config[key] for key in ("training", "replay"))
     for section, keys in {
-        "model": (
-            "embedding_dimensions",
-            "global_state_embedding_dimensions",
-            "num_heads",
-        ),
         "training": (
             "batch_size",
             "replay_ratio",
@@ -163,9 +201,6 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         raise ValueError("seed must fit a uint32")
     if not all(isinstance(tag, str) for tag in config["tags"]):
         raise ValueError("tags must be strings")
-    for key in ("embedding_dimensions", "global_state_embedding_dimensions"):
-        if model[key] % model["num_heads"]:
-            raise ValueError(f"model.{key} must be divisible by num_heads")
     for key in (
         "value_scale",
         "policy_scale",

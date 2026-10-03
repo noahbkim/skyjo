@@ -372,3 +372,73 @@ uv run python run_train_epoch.py .runs/RUN_ID/data/replay \
   --steps 200 \
   --output-checkpoint models/offline/step_200.pth
 ```
+
+## Compare run configurations on fixed replay
+
+Use ordinary run configs directly to compare architecture, loss, and supported
+training settings without generating new self-play. For example:
+
+```sh
+uv run python run_offline_comparison.py \
+  --config configs/round_score_doubling.toml \
+  --config configs/capacity_medium.toml \
+  --config configs/capacity_large.toml \
+  --dataset /path/to/saved/replay \
+  --seeds 0,1,2 \
+  --steps 2000 \
+  --runs-dir .runs
+```
+
+The medium and large configs inherit the original 16/32 model and change its
+embedding dimensions to 32/64 and 64/128. Ordinary TOML or JSON run configs can
+specify one parent with `extends`; nested settings override the parent before
+normal defaults and validation. Paths are relative to the file declaring them.
+This works for both self-play and offline comparisons:
+
+```toml
+extends = "round_score_doubling.toml"
+name = "my-wider-model"
+
+[model]
+embedding_dimensions = 32
+global_state_embedding_dimensions = 64
+```
+
+Inherited auxiliary weights can be disabled by explicitly setting them to zero.
+An empty table does not erase inherited keys. Future architectures register their
+constructor and settings validator in `skyjo.models`; comparison orchestration
+and checkpoint readers use that registry. No additional architecture is supplied
+by this change.
+
+The comparison owns the dataset, paired seeds, and optimizer-step budget. Each
+config supplies the model, configured losses, batch size, learning rate, device,
+thread count, and optional first-batch gradient diagnostic. Self-play, replay-ratio,
+and iteration-budget settings do not drive offline training. The explicit dataset
+also replaces any `replay.initial_dataset` reference in the run config. Models
+start fresh; these comparisons do not resume prior training.
+
+A suite-owned snapshot freezes the input data. The default game-level validation
+fraction is 0.1 (`--validation-fraction`), with `--split-seed 0`. Evaluations occur
+at step zero, every 200 steps (`--evaluation-interval`), and at completion. Curves
+use a fixed training probe of up to 8,192 positions and the full validation split;
+full training-set metrics are recorded separately at completion. Sampling is
+independent of model initialization and evaluation. Equal batch sizes get identical
+minibatches for each paired seed. Different batch sizes consume the same seeded
+stream but receive different numbers of examples at the matched step budget.
+
+The recorded parent run contains `comparison.json`, long-form `curves.csv`,
+`curves.jsonl`, the snapshot, split membership, and isolated child runs with final
+versioned checkpoints. Input configurations, inherited source contents, resolved
+settings, parameter counts, sampled positions, and timing are recorded. The first
+config is the control; paired differences are variant minus control, so negative
+error differences favor the variant. Unavailable heads have no metric; weighted
+totals across different loss configurations are not directly comparable. Recorded
+known-board MAE counts player examples, not positions.
+
+Training time excludes the separately reported gradient diagnostic; evaluation
+and child elapsed times are also reported. Matched steps do not imply matched
+sample exposure or compute. This measures fixed-data learning, not playing strength.
+Completed child artifacts survive failures; restarting the command starts a new
+suite rather than silently resuming. Use `--allow-dirty` when intentionally testing
+uncommitted code. A minimal wiring check can use `--seeds 0 --steps 2
+--evaluation-interval 1` with a small saved dataset.

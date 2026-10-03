@@ -7,6 +7,7 @@ import math
 import time
 import typing
 
+import numpy as np
 import torch
 
 from . import buffer, config, gradient_diagnostic, skynet, train_utils
@@ -130,6 +131,7 @@ def train_steps(
     loss_function: train_utils.LossFunction,
     diagnostics: train_utils.TrainingDiagnostics | None = None,
     gradient_scales: dict | None = None,
+    sampling_rng: np.random.Generator | None = None,
 ) -> list[train_utils.LossDetails]:
     """Run exactly ``optimizer_steps`` updates sampled from the replay buffer."""
     if optimizer_steps < 0:
@@ -138,7 +140,10 @@ def train_steps(
         raise ValueError("training_batch_size must be at least one")
     loss_details = []
     for _ in range(optimizer_steps):
-        batch = training_data_buffer.sample_batch(batch_size=training_batch_size)
+        batch = training_data_buffer.sample_batch(
+            batch_size=training_batch_size,
+            **({"rng": sampling_rng} if sampling_rng is not None else {}),
+        )
         _, step_loss_details = train_step(
             model,
             batch,

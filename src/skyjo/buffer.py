@@ -672,12 +672,16 @@ class ReplayBuffer:
             },
         )
 
-    def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
+    def sample_batch(
+        self, batch_size: int, *, rng: np.random.Generator | None = None
+    ) -> train_utils.TrainingBatch:
         if not self:
             raise ValueError("ReplayBuffer is empty")
         if batch_size < 1:
             raise ValueError("batch_size must be at least one")
-        logical_indices = np.random.choice(len(self), size=batch_size, replace=True)
+        logical_indices = (np.random if rng is None else rng).choice(
+            len(self), size=batch_size, replace=True
+        )
         indices = self._logical_to_physical(logical_indices)
         return train_utils.TrainingBatch(
             self.spatial_input_buffer[indices],
@@ -705,7 +709,16 @@ class ReplayBuffer:
             raise IndexError(
                 f"invalid replay range [{start}, {stop}) for size {len(self)}"
             )
-        logical_indices = np.arange(start, stop, dtype=np.int64)
+        return self.batch_indices(np.arange(start, stop, dtype=np.int64))
+
+    def batch_indices(self, logical_indices: np.ndarray) -> train_utils.TrainingBatch:
+        logical_indices = np.asarray(logical_indices, dtype=np.int64)
+        if (
+            logical_indices.ndim != 1
+            or np.any(logical_indices < 0)
+            or np.any(logical_indices >= len(self))
+        ):
+            raise IndexError("Replay indices out of range")
         indices = self._logical_to_physical(logical_indices)
         return train_utils.TrainingBatch(
             self.spatial_input_buffer[indices],
