@@ -11,8 +11,8 @@ import logging
 import numpy as np
 import torch
 
+from . import checkpoint, losses, skynet
 from . import game as sj
-from . import checkpoint, skynet, train_utils
 
 # MARK: Game state creation
 
@@ -31,13 +31,13 @@ def create_initial_seperate_column_flip_game_state(
     )
     game_state = sj.new(players=2, top=top_card)
     game_state = sj.preordain(game_state, player1_initial_flips[0])
-    game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 0, 0)
     game_state = sj.preordain(game_state, player2_initial_flips[0])
-    game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 0, 0)
     game_state = sj.preordain(game_state, player1_initial_flips[1])
-    game_state = sj.flip(game_state, 0, 1, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 0, 1)
     game_state = sj.preordain(game_state, player2_initial_flips[1])
-    game_state = sj.flip(game_state, 0, 1, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 0, 1)
     game_state = sj.begin(game_state)
     return game_state
 
@@ -56,13 +56,13 @@ def create_initial_same_column_flip_game_state(
     )
     game_state = sj.new(players=2, top=top_card)
     game_state = sj.preordain(game_state, player1_initial_flips[0])
-    game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 0, 0)
     game_state = sj.preordain(game_state, player2_initial_flips[0])
-    game_state = sj.flip(game_state, 0, 0, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 0, 0)
     game_state = sj.preordain(game_state, player1_initial_flips[1])
-    game_state = sj.flip(game_state, 1, 0, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 1, 0)
     game_state = sj.preordain(game_state, player2_initial_flips[1])
-    game_state = sj.flip(game_state, 1, 0, set_draw_or_take_action=False)
+    game_state = sj.reveal_second_card(game_state, 1, 0)
     game_state = sj.begin(game_state)
     return game_state
 
@@ -325,70 +325,70 @@ def almost_surely_winning_position_targets():
     value_target = np.array([1.0, 0.0], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def almost_surely_winning_take_position_targets():
     value_target = np.array([1.0, 0.0], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 11] = 1.0
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def almost_surely_losing_position_targets():
     value_target = np.array([0.0, 1.0], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_DRAW] = 1.0
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def obvious_clear_position_targets():
     value_target = np.array([0.7, 0.3], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1.0
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def obvious_clear_take_position_targets():
     value_target = np.array([0.7, 0.3], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 8] = 1.0
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def almost_clear_position_targets():
     value_target = np.array([0.55, 0.45], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_DRAW] = 1.0
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def almost_clear_draw_low_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 1] = 1
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def early_flip_position_targets():
     value_target = np.array([0.3, 0.7], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_FLIP + 2 : sj.MASK_FLIP + 12] = 1 / 10
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def negative_clear_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_TAKE] = 1
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 def negative_clear_take_position_targets():
     value_target = np.array([0.6, 0.4], dtype=np.float32)
     policy_target = np.zeros([sj.MASK_SIZE], dtype=np.float32)
     policy_target[sj.MASK_REPLACE + 1] = 1
-    return train_utils.NumpyTrainingTargets(value_target, policy_target)
+    return {"value": value_target, "policy": policy_target}
 
 
 # MARK: Evaluation
@@ -477,11 +477,11 @@ def evaluate_concepts(model: skynet.SkyNet) -> ConceptReport:
         model.eval()
         for description, state, targets in VALIDATION_EXAMPLES:
             prediction = model.predict(state)
-            tensor_targets = train_utils.TensorTrainingTargets(
-                torch.tensor(targets.value[None, :], dtype=torch.float32),
-                torch.tensor(targets.policy[None, :], dtype=torch.float32),
-            )
-            value_loss, policy_loss = train_utils.policy_value_losses(
+            tensor_targets = {
+                "value": torch.tensor(targets["value"][None, :], dtype=torch.float32),
+                "policy": torch.tensor(targets["policy"][None, :], dtype=torch.float32),
+            }
+            value_loss, policy_loss = losses.policy_value_losses(
                 prediction.to_output(), tensor_targets
             )
             action = int(prediction.policy_output.argmax())
@@ -490,14 +490,14 @@ def evaluate_concepts(model: skynet.SkyNet) -> ConceptReport:
                     "name": description,
                     "value": prediction.value_output.tolist(),
                     "policy": prediction.policy_output.tolist(),
-                    "value_target": targets.value.tolist(),
-                    "policy_target": targets.policy.tolist(),
+                    "value_target": targets["value"].tolist(),
+                    "policy_target": targets["policy"].tolist(),
                     "preferred_action": action,
                     "preferred_action_name": sj.get_action_name(action),
                     "target_probability": float(
-                        prediction.policy_output[targets.policy > 0].sum()
+                        prediction.policy_output[targets["policy"] > 0].sum()
                     ),
-                    "target_action_match": bool(targets.policy[action] > 0),
+                    "target_action_match": bool(targets["policy"][action] > 0),
                     "value_loss": value_loss.item(),
                     "policy_loss": policy_loss.item(),
                 }

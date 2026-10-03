@@ -4,33 +4,40 @@ import numpy as np
 import pytest
 import torch
 
+from skyjo import batches, models, observations, skynet
 from skyjo import game as sj
-from skyjo import skynet
 
 
 def make_model(players: int = 2) -> skynet.EquivariantSkyNet:
-    return skynet.EquivariantSkyNet(
-        spatial_input_shape=(
-            players,
-            sj.ROW_COUNT,
-            sj.COLUMN_COUNT,
-            sj.FINGER_SIZE,
-        ),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
-        value_output_shape=(players,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        device=torch.device("cpu"),
-        embedding_dimensions=8,
-        global_state_embedding_dimensions=16,
-        num_heads=2,
+    return models.build(
+        {
+            "embedding_dimensions": 8,
+            "global_state_embedding_dimensions": 16,
+            "num_heads": 2,
+        },
+        players=players,
+        device="cpu",
+    )
+
+
+def real_inputs(players):
+    import random
+
+    state = sj.start_round(sj.new(players=players, top=sj.CARD_0), rng=random.Random(8))
+    for _ in range(players):
+        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT, rng=random.Random(8))
+    state = sj.apply_action(state, sj.MASK_DRAW, rng=random.Random(8))
+    return batches.to_tensors(
+        batches.states_to_batch([state]), device=torch.device("cpu")
     )
 
 
 def test_board_permutations_preserve_value_and_permute_masked_policy() -> None:
     torch.manual_seed(7)
     model = make_model(players=3).eval()
-    spatial = torch.randn(1, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
-    non_spatial = torch.randn(1, *skynet.get_non_spatial_input_shape(2))
+    inputs = real_inputs(3)
+    spatial = inputs.spatial_inputs
+    non_spatial = inputs.non_spatial_inputs
     mask = torch.tensor(
         [[1, 0, 1, 1, *([1, 0, 1, 1] * 3), *([0, 1, 1, 1] * 3)]],
         dtype=torch.float32,
@@ -120,7 +127,7 @@ def test_positional_ranking_uses_other_columns_and_opponents() -> None:
     )
     output = model(
         spatial,
-        torch.randn(1, *skynet.get_non_spatial_input_shape(2)),
+        torch.randn(1, *observations.get_non_spatial_input_shape(2)),
         torch.ones(1, sj.MASK_SIZE),
     )
     replace_logit_difference = (
@@ -136,9 +143,10 @@ def test_positional_ranking_uses_other_columns_and_opponents() -> None:
 def test_relative_player_order_affects_global_and_value_outputs() -> None:
     torch.manual_seed(11)
     model = make_model(players=3).eval()
-    spatial = torch.randn(1, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
+    inputs = real_inputs(3)
+    spatial = inputs.spatial_inputs
     swapped_spatial = spatial[:, [0, 2, 1]].clone()
-    non_spatial = torch.randn(1, *skynet.get_non_spatial_input_shape(2))
+    non_spatial = inputs.non_spatial_inputs
     mask = torch.ones(1, sj.MASK_SIZE)
 
     with torch.inference_mode():
@@ -161,8 +169,8 @@ def test_three_player_outputs_masking_and_backward_contract() -> None:
     mask = torch.ones(2, sj.MASK_SIZE)
     mask[:, [5, 18]] = 0
     output = model(
-        torch.randn(2, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        torch.randn(2, *skynet.get_non_spatial_input_shape(2)),
+        real_inputs(3).spatial_inputs.repeat(2, 1, 1, 1, 1),
+        real_inputs(3).non_spatial_inputs.repeat(2, 1),
         mask,
     )
 
@@ -179,13 +187,7 @@ def test_three_player_outputs_masking_and_backward_contract() -> None:
 
 
 def test_default_model_stays_within_small_parameter_budget() -> None:
-    model = skynet.EquivariantSkyNet(
-        spatial_input_shape=(2, 3, 4, 17),
-        non_spatial_input_shape=(50,),
-        value_output_shape=(2,),
-        policy_output_shape=(28,),
-        device=torch.device("cpu"),
-    )
+    model = models.build({}, players=2, device="cpu")
 
     assert sum(parameter.numel() for parameter in model.parameters()) < 10_000
 
@@ -204,7 +206,13 @@ def test_predict_returns_probabilities_only_for_valid_actions() -> None:
 
 
 @pytest.mark.parametrize(
-    ("policy_output_shape", "embedding_dimensions", "global_dimensions", "heads", "message"),
+    (
+        "policy_output_shape",
+        "embedding_dimensions",
+        "global_dimensions",
+        "heads",
+        "message",
+    ),
     [
         ((27,), 8, 16, 2, "policy_output_shape"),
         ((28,), 8, 16, 3, "embedding_dimensions"),
@@ -221,7 +229,7 @@ def test_model_rejects_incompatible_architecture_shapes(
     with pytest.raises(ValueError, match=message):
         skynet.EquivariantSkyNet(
             spatial_input_shape=(2, 3, 4, 17),
-            non_spatial_input_shape=(50,),
+            non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
             value_output_shape=(2,),
             policy_output_shape=policy_output_shape,
             device=torch.device("cpu"),

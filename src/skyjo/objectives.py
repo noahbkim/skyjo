@@ -153,11 +153,9 @@ def resolve(config: ObjectiveConfig = None) -> ResolvedObjectives:
 def configured_loss(
     output, targets, *, auxiliary_objectives=None, value_scale=1.0, policy_scale=1.0
 ):
-    from .train_utils import base_loss
+    from .losses import base_loss
 
     total, details = base_loss(
         output, targets, value_scale=value_scale, policy_scale=policy_scale
     )
-    return resolve(auxiliary_objectives).add_losses(
-        total, details, output, targets.targets
-    )
+    return resolve(auxiliary_objectives).add_losses(total, details, output, targets)

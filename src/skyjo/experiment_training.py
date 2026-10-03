@@ -8,11 +8,11 @@ import logging
 import math
 import pathlib
 import time
-import typing
 
 import numpy as np
+import pandas as pd
 
-from . import checkpoint, explain, game_stats, runs, train, train_utils
+from . import checkpoint, explain, game_stats, runs, train
 
 
 @dataclasses.dataclass(frozen=True)
@@ -133,10 +133,8 @@ class RecipeRecording:
         replay,
         *,
         initial_dataset_path: pathlib.Path | None = None,
-        loss_stats_function: typing.Callable[[list[dict]], object] | None = None,
     ):
         self.recorder = recorder
-        self.loss_stats_function = loss_stats_function
         self.replay_artifact = None
         self.previous_dataset_id = replay.dataset_id
         self.initial_buffer = (
@@ -164,7 +162,7 @@ class RecipeRecording:
 
     def save_snapshot(
         self,
-        factory,
+        path: pathlib.Path,
         model,
         optimizer,
         configuration,
@@ -173,8 +171,9 @@ class RecipeRecording:
         role: str,
     ) -> Snapshot:
         started = time.perf_counter()
-        path = factory.save_model(
-            model,
+        path = checkpoint.save_checkpoint(
+            path,
+            model=model,
             optimizer=optimizer,
             configuration=configuration,
             progress=state.progress,
@@ -309,11 +308,10 @@ class RecipeRecording:
             {key: round(value, 5) for key, value in mean_losses.items()},
         )
         logging.debug("[TRAIN] Policy diagnostics: %s", result.diagnostics)
-        if self.loss_stats_function is not None and logging.getLogger().isEnabledFor(
-            logging.DEBUG
-        ):
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
             logging.debug(
-                "[TRAIN] Detailed losses:\n%s", self.loss_stats_function(losses)
+                "[TRAIN] Detailed losses:\n%s",
+                pd.DataFrame.from_records(losses).describe().T,
             )
 
     def iteration(
@@ -354,7 +352,9 @@ class RecipeRecording:
             logging.debug(
                 "[GAMES] Detailed summaries:\n%s\n%s",
                 game_stats.format_summary(round_metrics, detailed=True),
-                train_utils.game_stats_summary(games),
+                pd.DataFrame.from_records([game.to_record_dict() for game in games])
+                .describe()
+                .T,
             )
         logging.info(
             "[LEARN] Completed iteration %s in %.1fs",

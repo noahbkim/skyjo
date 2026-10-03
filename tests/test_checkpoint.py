@@ -30,7 +30,9 @@ def test_checkpoint_round_trip_restores_training_and_rng_state(tmp_path) -> None
     np.random.seed(7)
     torch.manual_seed(7)
     model, optimizer, scheduler = make_training_objects()
-    expected_parameters = [parameter.detach().clone() for parameter in model.parameters()]
+    expected_parameters = [
+        parameter.detach().clone() for parameter in model.parameters()
+    ]
     configuration = {"model": {"width": 2}, "training": {"learn_rate": 0.01}}
     progress = checkpoint.TrainingProgress(3, 2, 50, 800)
     path = tmp_path / "checkpoint_test.pth"
@@ -145,3 +147,85 @@ def test_resumed_training_matches_uninterrupted_training(tmp_path) -> None:
         continuous.parameters(), resumed.parameters(), strict=True
     ):
         assert torch.equal(expected, actual)
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "configuration",
+        "optimizer_state_dict",
+        "scheduler_state_dict",
+        "rng_state",
+        "sampling_rng_state",
+        "progress",
+    ],
+)
+def test_incomplete_resume_does_not_mutate_runtime(tmp_path, missing):
+    model, optimizer, scheduler = make_training_objects()
+    sampling_rng = np.random.default_rng(10)
+    path = tmp_path / "incomplete.pth"
+    checkpoint.save_checkpoint(
+        path,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        configuration={"players": 2},
+        sampling_rng=sampling_rng,
+    )
+    payload = torch.load(path, weights_only=False)
+    payload.pop(missing)
+    torch.save(payload, path)
+    with torch.no_grad():
+        model.weight.add_(10)
+    before = model.weight.detach().clone()
+    rng_before = torch.get_rng_state().clone()
+    with pytest.raises(ValueError):
+        checkpoint.load_checkpoint(
+            path,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            expected_configuration={"players": 2},
+            sampling_rng=sampling_rng,
+        )
+    assert torch.equal(model.weight, before)
+    assert torch.equal(torch.get_rng_state(), rng_before)
+
+
+def test_weights_only_checkpoint_loading(tmp_path):
+    model = torch.nn.Linear(2, 1)
+    path = tmp_path / "weights.pth"
+    checkpoint.save_checkpoint(path, model=model, optimizer=None)
+    restored = torch.nn.Linear(2, 1)
+    checkpoint.load_checkpoint(path, model=restored, restore_rng=False)
+    assert torch.equal(restored.weight, model.weight)
+
+
+@pytest.mark.parametrize(
+    "field,invalid",
+    [
+        ("progress", {"optimizer_steps": -1}),
+        ("rng_state", {}),
+        ("optimizer_state_dict", {}),
+        ("scheduler_state_dict", {}),
+    ],
+)
+def test_malformed_resume_metadata_is_rejected_before_loading_weights(
+    tmp_path, field, invalid
+):
+    model, optimizer, scheduler = make_training_objects()
+    path = tmp_path / "malformed.pth"
+    checkpoint.save_checkpoint(
+        path, model=model, optimizer=optimizer, scheduler=scheduler
+    )
+    payload = torch.load(path, weights_only=False)
+    payload[field] = invalid
+    torch.save(payload, path)
+    with torch.no_grad():
+        model.weight.add_(10)
+    before = model.weight.detach().clone()
+    with pytest.raises(checkpoint.CheckpointFormatError):
+        checkpoint.load_checkpoint(
+            path, model=model, optimizer=optimizer, scheduler=scheduler
+        )
+    assert torch.equal(model.weight, before)

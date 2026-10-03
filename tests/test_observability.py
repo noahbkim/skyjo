@@ -9,7 +9,16 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo import checkpoint, experiment_training, explain, skynet, train, train_utils
+from skyjo import (
+    batches,
+    checkpoint,
+    experiment_training,
+    explain,
+    losses,
+    observations,
+    skynet,
+    train,
+)
 from skyjo import game as sj
 
 
@@ -21,7 +30,7 @@ def test_policy_diagnostics_weight_positions_and_ignore_masked_actions():
         masks[i, list(pair)] = 1
     targets = masks / 2
     targets[1, 2:4] = torch.tensor([1.0, 0.0])
-    stats = train_utils.TrainingDiagnostics()
+    stats = train.TrainingDiagnostics()
     stats.update(logits[:1], targets[:1], masks[:1])
     stats.update(logits[1:], targets[1:], masks[1:])
     report = stats.summary()
@@ -39,7 +48,7 @@ def test_policy_diagnostics_weight_positions_and_ignore_masked_actions():
 def small_model():
     return skynet.EquivariantSkyNet(
         spatial_input_shape=(2, 3, 4, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -69,7 +78,7 @@ def test_observing_training_preserves_updates_rng_and_module_modes():
 
     state = explain.create_almost_clear_position()
     mask = sj.actions(state).astype(np.float32)
-    batch = train_utils.game_data_to_training_batch(
+    batch = batches.game_data_to_training_batch(
         [
             explain_game_point(state, mask),
             explain_game_point(state, mask),
@@ -78,16 +87,14 @@ def test_observing_training_preserves_updates_rng_and_module_modes():
     replay = SimpleNamespace(sample_batch=lambda batch_size: batch)
     first_optimizer = train.make_optimizer(model, 0.001)
     second_optimizer = train.make_optimizer(initial, 0.001)
-    stats = train_utils.TrainingDiagnostics()
+    stats = train.TrainingDiagnostics()
     checkpoint.restore_rng_state(rng)
     observed = train.train_steps(
-        model, replay, 2, 3, first_optimizer, train_utils.base_loss, diagnostics=stats
+        model, replay, 2, 3, first_optimizer, losses.base_loss, diagnostics=stats
     )
     observed_rng = torch.get_rng_state()
     checkpoint.restore_rng_state(rng)
-    plain = train.train_steps(
-        initial, replay, 2, 3, second_optimizer, train_utils.base_loss
-    )
+    plain = train.train_steps(initial, replay, 2, 3, second_optimizer, losses.base_loss)
     assert observed == plain
     torch.testing.assert_close(model.state_dict(), initial.state_dict(), rtol=0, atol=0)
     torch.testing.assert_close(
@@ -142,7 +149,9 @@ def test_default_progress_reports_only_completion_even_after_long_idle(
     now = [0.0]
     monkeypatch.setattr(experiment_training.time, "perf_counter", lambda: now[0])
     config = experiment_training.ObservationConfig()
-    progress = experiment_training.GenerationProgress(8, config.progress_interval_seconds)
+    progress = experiment_training.GenerationProgress(
+        8, config.progress_interval_seconds
+    )
     with caplog.at_level(logging.INFO):
         for elapsed, games in ((300, 0), (600, 4), (900, 4)):
             now[0] = elapsed

@@ -14,6 +14,7 @@ from skyjo import (
     experiment_config,
     game,
     models,
+    observations,
     offline,
     offline_comparison,
     play,
@@ -25,7 +26,7 @@ def dataset_at(path):
     replay = buffer.ReplayBuffer(
         max_size=24,
         spatial_input_shape=(2, 3, 4, 17),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         action_mask_shape=(28,),
         target_specs=experiment_config.target_specs(
             2, {"round_raw_score": 0.1, "round_doubled": 0.1}
@@ -34,8 +35,8 @@ def dataset_at(path):
     for index in range(6):
         state = game.new(players=2, top=index)
         # Exact opponent score, with no hidden cards, for the masked diagnostic.
-        state[1][1] = 0
-        state[1][1, :, :, index + 2] = 1
+        state.table[1] = 0
+        state.table[1, :, :, index + 2] = 1
         mask = game.actions(state).astype(np.float32)
         labels = {
             "value": np.array([index % 2, 1 - index % 2], dtype=np.float32),
@@ -281,7 +282,7 @@ def test_concurrent_snapshot_change_rejected(tmp_path, monkeypatch):
     assert not (tmp_path / "runs").exists()
 
 
-def test_registered_architecture_uses_shared_config_and_checkpoint_factory(
+def test_registered_architecture_uses_shared_model_builder_and_checkpoint(
     tmp_path, monkeypatch
 ):
     def resolve_custom(settings):

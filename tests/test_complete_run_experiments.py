@@ -7,8 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-import distributed_main
-from skyjo import checkpoint, evaluation, experiments, runs
+from skyjo import checkpoint, evaluation, experiments, runs, selfplay_training
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,10 +32,10 @@ iterations = 1
 ''')
     children = []
 
-    def ordinary_run(config, directory, allow_dirty):
+    def ordinary_run(config, directory, *, allow_dirty, repository):
         # Exercise the runner's real resolver/recorder; generation is covered by
         # the CLI smoke, so this test focuses on suite isolation and provenance.
-        _, resolved = distributed_main.experiment_config.load_configuration(config)
+        _, resolved = selfplay_training.experiment_config.load_configuration(config)
         recorder = runs.RunRecorder.create(
             root=directory,
             repository=ROOT,
@@ -61,7 +60,7 @@ iterations = 1
         children.append((resolved, recorder.path))
         return recorder.path
 
-    monkeypatch.setattr(distributed_main, "launch", ordinary_run)
+    monkeypatch.setattr(selfplay_training, "launch", ordinary_run)
     calls = []
 
     def compare(control, variant, settings):
@@ -73,7 +72,9 @@ iterations = 1
         }
 
     monkeypatch.setattr(evaluation, "evaluate_checkpoints", compare)
-    path = experiments.launch_suite(source, tmp_path / "runs", allow_dirty=True)
+    path = experiments.launch_suite(
+        source, tmp_path / "runs", allow_dirty=True, repository=ROOT
+    )
     report = json.loads((path / "comparison.json").read_text())
     assert [(c["variant"], c["seed"]) for c in report["runs"]] == [
         ("control", 7),
@@ -99,7 +100,9 @@ iterations = 1
         source.read_text() + "\n[variants.bad.training]\nunsupported = true\n"
     )
     with pytest.raises(ValueError, match="Unknown settings"):
-        experiments.launch_suite(source, tmp_path / "invalid", allow_dirty=True)
+        experiments.launch_suite(
+            source, tmp_path / "invalid", allow_dirty=True, repository=ROOT
+        )
     assert not (tmp_path / "invalid").exists()
     assert len(children) == 4
 
@@ -111,7 +114,7 @@ def test_suite_failure_keeps_completed_children_and_does_not_retry(
     source = ROOT / "configs/round_objectives_smoke.toml"
     invoked = []
 
-    def fail(config, directory, allow_dirty):
+    def fail(config, directory, *, allow_dirty, repository):
         configuration = json.loads(config.read_text())
         invoked.append(configuration)
         if len(invoked) == 2:
@@ -135,9 +138,9 @@ def test_suite_failure_keeps_completed_children_and_does_not_retry(
             child.record_event("iteration_completed", metrics={})
         return child.path
 
-    monkeypatch.setattr(distributed_main, "launch", fail)
+    monkeypatch.setattr(selfplay_training, "launch", fail)
     with pytest.raises(RuntimeError, match="training failed"):
-        experiments.launch_suite(source, tmp_path, allow_dirty=True)
+        experiments.launch_suite(source, tmp_path, allow_dirty=True, repository=ROOT)
     assert len(invoked) == 2
     manifest = json.loads(next(tmp_path.glob("*/run.json")).read_text())
     assert manifest["status"] == "failed"
@@ -231,8 +234,35 @@ def test_evaluation_balances_seats_shares_ties_and_restores_rng(tmp_path, monkey
     assert report["control_minus_variant_margin"] == 10
     assert report["checkpoints"]["control"]["sha256"] == runs.file_digest(control)
     assert all(
-        s["action_softmax_temperature"]
-        == s["mcts_dirichlet_epsilon"]
-        == 0
+        s["action_softmax_temperature"] == s["mcts_dirichlet_epsilon"] == 0
         for s in settings_seen
     )
+
+
+def test_package_suite_validates_config_outside_checkout(tmp_path):
+    import subprocess
+    import sys
+
+    config = tmp_path / "suite.toml"
+    config.write_text(
+        'name = "invalid"\nbaseline = "missing.toml"\nseeds = []\n[variants.control]\n'
+    )
+    script = """
+from pathlib import Path
+from skyjo.experiments import launch_suite
+import sys
+try:
+    launch_suite(Path(sys.argv[1]), Path("runs"), repository=Path(sys.argv[2]))
+except ValueError as error:
+    assert "seeds" in str(error)
+else:
+    raise AssertionError("invalid suite was accepted")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(config), str(ROOT)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "runs").exists()

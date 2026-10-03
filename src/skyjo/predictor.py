@@ -2,11 +2,10 @@
 
 from collections.abc import Sequence
 
-import numpy as np
 import torch
 
+from . import batches, skynet
 from . import game as sj
-from . import skynet
 
 
 class LocalPredictor:
@@ -30,13 +29,16 @@ class LocalPredictor:
         predictions = []
         for start in range(0, len(states), self.max_batch_size):
             batch = states[start : start + self.max_batch_size]
-            spatial, nonspatial, masks = skynet.numpy_to_tensors(
-                np.stack([skynet.get_spatial_state_numpy(state) for state in batch]),
-                np.stack([skynet.get_non_spatial_state_numpy(state) for state in batch]),
-                np.stack([sj.actions(state) for state in batch]),
-                device=self.model.device,
+            tensors = batches.to_tensors(
+                batches.states_to_batch(batch), device=self.model.device
             )
-            output = skynet.output_to_numpy(self.model(spatial, nonspatial, masks))
+            output = skynet.output_to_numpy(
+                self.model(
+                    tensors.spatial_inputs,
+                    tensors.non_spatial_inputs,
+                    tensors.action_masks,
+                )
+            )
             predictions.extend(
                 skynet.SkyNetPrediction.from_numpy_output(
                     skynet.get_single_model_output(output, index)

@@ -10,7 +10,7 @@ import tomllib
 
 import torch
 
-from . import buffer, game, models, objectives, skynet
+from . import buffer, game, models, objectives, observations
 
 DEFAULTS = {
     "name": "full-game-baseline",
@@ -195,8 +195,10 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         raise ValueError("logging.progress_interval_seconds cannot be negative")
     if config["validation"]["concept_interval"] < 0:
         raise ValueError("validation.concept_interval cannot be negative")
-    if config["players"] < 2 or config["seed"] < 0:
-        raise ValueError("players must be at least two and seed must be nonnegative")
+    if not 2 <= config["players"] <= game.PLAYER_COUNT or config["seed"] < 0:
+        raise ValueError(
+            "players must be between two and eight and seed must be nonnegative"
+        )
     if config["seed"] > 2**32 - 1:
         raise ValueError("seed must fit a uint32")
     if not all(isinstance(tag, str) for tag in config["tags"]):
@@ -210,6 +212,8 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
     search = config["search"]
     if not 0 <= search["dirichlet_epsilon"] <= 1:
         raise ValueError("search.dirichlet_epsilon must be between zero and one")
+    if search["c_puct"] <= 0:
+        raise ValueError("search.c_puct must be positive")
     if any(
         search[key] < 0
         for key in ("c_puct", "fpu_reduction", "action_softmax_temperature")
@@ -233,8 +237,8 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise ValueError("Requested MPS device is unavailable")
     players = config["players"]
-    spatial = [players, game.ROW_COUNT, game.COLUMN_COUNT, game.FINGER_SIZE]
-    non_spatial = list(skynet.get_non_spatial_input_shape(players))
+    spatial = list(observations.spatial_input_shape(players))
+    non_spatial = list(observations.get_non_spatial_input_shape(players))
     targets = [
         {"name": spec.name, "shape": list(spec.shape)}
         for spec in target_specs(players, config["auxiliary_objectives"])
@@ -242,7 +246,7 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
     derived = {
         "spatial_input_shape": spatial,
         "non_spatial_input_shape": non_spatial,
-        "action_mask_shape": [game.MASK_SIZE],
+        "action_mask_shape": list(observations.action_mask_shape()),
         "target_specs": targets,
         "optimizer": {"type": "adam", "weight_decay": 1e-4},
     }

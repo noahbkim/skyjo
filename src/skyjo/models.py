@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import torch
 
-from . import game, skynet
+from . import observations, skynet
 
 
 def _equivariant_settings(settings):
@@ -48,23 +48,14 @@ def resolve(settings):
     return {"name": name, **REGISTRY[name].resolve_settings(settings)}
 
 
-def constructor_and_kwargs(settings):
-    resolved = resolve(settings)
-    return REGISTRY[resolved.pop("name")].constructor, resolved
-
-
 def build(settings, *, players, device, auxiliary_objectives=None):
-    constructor, kwargs = constructor_and_kwargs(settings)
+    kwargs = resolve(settings)
+    constructor = REGISTRY[kwargs.pop("name")].constructor
     return constructor(
-        spatial_input_shape=(
-            players,
-            game.ROW_COUNT,
-            game.COLUMN_COUNT,
-            game.FINGER_SIZE,
-        ),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
+        spatial_input_shape=observations.spatial_input_shape(players),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(players),
         value_output_shape=(players,),
-        policy_output_shape=(game.MASK_SIZE,),
+        policy_output_shape=observations.action_mask_shape(),
         device=torch.device(device),
         auxiliary_objectives=auxiliary_objectives,
         **kwargs,

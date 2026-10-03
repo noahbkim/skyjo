@@ -4,7 +4,7 @@ import time
 
 import torch
 
-from . import objectives, train_utils
+from . import losses, objectives
 
 
 def measure(
@@ -37,7 +37,7 @@ def measure(
             ** 0.5
         )
 
-    core, _ = train_utils.base_loss(output, targets, value_scale, policy_scale)
+    core, _ = losses.base_loss(output, targets, value_scale, policy_scale)
     core_norm = norm(core)
     metrics = {"core_weighted_norm": core_norm}
     for name, weight, objective in objectives.resolve(auxiliary_objectives).entries:

@@ -13,7 +13,14 @@ def compare(
     runs_dir: Annotated[Path, typer.Option("--runs-dir")] = Path(".runs"),
     allow_dirty: Annotated[bool, typer.Option("--allow-dirty")] = False,
 ) -> None:
-    typer.echo(launch_suite(config, runs_dir, allow_dirty=allow_dirty))
+    typer.echo(
+        launch_suite(
+            config,
+            runs_dir,
+            allow_dirty=allow_dirty,
+            repository=Path(__file__).resolve().parent,
+        )
+    )
 
 
 if __name__ == "__main__":

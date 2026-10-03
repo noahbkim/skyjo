@@ -1,7 +1,8 @@
 import numpy as np
+import pytest
 import torch
 
-from skyjo import skynet, train, train_utils
+from skyjo import batches, checkpoint, losses, skynet, train
 
 
 class ToyModel(torch.nn.Module):
@@ -23,34 +24,34 @@ class ToyModel(torch.nn.Module):
 
 
 class FakeReplayBuffer:
-    def __init__(self, batch: train_utils.TrainingBatch, length: int):
+    def __init__(self, batch: batches.TrainingBatch, length: int):
         self.batch = batch
         self.length = length
 
     def __len__(self) -> int:
         return self.length
 
-    def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
+    def sample_batch(self, batch_size: int) -> batches.TrainingBatch:
         del batch_size
         return self.batch
 
 
-def _batch() -> train_utils.TrainingBatch:
-    return train_utils.TrainingBatch(
+def _batch() -> batches.TrainingBatch:
+    return batches.TrainingBatch(
         spatial_inputs=np.ones((2, 1), dtype=np.float32),
         non_spatial_inputs=np.zeros((2, 1), dtype=np.float32),
         action_masks=np.ones((2, 2), dtype=np.float32),
-        target_arrays={
-            train_utils.VALUE_TARGET_NAME: np.zeros((2, 1), dtype=np.float32),
-            train_utils.POLICY_TARGET_NAME: np.zeros((2, 2), dtype=np.float32),
+        targets={
+            batches.VALUE_TARGET_NAME: np.zeros((2, 1), dtype=np.float32),
+            batches.POLICY_TARGET_NAME: np.zeros((2, 2), dtype=np.float32),
         },
     )
 
 
 def _loss(
     model_output: skynet.SupportsCoreSkyNetOutput,
-    targets: train_utils.TensorTrainingTargets,
-) -> tuple[torch.Tensor, train_utils.LossDetails]:
+    targets: batches.TensorTargets,
+) -> tuple[torch.Tensor, losses.LossDetails]:
     del targets
     loss = model_output.value.sum()
     return loss, {"loss": loss.item()}
@@ -74,3 +75,44 @@ def test_train_steps_runs_exact_optimizer_step_count():
     assert optimizer.state[parameter]["step"].item() == 3
     assert len(losses) == 3
     assert all("total_loss" in details for details in losses)
+
+
+def test_evaluation_weights_selected_positions_and_restores_runtime():
+
+    model = ToyModel()
+    with torch.no_grad():
+        model.linear.weight.fill_(2)
+    model.train()
+    model.linear.eval()  # Preserve mixed module modes, too.
+
+    class Replay:
+        def batch_indices(self, indices):
+            values = np.array([[1], [2], [4]], dtype=np.float32)[indices]
+            return batches.TrainingBatch(
+                values,
+                values,
+                np.ones((len(indices), 2)),
+                {"value": np.zeros_like(values), "policy": np.zeros((len(indices), 2))},
+            )
+
+    def observed_loss(output, targets):
+        torch.rand(1)
+        return losses.base_loss(output, targets, policy_scale=0)
+
+    before = checkpoint.capture_rng_state()
+    for batch_size in (1, 2):
+        result = train.evaluate_loss(
+            model, Replay(), batch_size, observed_loss, indices=np.array([2, 0, 2])
+        )
+        assert result["total_loss"] == pytest.approx(44)
+        assert model.training and not model.linear.training
+        assert torch.equal(torch.get_rng_state(), before["torch_cpu"])
+
+    def failed_loss(output, targets):
+        torch.rand(1)
+        raise RuntimeError("evaluation failed")
+
+    with pytest.raises(RuntimeError, match="evaluation failed"):
+        train.evaluate_loss(model, Replay(), 2, failed_loss, indices=np.array([0]))
+    assert model.training and not model.linear.training
+    assert torch.equal(torch.get_rng_state(), before["torch_cpu"])

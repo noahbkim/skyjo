@@ -7,10 +7,8 @@ import typing
 
 import numpy as np
 
-from . import config
-from . import predictor
+from . import config, predictor, skynet
 from . import game as sj
-from . import skynet
 
 # MARK: Config
 
@@ -83,7 +81,7 @@ class DecisionStateNode:
             f"State Value: {self.state_value}\n"
             f"Is Expanded: {self.is_expanded}\n"
             f"Model Prediction: {self.model_prediction}\n"
-            f"Children visit counts: {self.policy_targets() * sum(child.visit_count for child in self.children.values())}\n"
+            f"Children visit counts: { {action: child.visit_count for action, child in self.children.items()} }\n"
         )
 
     @property
@@ -116,9 +114,6 @@ class DecisionStateNode:
             return candidates[0]
         return np.random.choice(candidates)
 
-    def highest_visit_child(self) -> MCTSNode:
-        return max(self.children.values(), key=lambda x: x.visit_count)
-
     def expand(
         self,
         model_prediction: skynet.SkyNetPrediction,
@@ -129,9 +124,7 @@ class DecisionStateNode:
         self.model_prediction = model_prediction
         self.is_expanded = True
         for action in sj.get_actions(self.state):
-            self.children[action] = self.create_child_node(
-                action
-            )
+            self.children[action] = self.create_child_node(action)
 
     def select_child(self, **kwargs) -> MCTSNode:
         return self._select_highest_ucb_child()
@@ -162,17 +155,23 @@ class DecisionStateNode:
     def policy_targets(
         self, temperature: float = 1.0
     ) -> np.ndarray[tuple[int], np.float32]:
-        visit_counts = np.zeros((sj.MASK_SIZE,), dtype=np.float32)
+        if not np.isfinite(temperature) or temperature < 0:
+            raise ValueError("temperature must be finite and nonnegative")
+        visit_counts = np.zeros(sj.MASK_SIZE, dtype=np.float64)
         for action, child in self.children.items():
             visit_counts[action] = child.visit_count
-
+        visited = (visit_counts > 0) & sj.actions(self.state).astype(bool)
+        if not visited.any():
+            raise ValueError("policy requires at least one visited legal action")
+        probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
         if temperature == 0:
-            visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
-            visit_probabilities[visit_counts.argmax().item()] = 1
-            return visit_probabilities
-        visit_probabilities = visit_counts ** (1 / temperature)
-        visit_probabilities = visit_probabilities / visit_probabilities.sum()
-        return visit_probabilities
+            probabilities[np.where(visited, visit_counts, -1).argmax()] = 1
+        else:
+            logs = np.log(visit_counts[visited])
+            with np.errstate(over="ignore"):
+                weights = np.exp((logs - logs.max()) / temperature)
+            probabilities[visited] = weights / weights.sum()
+        return probabilities
 
     def action_probability(self, action) -> float:
         assert self.model_prediction is not None, (
@@ -248,10 +247,6 @@ class AfterStateNode:
             fpu_reduction=self.parent.fpu_reduction,
         )
 
-    def realize_outcomes(self, n) -> None:
-        for _ in range(n):
-            _ = self._realize_outcome()
-
     def _realize_outcome(self) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
         assert not sj.get_round_over(outcome_state), (
@@ -263,7 +258,7 @@ class AfterStateNode:
         return outcome_state
 
     def _expand_single_child(self) -> None:
-        # Realize a single next child state. Child weights are now observered
+        # Realize a single next child state. Child weights are now observed
         # frequencies of the child states.
         next_state = self._realize_outcome()
         next_state_hash = sj.hash_skyjo(next_state)
@@ -274,38 +269,30 @@ class AfterStateNode:
         self.all_children_discovered = True
         # Realize all possible child states. Child weights are now exactly the
         # probabilities of those child states computed from the deck card counts.
-        cards_remaining = np.sum(sj.get_deck(self.state))
-        for card, card_count in enumerate(sj.get_deck(self.state)):
-            if card_count > 0:
-                next_state = sj.apply_action(
-                    sj.preordain(self.state, card), self.action
-                )
-                child = self._create_child(next_state)
-                self.children[sj.hash_skyjo(next_state)] = child
-                # Child weight is the probability of that card being next
-                self.child_weights[sj.hash_skyjo(next_state)] = (
-                    card_count / cards_remaining
-                )
+        state = sj.prepare_draw_pile(self.state)
+        deck = sj.get_deck(state)
+        predetermined = state.pending_card
+        outcomes = (
+            [(predetermined, 1.0)]
+            if predetermined is not None
+            else [
+                (card, count / deck.sum())
+                for card, count in enumerate(deck)
+                if count > 0
+            ]
+        )
+        for card, probability in outcomes:
+            next_state = sj.apply_action(sj.preordain(state, card), self.action)
+            key = sj.hash_skyjo(next_state)
+            self.children[key] = self._create_child(next_state)
+            self.child_weights[key] = probability
         self.child_weight_total = 1.0
-
-    def _compute_state_value_from_children(self) -> skynet.StateValue:
-        state_value = np.zeros(sj.get_player_count(self.state), dtype=np.float32)
-        for key_hash, child in self.children.items():
-            state_value += (
-                child.state_value
-                * self.child_weights[key_hash]
-                / self.child_weight_total
-            )
-        return state_value
-
-    def highest_visit_child(self) -> MCTSNode:
-        return max(self.children.values(), key=lambda x: x.visit_count)
 
     def discover(
         self,
         discover_all_children: bool = False,
     ):
-        """Expands node after all initial children values are ready"""
+        """Create one sampled outcome or enumerate every possible outcome."""
         assert len(self.children) == 0, "Children not empty"
         if discover_all_children:
             self.all_children_discovered = True
@@ -451,8 +438,8 @@ def run_mcts(
     A continuing round bootstraps from the model's value of the next deal.
     Ordinary in-round chance nodes retain their existing sampling behavior.
     """
-    if c_puct <= 0:
-        raise ValueError("c_puct must be positive")
+    if not np.isfinite(c_puct) or c_puct <= 0:
+        raise ValueError("c_puct must be finite and positive")
     if fpu_reduction < 0:
         raise ValueError("fpu_reduction cannot be negative")
 
@@ -471,10 +458,7 @@ def run_mcts(
     else:
         if not isinstance(root_node, DecisionStateNode):
             raise TypeError("root_node must be a DecisionStateNode")
-        if (
-            root_node.c_puct != c_puct
-            or root_node.fpu_reduction != fpu_reduction
-        ):
+        if root_node.c_puct != c_puct or root_node.fpu_reduction != fpu_reduction:
             raise ValueError("reused root scoring configuration does not match")
 
     # Root noise is local to this search invocation.

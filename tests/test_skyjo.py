@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -6,15 +8,14 @@ import skyjo as sj
 
 @pytest.mark.parametrize("players", [2, 3, 4, 5, 6, 7, 8])
 def test_new_skyjo(players: int):
-    (
-        game_state,
-        table_state,
-        deck_state,
-        num_players,
-        turn_count,
-        current_card,
-        countdown,
-    ) = sj.new(players=players, top=sj.CARD_P8)
+    initial = sj.new(players=players, top=sj.CARD_P8)
+    game_state = initial.game
+    table_state = initial.table
+    deck_state = initial.deck
+    num_players = initial.players
+    turn_count = initial.turn
+    current_card = initial.pending_card
+    countdown = initial.countdown
 
     # Assert game state
     assert game_state.shape == (sj.GAME_SIZE,)
@@ -60,17 +61,7 @@ def test_new_skyjo(players: int):
     assert countdown is None
 
     # Validate overall consistency
-    assert sj.validate(
-        (
-            game_state,
-            table_state,
-            deck_state,
-            num_players,
-            turn_count,
-            current_card,
-            countdown,
-        )
-    )
+    assert sj.validate(initial)
 
 
 @pytest.mark.parametrize("players", [2, 3, 4, 5, 6, 7, 8])
@@ -135,12 +126,10 @@ def test_revealing_replacement_resets_no_progress_before_checking_limit():
     random_adapter = RandomAdapter()
     state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random_adapter)
     for _ in range(2):
-        state = sj.apply_action(
-            state, sj.MASK_FLIP_SECOND_BELOW, rng=random_adapter
-        )
-    game, table, deck, players, _, card, countdown = state
+        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_BELOW, rng=random_adapter)
+    players = state.players
     stale_turn = (sj.NO_PROGRESS_TURN_THRESHOLD + 1) * players
-    state = (game, table, deck, players, stale_turn, card, countdown)
+    state = dataclasses.replace(state, turn=stale_turn)
     state = sj.apply_action(state, sj.MASK_TAKE, rng=random_adapter)
     state = sj.apply_action(state, sj.MASK_REPLACE + 1, rng=random_adapter)
     assert sj.get_countdown(state) is None

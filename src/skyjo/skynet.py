@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import datetime
-import pathlib
 import typing
 
 import einops
@@ -10,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from . import checkpoint
+from . import batches
 from . import game as sj
 
 """
@@ -48,7 +46,7 @@ EQUIVARIANT_ARCHITECTURE_NAME = "hierarchical_equivariant_v2"
 
 def skyjo_to_state_value(skyjo: sj.Skyjo) -> StateValue:
     """Get the outcome of the game from the fixed perspective."""
-    players = skyjo[3]
+    players = skyjo.players
     outcome = np.zeros((players,), dtype=np.float32)
     outcome[sj.get_fixed_perspective_winner(skyjo)] = 1.0
     return outcome
@@ -83,46 +81,6 @@ def to_state_value(
     value_output: np.ndarray[tuple[int], np.float32], curr_player: int
 ) -> StateValue:
     return np.roll(value_output, shift=curr_player)
-
-
-def get_spatial_state_numpy(
-    skyjo: sj.Skyjo,
-) -> np.ndarray[tuple[int], np.float32]:
-    return sj.get_table(skyjo).astype(np.float32)
-
-
-def get_non_spatial_input_shape(players: int) -> tuple[int]:
-    """Return the complete non-spatial observation shape for a player count."""
-    if players < 1:
-        raise ValueError("players must be positive")
-    return (sj.GAME_SIZE + sj.CARD_SIZE + 2 + players,)
-
-
-def get_non_spatial_state_numpy(
-    skyjo: sj.Skyjo,
-) -> np.ndarray[tuple[int], np.float32]:
-    players = sj.get_player_count(skyjo)
-    turn = sj.get_turn(skyjo)
-    countdown = sj.get_countdown(skyjo)
-    turns_since_reveal = turn - sj.get_last_revealed_turns(skyjo)
-    observation = np.concatenate(
-        (
-            sj.get_game(skyjo),
-            sj.get_deck(skyjo),
-            np.array(
-                [turn, -1 if countdown is None else countdown],
-                dtype=np.int16,
-            ),
-            turns_since_reveal,
-        )
-    ).astype(np.float32)
-    expected_shape = get_non_spatial_input_shape(players)
-    if observation.shape != expected_shape:
-        raise ValueError(
-            f"non-spatial observation has shape {observation.shape}, "
-            f"expected {expected_shape}"
-        )
-    return observation
 
 
 # MARK: Policy Targets
@@ -246,16 +204,6 @@ def output_to_numpy(output: SkyNetOutput) -> SkyNetNumpyOutput:
     )
 
 
-def numpy_to_tensors(
-    *numpy_arrays: np.ndarray[tuple[int, ...], np.float32],
-    device: torch.device = torch.device("cpu"),
-    dtype: torch.dtype = torch.float32,
-) -> tuple[torch.Tensor, ...]:
-    return tuple(
-        torch.tensor(array, dtype=dtype, device=device) for array in numpy_arrays
-    )
-
-
 @dataclasses.dataclass(slots=True)
 class SkyNetPrediction:
     value_output: np.ndarray[tuple[int], np.float32]
@@ -284,7 +232,6 @@ class SkyNetPrediction:
         policy_probabilities_numpy = policy_exp_logits / np.sum(
             policy_exp_logits, axis=-1, keepdims=True
         )
-
 
         assert len(value_numpy.shape) == len(policy_probabilities_numpy.shape) == 1, (
             "expected value_output and policy_output to be a single result and not batched results."
@@ -658,25 +605,6 @@ class EquivariantSkyNet(nn.Module):
         self.device = device
         self.to(device)
 
-    def save(
-        self,
-        dir: pathlib.Path,
-        optimizer: torch.optim.Optimizer | None = None,
-        configuration: typing.Any = None,
-        progress: checkpoint.TrainingProgress | None = None,
-    ) -> pathlib.Path:
-        curr_utc_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-        model_path = dir / (
-            f"checkpoint_{curr_utc_dt.strftime('%Y%m%d_%H%M%S_%f')}.pth"
-        )
-        return checkpoint.save_checkpoint(
-            model_path,
-            model=self,
-            optimizer=optimizer,
-            configuration=configuration,
-            progress=progress,
-        )
-
     def forward(
         self,
         spatial_tensor: torch.Tensor,
@@ -809,24 +737,10 @@ class EquivariantSkyNet(nn.Module):
     @torch.inference_mode()
     def predict(self, skyjo: sj.Skyjo) -> SkyNetPrediction:
         self.eval()
-        spatial_tensor = einops.rearrange(
-            torch.tensor(
-                sj.get_spatial_input(skyjo), dtype=torch.float32, device=self.device
-            ),
-            "p h w c -> 1 p h w c",
+        batch = batches.to_tensors(batches.states_to_batch([skyjo]), device=self.device)
+        output = self.forward(
+            batch.spatial_inputs, batch.non_spatial_inputs, batch.action_masks
         )
-        non_spatial_tensor = einops.rearrange(
-            torch.tensor(
-                get_non_spatial_state_numpy(skyjo),
-                dtype=torch.float32,
-                device=self.device,
-            ),
-            "f -> 1 f",
-        )
-        mask_tensor = torch.tensor(
-            sj.actions(skyjo), dtype=torch.float32, device=self.device
-        )
-        output = self.forward(spatial_tensor, non_spatial_tensor, mask_tensor)
         return SkyNetPrediction.from_skynet_output(output)
 
 

@@ -22,12 +22,12 @@ import typer
 from skyjo import (
     buffer,
     checkpoint,
+    losses,
     models,
     objectives,
     offline,
     skynet,
     train,
-    train_utils,
 )
 
 DEFAULT_SEED = 0
@@ -68,7 +68,7 @@ def build_model(
     )
 
 
-def _print_loss(prefix: str, loss_details: train_utils.LossDetails) -> None:
+def _print_loss(prefix: str, loss_details: losses.LossDetails) -> None:
     for name, value in sorted(loss_details.items()):
         typer.echo(f"{prefix}_{name}: {value:.8f}")
 

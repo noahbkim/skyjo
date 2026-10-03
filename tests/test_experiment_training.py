@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 
-from skyjo import buffer, checkpoint, experiment_training, game, skynet
+from skyjo import buffer, checkpoint, experiment_training, game, observations
 
 
 def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separate(
@@ -13,7 +13,7 @@ def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separ
     replay = buffer.ReplayBuffer(
         max_size=8,
         spatial_input_shape=(2, game.ROW_COUNT, game.COLUMN_COUNT, game.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         action_mask_shape=(game.MASK_SIZE,),
     )
     state = game.new(players=2, top=0)

@@ -8,14 +8,14 @@ import pytest
 import torch
 
 from skyjo import game as sj
-from skyjo import mcts, predictor, skynet
+from skyjo import mcts, observations, predictor, skynet
 
 
 def make_model() -> skynet.EquivariantSkyNet:
     torch.manual_seed(0)
     return skynet.EquivariantSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         embedding_dimensions=4,
@@ -46,15 +46,15 @@ def test_search_preserves_visit_accounting_and_legal_policy(exact_chance) -> Non
     assert np.all(policy[sj.actions(root.state) == 0] == 0)
     if exact_chance:
         chances = [
-            child for child in root.children.values()
+            child
+            for child in root.children.values()
             if isinstance(child, mcts.AfterStateNode) and child.is_expanded
         ]
         assert chances
         for chance in chances:
             assert len(chance.children) > 1
             assert all(
-                child.model_prediction is not None
-                for child in chance.children.values()
+                child.model_prediction is not None for child in chance.children.values()
             )
 
 
@@ -121,9 +121,7 @@ def test_exact_chance_update_replaces_propagated_return() -> None:
     chance.all_children_discovered = True
     chance.is_expanded = True
 
-    mcts.backpropagate(
-        [root, chance, child], np.array([0.8, 0.2], dtype=np.float32)
-    )
+    mcts.backpropagate([root, chance, child], np.array([0.8, 0.2], dtype=np.float32))
 
     assert np.allclose(child.state_value, [0.8, 0.2])
     assert np.allclose(chance.state_value, [0.5, 0.5])
@@ -164,3 +162,53 @@ def test_reused_root_requires_matching_scoring_and_resets_noise() -> None:
             c_puct=1.0,
             root_node=root,
         )
+
+
+def test_policy_temperature_handles_extremes_and_unvisited_roots():
+    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random.Random(1))
+    root = mcts.DecisionStateNode(state, None, None)
+    actions = sj.get_actions(state)
+    root.children = {action: types.SimpleNamespace(visit_count=0) for action in actions}
+    for temperature in (0, 1):
+        with pytest.raises(ValueError, match="visited legal"):
+            root.policy_targets(temperature)
+    root.children[actions[0]].visit_count = 31
+    root.children[actions[1]].visit_count = 1
+    for temperature in (0, 0.01, 1e-320, 1):
+        policy = root.policy_targets(temperature)
+        assert np.isfinite(policy).all()
+        assert policy.sum() == pytest.approx(1)
+        assert policy.argmax() == actions[0]
+        assert not policy[~sj.actions(state).astype(bool)].any()
+    for temperature in (-1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="temperature"):
+            root.policy_targets(temperature)
+
+
+@pytest.mark.parametrize("predetermined", [False, True])
+def test_exact_chance_recycles_discards_without_changing_input(predetermined):
+    rng = random.Random(8)
+    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=rng)
+    for _ in range(2):
+        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT, rng=rng)
+    remaining_after_draw = state.deck.sum() - 1
+    assert sj.MASK_DRAW in sj.get_actions(state)
+    # Move all unseen cards to recyclable discards, preserving card conservation.
+    state.game[sj.GAME_DISCARDS : sj.GAME_DISCARDS + sj.CARD_SIZE] = state.deck
+    expected = state.deck.copy() / state.deck.sum()
+    state.deck.fill(0)
+    if predetermined:
+        state = sj.preordain(state, sj.CARD_P1)
+        expected = [1.0]
+    before = sj.hash_skyjo(state)
+    root = mcts.DecisionStateNode(state, None, None)
+    chance = mcts.AfterStateNode(state, sj.MASK_DRAW, root)
+    chance.discover(discover_all_children=True)
+    assert sorted(chance.child_weights.values()) == pytest.approx(sorted(expected))
+    assert sj.hash_skyjo(state) == before
+    assert all(
+        sj.get_deck(child.state).sum() == remaining_after_draw
+        for child in chance.children.values()
+    )
+    sampled = sj.apply_action(state, sj.MASK_DRAW)
+    assert sj.hash_skyjo(sampled) in chance.children

@@ -3,14 +3,24 @@ from __future__ import annotations
 import random
 
 import numpy as np
-from hypothesis import HealthCheck, given, settings, strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+from hypothesis.stateful import (
+    RuleBasedStateMachine,
+    initialize,
+    invariant,
+    precondition,
+    rule,
+)
 
 import skyjo as sj
 
 
 def assert_card_conservation(state: sj.Skyjo) -> None:
-    game, table, deck, players, *_ = state
+    game = state.game
+    table = state.table
+    deck = state.deck
+    players = state.players
     on_table = table[:players, :, :, : sj.CARD_SIZE].sum(axis=(0, 1, 2))
     top = game[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE]
     discarded = game[sj.GAME_DISCARDS : sj.GAME_DISCARDS + sj.CARD_SIZE]
@@ -35,10 +45,12 @@ class LegacyGameStateMachine(RuleBasedStateMachine):
         self.state = sj.apply_action(old_state, action, rng=self.rng)
 
         assert sj.validate(self.state)
-        assert sj.get_player(self.state) == sj.get_turn(self.state) % sj.get_player_count(
+        assert sj.get_player(self.state) == sj.get_turn(
             self.state
-        )
-        if sj.get_turn(self.state) == old_turn + 1 and not sj.get_round_over(self.state):
+        ) % sj.get_player_count(self.state)
+        if sj.get_turn(self.state) == old_turn + 1 and not sj.get_round_over(
+            self.state
+        ):
             # Completed turns rotate the non-acting players one slot toward the
             # active-player perspective without changing their boards.
             assert np.array_equal(sj.get_table(self.state)[:-1], old_table[1:])
@@ -100,7 +112,9 @@ def test_preordained_draw_realizes_exact_card(card: int) -> None:
 
 @settings(max_examples=60, deadline=None)
 @given(card=st.integers(min_value=0, max_value=sj.CARD_SIZE - 1))
-def test_preordained_reveal_and_hidden_replacement_realize_exact_card(card: int) -> None:
+def test_preordained_reveal_and_hidden_replacement_realize_exact_card(
+    card: int,
+) -> None:
     rng = random.Random(4)
     state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=rng)
     if sj.get_deck(state)[card] == 0:
@@ -116,9 +130,7 @@ def test_preordained_reveal_and_hidden_replacement_realize_exact_card(card: int)
     state = sj.apply_action(state, sj.MASK_DRAW, rng=rng)
     available = np.flatnonzero(sj.get_deck(state))
     reveal_card = int(available[0])
-    state = sj.apply_action(
-        sj.preordain(state, reveal_card), sj.MASK_FLIP + 1, rng=rng
-    )
+    state = sj.apply_action(sj.preordain(state, reveal_card), sj.MASK_FLIP + 1, rng=rng)
     assert sj.get_table(state)[-1, 0, 1, reveal_card] == 1
     assert_card_conservation(state)
 

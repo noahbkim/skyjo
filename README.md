@@ -13,16 +13,26 @@ provide a baseline and interactive gameplay.
 The training path is:
 
 1. `experiment_config` resolves the recipe; `models` constructs the network.
-2. `distributed_main.py` distributes self-play games across CPU workers. Each
-   worker uses `ModelPlayer` → `mcts` → `LocalPredictor` for local inference.
+2. `distributed_main.py` is a thin CLI for `selfplay_training`, which distributes
+   self-play games across CPU workers. Each worker uses `ModelPlayer` → `mcts` → `LocalPredictor` for local inference.
    The predictor returns results directly and chunks exact-chance evaluations
    without a separate process or request queue.
 3. `game` owns rules and transitions; `play` collects complete games. `targets`
    and `objectives` build training labels, while `game_stats` summarizes results.
 4. `buffer.ReplayBuffer` retains and samples complete-game data. `train` owns
-   optimizer steps; `experiment_training` coordinates the recipe and recording.
+   optimizer steps and shared evaluation; `experiment_training` records progress
+   and artifacts. Startup builds the model and optimizer once and saves an explicit
+   initial checkpoint.
 5. `checkpoint` saves model/training state. `evaluation` compares checkpoints;
    `run_train_epoch.py` and `run_offline_comparison.py` train on saved replay data.
+
+`game.Skyjo` is a named, frozen dataclass containing copy-on-write NumPy arrays.
+Read fields by name; use `dataclasses.replace` to construct a modified state.
+Setup reveals, ordinary turn reveals, and final-round reveals have explicit
+operations. `observations` owns the persisted feature order and dimensions;
+`batches` owns NumPy/tensor batches and float32 device conversion. Every batch has
+one `targets` mapping. `losses` defines core losses, and `objectives` composes them
+with the configured auxiliary losses.
 
 The objective registry is shared by model heads, target generation, and losses.
 Supported auxiliary objectives are `round_score`, `round_raw_score`, and
@@ -36,6 +46,15 @@ future-clear objective, and standalone `stats`/`benchstats` utilities have been
 removed. The active network still uses `TransformerBlock`. Historical notebooks
 may require the original Git revision and its environment.
 
+`SkyNetModelFactory`, `train_utils`, positional game-state tuples, and the
+flag-based reveal API have also been removed. Observation helpers now live in
+`observations`; training targets are mappings rather than tuple-like wrappers.
+Historical notebook calls to these APIs or retired search helpers need updating.
+The root command names remain supported. Programmatic callers use
+`selfplay_training.launch(..., repository=checkout)` or
+`experiments.launch_suite(..., repository=checkout)`; recorded runs still require
+a Git checkout and its lockfile, regardless of the current working directory.
+
 Use `LocalPredictor.predict(state)` or `predict_many(states)` for local inference.
 The offline CLI uses `--auxiliary-objectives` instead of `--experiment-arm`;
 omitting it trains only the core value/policy outputs, even when a dataset contains
@@ -44,7 +63,14 @@ extra labels. Enabled objectives require matching labels.
 Current model parameter names and replay/checkpoint container formats are
 unchanged. Loading retired model architectures and resuming older
 `run_train_epoch.py` configurations are unsupported; use their original revision
-for historical runs. Existing saved artifacts are not migrated.
+for historical runs. Existing saved artifacts are not migrated. Checkpoint
+resume now rejects missing configuration or requested optimizer, scheduler, or
+RNG state before changing runtime objects. Weights-only evaluation remains
+supported. Online training starts fresh; importing replay is explicit, and online
+resume remains unsupported. Offline resume remains supported within a matching
+configuration. Removing redundant model initialization changes incidental old RNG
+consumption; seeded CPU workflows remain reproducible within the revised
+implementation.
 
 ## Recorded experiments
 

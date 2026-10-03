@@ -139,7 +139,7 @@ def load_checkpoint(
         )
 
     actual_configuration = payload.get("configuration")
-    if expected_configuration is not None and actual_configuration is not None:
+    if expected_configuration is not None:
         expected = normalize_configuration(expected_configuration)
         if actual_configuration != expected:
             raise ValueError(
@@ -147,19 +147,78 @@ def load_checkpoint(
                 f"checkpoint={actual_configuration!r}, active={expected!r}"
             )
 
-    model.load_state_dict(payload["model_state_dict"])
-    optimizer_state = payload.get("optimizer_state_dict")
-    if optimizer is not None and optimizer_state is not None:
-        optimizer.load_state_dict(optimizer_state)
-    scheduler_state = payload.get("scheduler_state_dict")
-    if scheduler is not None and scheduler_state is not None:
-        scheduler.load_state_dict(scheduler_state)
+    # Validate requested state before changing the model, optimizer, or RNGs.
+    required = ["model_state_dict", "progress"]
+    if optimizer is not None:
+        required.append("optimizer_state_dict")
+    if scheduler is not None:
+        required.append("scheduler_state_dict")
+    if restore_rng:
+        required.append("rng_state")
     if sampling_rng is not None:
-        if "sampling_rng_state" not in payload:
-            raise CheckpointFormatError(
-                "Checkpoint has no independent sampling RNG state"
-            )
+        required.append("sampling_rng_state")
+    for name in required:
+        if payload.get(name) is None:
+            raise CheckpointFormatError(f"Checkpoint is missing required {name}")
+    try:
+        if not isinstance(payload["model_state_dict"], dict):
+            raise ValueError("model state must be a mapping")
+        if optimizer is not None:
+            saved = payload["optimizer_state_dict"]
+            if not isinstance(saved, dict) or not isinstance(saved.get("state"), dict):
+                raise ValueError("invalid optimizer state")
+            groups = saved.get("param_groups")
+            if not isinstance(groups, list) or len(groups) != len(
+                optimizer.param_groups
+            ):
+                raise ValueError("optimizer parameter groups do not match")
+            for actual, expected in zip(groups, optimizer.param_groups, strict=True):
+                if not isinstance(actual, dict) or not isinstance(
+                    actual.get("params"), list
+                ):
+                    raise ValueError("invalid optimizer parameter group")
+                if len(actual["params"]) != len(expected["params"]):
+                    raise ValueError("optimizer parameter counts do not match")
+        if scheduler is not None:
+            saved = payload["scheduler_state_dict"]
+            if (
+                not isinstance(saved, dict)
+                or scheduler.state_dict().keys() - saved.keys()
+            ):
+                raise ValueError("incomplete scheduler state")
+        progress = TrainingProgress(**payload["progress"])
+        if any(
+            type(value) is not int or value < 0
+            for value in dataclasses.asdict(progress).values()
+        ):
+            raise ValueError("progress counters must be nonnegative integers")
+        if restore_rng:
+            rng = payload["rng_state"]
+            random.Random().setstate(rng["python"])
+            np.random.RandomState().set_state(rng["numpy"])
+            torch.Generator().set_state(rng["torch_cpu"].cpu())
+            if not isinstance(rng["torch_cuda"], list):
+                raise ValueError("CUDA RNG state must be a list")
+            for state in rng["torch_cuda"]:
+                if (
+                    not isinstance(state, torch.Tensor)
+                    or state.dtype != torch.uint8
+                    or state.ndim != 1
+                ):
+                    raise ValueError("invalid CUDA RNG state")
+        if sampling_rng is not None:
+            probe = type(sampling_rng.bit_generator)()
+            probe.state = payload["sampling_rng_state"]
+    except (KeyError, TypeError, ValueError, RuntimeError, AttributeError) as error:
+        raise CheckpointFormatError(f"Invalid checkpoint metadata: {error}") from error
+
+    model.load_state_dict(payload["model_state_dict"])
+    if optimizer is not None:
+        optimizer.load_state_dict(payload["optimizer_state_dict"])
+    if scheduler is not None:
+        scheduler.load_state_dict(payload["scheduler_state_dict"])
+    if sampling_rng is not None:
         sampling_rng.bit_generator.state = payload["sampling_rng_state"]
     if restore_rng:
         restore_rng_state(payload["rng_state"])
-    return TrainingProgress(**payload["progress"])
+    return progress

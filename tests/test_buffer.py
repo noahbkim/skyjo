@@ -3,9 +3,8 @@ import pathlib
 import numpy as np
 import pytest
 
-from skyjo import buffer, skynet, train_utils
+from skyjo import batches, buffer, observations, play, skynet
 from skyjo import game as sj
-from skyjo import play
 
 
 def make_game_data(length: int, marker: float = 0.0) -> play.GameData:
@@ -17,10 +16,10 @@ def make_game_data(length: int, marker: float = 0.0) -> play.GameData:
             state,
             None,
             {
-                train_utils.VALUE_TARGET_NAME: np.array(
+                batches.VALUE_TARGET_NAME: np.array(
                     [marker, 1.0 - marker], dtype=np.float32
                 ),
-                train_utils.POLICY_TARGET_NAME: policy,
+                batches.POLICY_TARGET_NAME: policy,
             },
         )
         for _ in range(length)
@@ -31,7 +30,7 @@ def make_replay_buffer(max_size: int = 32) -> buffer.ReplayBuffer:
     return buffer.ReplayBuffer(
         max_size=max_size,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
     )
 
@@ -44,14 +43,14 @@ def test_replay_buffer_defaults_to_core_target_specs():
         action_mask_shape=(23,),
     )
 
-    assert replay_buffer.target_names == train_utils.CORE_TARGET_NAMES
+    assert replay_buffer.target_names == batches.CORE_TARGET_NAMES
     assert replay_buffer.target_specs == (
         buffer.TargetShapeSpec(
-            name=train_utils.VALUE_TARGET_NAME,
+            name=batches.VALUE_TARGET_NAME,
             shape=(3,),
         ),
         buffer.TargetShapeSpec(
-            name=train_utils.POLICY_TARGET_NAME,
+            name=batches.POLICY_TARGET_NAME,
             shape=(23,),
         ),
     )
@@ -70,7 +69,7 @@ def test_replay_buffer_from_config_preserves_path_with_default_target_specs():
     replay_buffer = buffer.ReplayBuffer.from_config(config)
 
     assert replay_buffer.path == path
-    assert replay_buffer.target_names == train_utils.CORE_TARGET_NAMES
+    assert replay_buffer.target_names == batches.CORE_TARGET_NAMES
 
 
 def test_replay_buffer_accepts_round_score_aux_target_spec():
@@ -81,24 +80,24 @@ def test_replay_buffer_accepts_round_score_aux_target_spec():
         action_mask_shape=(23,),
         target_specs=(
             buffer.TargetShapeSpec(
-                name=train_utils.VALUE_TARGET_NAME,
+                name=batches.VALUE_TARGET_NAME,
                 shape=(2,),
             ),
             buffer.TargetShapeSpec(
-                name=train_utils.POLICY_TARGET_NAME,
+                name=batches.POLICY_TARGET_NAME,
                 shape=(23,),
             ),
             buffer.TargetShapeSpec(
-                name=train_utils.ROUND_SCORE_TARGET_NAME,
+                name=skynet.ROUND_SCORE_TARGET_NAME,
                 shape=(2,),
             ),
         ),
     )
 
     assert replay_buffer.target_names == (
-        train_utils.VALUE_TARGET_NAME,
-        train_utils.POLICY_TARGET_NAME,
-        train_utils.ROUND_SCORE_TARGET_NAME,
+        batches.VALUE_TARGET_NAME,
+        batches.POLICY_TARGET_NAME,
+        skynet.ROUND_SCORE_TARGET_NAME,
     )
 
 
@@ -129,7 +128,7 @@ def test_replay_buffer_evicts_complete_games_and_rejects_oversize_game():
     assert len(replay_buffer) == 6
     assert replay_buffer.game_indices == (11, 12)
     assert np.allclose(
-        replay_buffer.ordered_batch().value_targets[:, 0],
+        replay_buffer.ordered_batch().targets["value"][:, 0],
         [0.2, 0.2, 0.2, 0.2, 0.3, 0.3],
     )
     with pytest.raises(ValueError, match="exceeding replay capacity"):
@@ -173,9 +172,7 @@ def test_dataset_round_trip_writes_only_populated_rows(tmp_path):
     for name in expected.targets:
         assert np.array_equal(actual.targets[name], expected.targets[name])
     assert np.load(path / "spatial_inputs.npy", allow_pickle=False).shape[0] == 5
-    assert loaded.dataset_metadata["generation_metadata"] == {
-        "mcts_iterations": 4
-    }
+    assert loaded.dataset_metadata["generation_metadata"] == {"mcts_iterations": 4}
 
     replay_buffer.add_game_data(
         make_game_data(1, 0.4),
@@ -186,15 +183,13 @@ def test_dataset_round_trip_writes_only_populated_rows(tmp_path):
     replay_buffer.save(path, generation_metadata={"mcts_iterations": 5})
     overwritten = buffer.ReplayBuffer.load(path)
     assert overwritten.game_indices == (20, 21, 22)
-    assert overwritten.dataset_metadata["generation_metadata"] == {
-        "mcts_iterations": 5
-    }
+    assert overwritten.dataset_metadata["generation_metadata"] == {"mcts_iterations": 5}
 
     resumed = buffer.ReplayBuffer.from_config_or_load(
         buffer.Config(
             max_size=100,
             spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-            non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+            non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
             action_mask_shape=(sj.MASK_SIZE,),
             path=path,
         )
@@ -240,3 +235,25 @@ def test_dataset_rejects_empty_and_unsupported_version(tmp_path):
     manifest_path.write_text(__import__("json").dumps(manifest))
     with pytest.raises(buffer.DatasetFormatError, match="unsupported"):
         buffer.ReplayBuffer.load(path)
+
+
+@pytest.mark.parametrize("invalid", ["missing", "broadcast"])
+def test_rejected_append_preserves_retained_games_and_storage(invalid):
+    replay = make_replay_buffer(max_size=2)
+    replay.add_game_data(make_game_data(2), game_index=3)
+    before = replay.ordered_batch()
+    records = tuple(replay._games)
+    counters = (replay.count, replay._next_game_index, replay._write_index)
+    incoming = make_game_data(1)
+    if invalid == "missing":
+        incoming[0].targets.pop("policy")
+    else:
+        incoming[0].targets["value"] = np.array([1.0])
+    with pytest.raises((KeyError, ValueError)):
+        replay.add_game_data(incoming, game_index=9)
+    assert tuple(replay._games) == records
+    assert (replay.count, replay._next_game_index, replay._write_index) == counters
+    after = replay.ordered_batch()
+    np.testing.assert_array_equal(after.spatial_inputs, before.spatial_inputs)
+    for name in before.targets:
+        np.testing.assert_array_equal(after.targets[name], before.targets[name])

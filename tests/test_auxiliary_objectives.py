@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 import functools
 import pickle
 import random
@@ -8,20 +9,21 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 import torch
-
 from helpers import NaiveQuickFinishPlayer
 
 from skyjo import (
+    batches,
     buffer,
     checkpoint,
     experiment_config,
+    losses,
     objectives,
+    observations,
     play,
     predictor,
     skynet,
     targets,
     train,
-    train_utils,
 )
 from skyjo import game as sj
 
@@ -29,22 +31,22 @@ ALL = {name: 0.1 for name in objectives.REGISTRY}
 
 
 def terminal(scores, turn=0, stalled=()):
-    state = list(sj.new(players=len(scores), rng=random.Random(0)))
-    state[4], state[6] = turn, 0
-    state[0][
+    state = sj.new(players=len(scores), rng=random.Random(0))
+    state = dataclasses.replace(state, turn=turn, countdown=0)
+    state.game[
         sj.GAME_LAST_REVEALED_TURNS : sj.GAME_LAST_REVEALED_TURNS + len(scores)
     ] = turn
     for seat in stalled:
-        state[0][sj.GAME_LAST_REVEALED_TURNS + seat] = 0
-    state[1].fill(0)
-    state[1][: len(scores), :, :, sj.FINGER_CLEARED] = 1
+        state.game[sj.GAME_LAST_REVEALED_TURNS + seat] = 0
+    state.table.fill(0)
+    state.table[: len(scores), :, :, sj.FINGER_CLEARED] = 1
     for seat, score in enumerate(scores):
         # Three visible cards in a column, deliberately not a matching triple.
         values = [score, 0, 0] if score <= 12 else [12, score - 12, 0]
-        state[1][seat, :, 0, :] = 0
+        state.table[seat, :, 0, :] = 0
         for row, value in enumerate(values):
-            state[1][seat, row, 0, value + 2] = 1
-    return tuple(state)
+            state.table[seat, row, 0, value + 2] = 1
+    return state
 
 
 @pytest.mark.parametrize(
@@ -78,7 +80,7 @@ def result():
 def model(config, players=3):
     return skynet.EquivariantSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(players),
         value_output_shape=(players,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -257,12 +259,12 @@ def test_disabled_loss_and_diagnostic_preserve_optimizer_update(result):
     baseline = model({})
     net = copy.deepcopy(baseline)
     rows, _ = play.game_result_to_game_data(result, ALL)
-    batch = train_utils.game_data_to_training_batch(
+    batch = batches.game_data_to_training_batch(
         rows[:8], target_names=("value", "policy", *ALL)
     )
     rng = torch.get_rng_state()
     expected = train.train_step(
-        baseline, batch, train_utils.base_loss, train.make_optimizer(baseline, 1e-3)
+        baseline, batch, losses.base_loss, train.make_optimizer(baseline, 1e-3)
     )
     scales = {}
     actual = train.train_step(
@@ -286,10 +288,10 @@ def test_auxiliary_diagnostic_uses_shared_graph_without_changing_gradients(resul
 
     net = model(ALL)
     rows, _ = play.game_result_to_game_data(result, ALL)
-    batch = train_utils.game_data_to_training_batch(
+    batch = batches.game_data_to_training_batch(
         rows[:4], target_names=("value", "policy", *ALL)
     )
-    t = train_utils.numpy_targets_to_tensors(batch.targets, device=net.device)
+    t = batches.to_tensors(batch, device=net.device).targets
     out = net(
         torch.tensor(batch.spatial_inputs),
         torch.tensor(batch.non_spatial_inputs),
@@ -327,26 +329,26 @@ def test_normalized_losses_and_missing_labels():
 
 
 def test_final_reveal_clears_column_before_raw_score_target():
-    state = list(terminal([10, 5]))
+    state = terminal([10, 5])
     # Other player has a pair of -2 cards and one hidden card. Force the reveal
     # to -2 using a zero uniform draw; all earlier card types are exhausted.
-    state[1][1, :, 0, :] = 0
-    state[1][1, :2, 0, sj.CARD_N2] = 1
-    state[1][1, 2, 0, sj.FINGER_HIDDEN] = 1
-    state[0][sj.GAME_ACTION : sj.GAME_ACTION + sj.ACTION_SIZE] = 0
-    state[0][sj.GAME_ACTION + sj.ACTION_REPLACE] = 1
+    state.table[1, :, 0, :] = 0
+    state.table[1, :2, 0, sj.CARD_N2] = 1
+    state.table[1, 2, 0, sj.FINGER_HIDDEN] = 1
+    state.game[sj.GAME_ACTION : sj.GAME_ACTION + sj.ACTION_SIZE] = 0
+    state.game[sj.GAME_ACTION + sj.ACTION_REPLACE] = 1
     # Replace current player's visible 10 with the visible top 0; after rotation
     # the pending -2 reveal clears the other player's entire remaining column.
-    state[0][sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE] = 0
-    state[0][sj.GAME_TOP + sj.CARD_0] = 1
-    state[2][:] = np.array(sj.CARD_COUNTS) - state[1][:, :, :, : sj.CARD_SIZE].sum(
+    state.game[sj.GAME_TOP : sj.GAME_TOP + sj.CARD_SIZE] = 0
+    state.game[sj.GAME_TOP + sj.CARD_0] = 1
+    state.deck[:] = np.array(sj.CARD_COUNTS) - state.table[:, :, :, : sj.CARD_SIZE].sum(
         axis=(0, 1, 2)
     )
-    state[2][sj.CARD_0] -= 1
-    state[6] = 1
-    sj.validate(tuple(state))
+    state.deck[sj.CARD_0] -= 1
+    state = dataclasses.replace(state, countdown=1)
+    sj.validate(state)
     final = sj.apply_action(
-        tuple(state), sj.MASK_REPLACE, rng=SimpleNamespace(random=lambda: 0.0)
+        state, sj.MASK_REPLACE, rng=SimpleNamespace(random=lambda: 0.0)
     )
     summary = targets.terminal_summary(final)
     np.testing.assert_array_equal(summary.raw_scores, [0, 0])
@@ -356,7 +358,7 @@ def test_final_reveal_clears_column_before_raw_score_target():
 def test_configured_auxiliary_heads_preserve_column_symmetry():
     net = model(ALL).eval()
     spatial = torch.rand(2, 3, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE)
-    nonspatial = torch.rand(2, *skynet.get_non_spatial_input_shape(3))
+    nonspatial = torch.rand(2, *observations.get_non_spatial_input_shape(3))
     mask = torch.ones(2, sj.MASK_SIZE)
     permutation = torch.tensor([2, 0, 3, 1])
     with torch.inference_mode():
@@ -365,6 +367,8 @@ def test_configured_auxiliary_heads_preserve_column_symmetry():
     for name in ALL:
         assert original.auxiliary_outputs[name].shape == (2, 3)
         torch.testing.assert_close(
-            original.auxiliary_outputs[name], permuted.auxiliary_outputs[name],
-            atol=1e-6, rtol=1e-5,
+            original.auxiliary_outputs[name],
+            permuted.auxiliary_outputs[name],
+            atol=1e-6,
+            rtol=1e-5,
         )

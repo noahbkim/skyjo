@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -10,11 +8,9 @@ import torch
 import typer
 from typer.testing import CliRunner
 
-from skyjo import buffer, checkpoint, play, skynet, train, train_utils
-from skyjo import game as sj
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run_train_epoch  # noqa: E402
+from skyjo import batches, buffer, checkpoint, losses, observations, play, skynet, train
+from skyjo import game as sj
 
 
 def make_dataset(path, extra_targets=None):
@@ -22,7 +18,7 @@ def make_dataset(path, extra_targets=None):
     replay_buffer = buffer.ReplayBuffer(
         max_size=32,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         action_mask_shape=(sj.MASK_SIZE,),
         target_specs=(
             *buffer.core_target_specs(2, (sj.MASK_SIZE,)),
@@ -41,11 +37,11 @@ def make_dataset(path, extra_targets=None):
                 state,
                 None,
                 {
-                    train_utils.VALUE_TARGET_NAME: np.array(
+                    batches.VALUE_TARGET_NAME: np.array(
                         [game_index % 2, (game_index + 1) % 2],
                         dtype=np.float32,
                     ),
-                    train_utils.POLICY_TARGET_NAME: policy,
+                    batches.POLICY_TARGET_NAME: policy,
                     **extra_targets,
                 },
             )
@@ -69,7 +65,7 @@ def make_model() -> skynet.EquivariantSkyNet:
             sj.COLUMN_COUNT,
             sj.FINGER_SIZE,
         ),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -103,7 +99,7 @@ def test_loaded_dataset_training_resume_matches_uninterrupted_and_evaluates(
         "training": {"batch_size": 2, "loss": "base"},
         "dataset": {"dataset_id": complete.dataset_id, "split_seed": 3},
     }
-    loss_function = train_utils.base_loss
+    loss_function = losses.base_loss
 
     torch.manual_seed(4)
     initial_model = make_model()
@@ -383,10 +379,21 @@ def test_offline_objectives_are_explicit_even_with_legacy_extra_labels(
     app = typer.Typer()
     app.command()(run_train_epoch.main)
     arguments = [
-        str(dataset.path), "--steps", "1", "--batch-size", "2",
-        "--validation-fraction", "0", "--embedding-dimensions", "4",
-        "--global-state-embedding-dimensions", "8", "--num-heads", "1",
-        "--output-checkpoint", str(saved),
+        str(dataset.path),
+        "--steps",
+        "1",
+        "--batch-size",
+        "2",
+        "--validation-fraction",
+        "0",
+        "--embedding-dimensions",
+        "4",
+        "--global-state-embedding-dimensions",
+        "8",
+        "--num-heads",
+        "1",
+        "--output-checkpoint",
+        str(saved),
     ]
     if auxiliary is not None:
         arguments.extend(["--auxiliary-objectives", auxiliary])
@@ -406,9 +413,14 @@ def test_offline_enabled_objective_requires_matching_labels(tmp_path):
     dataset = make_dataset(tmp_path / "dataset")
     app = typer.Typer()
     app.command()(run_train_epoch.main)
-    result = CliRunner().invoke(app, [
-        str(dataset.path), "--auxiliary-objectives", '{"round_score": 0.1}',
-    ])
+    result = CliRunner().invoke(
+        app,
+        [
+            str(dataset.path),
+            "--auxiliary-objectives",
+            '{"round_score": 0.1}',
+        ],
+    )
     assert result.exit_code != 0
     assert "Missing required auxiliary" in result.output
     assert "round_score" in result.output

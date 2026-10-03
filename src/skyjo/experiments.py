@@ -13,7 +13,6 @@ import numpy as np
 
 from . import evaluation, experiment_config, runs
 
-
 overlay = experiment_config.overlay
 
 
@@ -123,14 +122,18 @@ def _child_result(path: pathlib.Path) -> dict:
 
 
 def launch_suite(
-    config: pathlib.Path, runs_dir: pathlib.Path, *, allow_dirty=False
+    config: pathlib.Path,
+    runs_dir: pathlib.Path,
+    *,
+    repository: pathlib.Path,
+    allow_dirty=False,
 ) -> pathlib.Path:
-    from distributed_main import launch
+    from .selfplay_training import launch
 
     resolved = load_suite(config)
     recorder = runs.RunRecorder.create(
         root=runs_dir,
-        repository=pathlib.Path(__file__).resolve().parents[2],
+        repository=repository,
         input_path=config,
         input_bytes=config.read_bytes(),
         configuration=resolved,
@@ -157,7 +160,12 @@ def launch_suite(
                 "child_started", context={**membership, "seed": child["seed"]}
             )
             started = time.perf_counter()
-            child_path = launch(path, recorder.path / "runs", allow_dirty)
+            child_path = launch(
+                path,
+                recorder.path / "runs",
+                allow_dirty=allow_dirty,
+                repository=repository,
+            )
             result = {
                 **child,
                 "configuration": configuration,

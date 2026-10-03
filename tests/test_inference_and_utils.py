@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from skyjo import game as sj
-from skyjo import predictor, skynet
+from skyjo import observations, predictor, skynet
 
 
 class InferenceCheckingSkyNet(skynet.EquivariantSkyNet):
@@ -19,7 +19,7 @@ def make_model(auxiliary_objectives=None):
     torch.manual_seed(3)
     return InferenceCheckingSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         embedding_dimensions=4,
@@ -39,10 +39,13 @@ def test_direct_predict_has_guaranteed_inference_mode() -> None:
     assert isinstance(prediction.policy_output, np.ndarray)
 
 
-@pytest.mark.parametrize("auxiliary", [
-    {},
-    {"round_score": 0.1, "round_raw_score": 0.1, "round_doubled": 0.1},
-])
+@pytest.mark.parametrize(
+    "auxiliary",
+    [
+        {},
+        {"round_score": 0.1, "round_raw_score": 0.1, "round_doubled": 0.1},
+    ],
+)
 def test_local_inference_preserves_all_predictions_across_chunks(auxiliary):
     model = make_model(auxiliary)
     inference = predictor.LocalPredictor(model, max_batch_size=2)
