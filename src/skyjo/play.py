@@ -11,6 +11,7 @@ import numpy as np
 from . import game as sj
 from . import objectives, player, skynet
 from .game_stats import GameStats, analyze_game
+from .targets import CONTEXT_BUILDERS
 
 # MARK: Types
 
@@ -87,7 +88,6 @@ def game_result_to_game_data(
     """Label observed decisions with the full-game outcome and summarize play."""
     stats = analyze_game(result)
     data = []
-    from .targets import CONTEXT_BUILDERS
 
     resolved = objectives.resolve(auxiliary_objectives)
     for round_index, round_result in enumerate(result.rounds):
