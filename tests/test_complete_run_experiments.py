@@ -187,7 +187,17 @@ initial_dataset="variant-data"
         experiments.load_suite(source)
 
 
-def test_evaluation_balances_seats_shares_ties_and_restores_rng(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "overrides, budgets",
+    [
+        ({}, [1, 1]),
+        ({"control_iterations": 3}, [3, 1]),
+        ({"control_iterations": 3, "variant_iterations": 7}, [3, 7]),
+    ],
+)
+def test_evaluation_balances_seats_shares_ties_and_restores_rng(
+    tmp_path, monkeypatch, overrides, budgets
+):
     control, variant = tmp_path / "control.pth", tmp_path / "variant.pth"
     control.write_bytes(b"control")
     variant.write_bytes(b"variant")
@@ -219,9 +229,17 @@ def test_evaluation_balances_seats_shares_ties_and_restores_rng(tmp_path, monkey
     np.random.seed(17)
     torch.manual_seed(17)
     saved = checkpoint.capture_rng_state()
+    streamed = []
     report = evaluation.evaluate_checkpoints(
-        control, variant, evaluation.EvaluationConfig(seed_count=2, iterations=1)
+        control,
+        variant,
+        evaluation.EvaluationConfig(seed_count=2, iterations=1, **overrides),
+        on_game=streamed.append,
     )
+    assert streamed == report["games"]
+    assert [s["mcts_iterations"] for s in settings_seen] == budgets
+    assert list(report["search_by_player"].values()) == settings_seen
+    assert all(r["search_by_player"] == report["search_by_player"] for r in streamed)
     assert random.getstate() == saved["python"]
     np.testing.assert_equal(np.random.get_state(), saved["numpy"])
     assert torch.equal(torch.get_rng_state(), saved["torch_cpu"])

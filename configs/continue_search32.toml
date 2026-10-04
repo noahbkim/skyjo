@@ -1,0 +1,19 @@
+extends = "long_selfplay_1024.toml"
+name = "continue-search32"
+description = "Eight-hour continuation from iteration 40, with four single-threaded self-play workers."
+initial_checkpoint = "../.runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/checkpoints/checkpoint_20261003_220110_781490.pth"
+
+[replay]
+initial_dataset = "../.runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/data/replay"
+
+[budget]
+iterations = 0
+max_seconds = 28800
+checkpoint_interval = 1
+
+[execution]
+workers = 4
+threads_per_worker = 1
+
+[search]
+iterations = 32

@@ -6,6 +6,7 @@ import dataclasses
 import pathlib
 import random
 import time
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -18,18 +19,24 @@ class EvaluationConfig:
     seed_count: int = 32
     seed: int = 0
     iterations: int = 128
+    control_iterations: int | None = None
+    variant_iterations: int | None = None
 
     def __post_init__(self):
         for name in ("seed_count", "iterations"):
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError(f"evaluation.{name} must be a positive integer")
+        for name in ("control_iterations", "variant_iterations"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not int or value < 1):
+                raise ValueError(f"evaluation.{name} must be a positive integer")
         if type(self.seed) is not int or not 0 <= self.seed <= 2**32 - 1:
             raise ValueError("evaluation.seed must fit a uint32")
 
-    def search(self):
+    def search(self, *, iterations: int | None = None):
         return player.ModelPlayerConfig(
             action_softmax_temperature=0.0,
-            mcts_iterations=self.iterations,
+            mcts_iterations=self.iterations if iterations is None else iterations,
             mcts_dirichlet_epsilon=0.0,
             mcts_after_state_evaluate_all_children=False,
             mcts_c_puct=1.0,
@@ -70,6 +77,8 @@ def evaluate_checkpoints(
     control: pathlib.Path,
     variant: pathlib.Path,
     settings: EvaluationConfig = EvaluationConfig(),
+    *,
+    on_game: Callable[[dict], None] | None = None,
 ) -> dict:
     """Compare checkpoints with common seeds and both seats; restore caller RNGs."""
     rng_state = checkpoint.capture_rng_state()
@@ -79,10 +88,14 @@ def evaluate_checkpoints(
             name: {"path": str(path.resolve()), "sha256": runs.file_digest(path)}
             for name, path in (("control", control), ("variant", variant))
         }
+        search_by_player = {
+            "control": settings.search(iterations=settings.control_iterations).kwargs(),
+            "variant": settings.search(iterations=settings.variant_iterations).kwargs(),
+        }
         agents = {
             name: player.ModelPlayer(
                 predictor.LocalPredictor(load_model(path), max_batch_size=1),
-                **settings.search().kwargs(),
+                **search_by_player[name],
             )
             for name, path in (("control", control), ("variant", variant))
         }
@@ -106,6 +119,7 @@ def evaluate_checkpoints(
                         "seed_index": index,
                         "seats": list(seats),
                         "checkpoints": identities,
+                        "search_by_player": search_by_player,
                         "cumulative_scores": list(scores),
                         "variant_win_credit": (
                             1.0 / len(result.winners)
@@ -116,9 +130,12 @@ def evaluate_checkpoints(
                         - scores[variant_seat],
                     }
                 )
+                if on_game is not None:
+                    on_game(records[-1])
         return {
             "settings": dataclasses.asdict(settings),
             "search": settings.search().kwargs(),
+            "search_by_player": search_by_player,
             "checkpoints": identities,
             "games": records,
             "variant_win_fraction": float(

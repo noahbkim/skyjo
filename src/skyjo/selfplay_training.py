@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import functools
 import json
@@ -20,6 +21,7 @@ import torch.multiprocessing as mp
 from . import (
     buffer,
     checkpoint,
+    continuation,
     experiment_config,
     experiment_training,
     explain,
@@ -31,6 +33,7 @@ from . import (
     predictor,
     runs,
     train,
+    training_budget,
 )
 from . import game as sj
 
@@ -196,8 +199,9 @@ def add_generated_games_to_buffer(
 def initialize_training_data_buffer(
     config: buffer.Config,
     initial_dataset_path: pathlib.Path | None = None,
+    expected_dataset_id: str | None = None,
 ) -> buffer.ReplayBuffer:
-    """Initialize fresh replay, optionally importing an explicit dataset snapshot."""
+    """Initialize fresh replay, optionally importing a stable dataset snapshot."""
     destination_manifest = (
         None if config.path is None else config.path / buffer.MANIFEST_FILE
     )
@@ -208,9 +212,47 @@ def initialize_training_data_buffer(
     if not (initial_dataset_path / buffer.MANIFEST_FILE).is_file():
         raise FileNotFoundError(f"No replay dataset found at {initial_dataset_path}")
 
+    def identity():
+        files = [
+            initial_dataset_path / buffer.MANIFEST_FILE,
+            *sorted(initial_dataset_path.rglob("*.npy")),
+        ]
+        return [
+            (
+                str(path.relative_to(initial_dataset_path)),
+                path.stat().st_ino,
+                path.stat().st_size,
+                path.stat().st_mtime_ns,
+            )
+            for path in files
+        ]
+
+    before = identity()
+    manifest_before = (initial_dataset_path / buffer.MANIFEST_FILE).read_bytes()
     replay_buffer = buffer.ReplayBuffer.from_config_or_load(
         dataclasses.replace(config, path=initial_dataset_path)
     )
+    # When capacity equals retained size, the loader returns read-only mmaps.
+    # Detach them before training can overwrite replay rows.
+    for name in ("spatial_input_buffer", "non_spatial_input_buffer", "action_masks"):
+        array = getattr(replay_buffer, name)
+        if not array.flags.writeable:
+            setattr(replay_buffer, name, array.copy())
+    for name, array in replay_buffer.target_buffers.items():
+        if not array.flags.writeable:
+            replay_buffer.target_buffers[name] = array.copy()
+    if (
+        before != identity()
+        or manifest_before != (initial_dataset_path / buffer.MANIFEST_FILE).read_bytes()
+    ):
+        raise ValueError("Initial replay changed while loading; use a stable snapshot")
+    if (
+        expected_dataset_id is not None
+        and replay_buffer.dataset_id != expected_dataset_id
+    ):
+        raise ValueError(
+            "Initial replay identity changed after configuration validation"
+        )
     replay_buffer.path = config.path
     return replay_buffer
 
@@ -298,7 +340,13 @@ def train_self_play(
     observations: experiment_training.ObservationConfig | None = None,
     auxiliary_targets: dict | None = None,
     auxiliary_objectives: dict | None = None,
+    parent: continuation.Continuation | None = None,
+    budget: training_budget.TrainingBudget | None = None,
+    expected_initial_dataset_id: str | None = None,
 ) -> None:
+    budget = budget or training_budget.TrainingBudget(
+        learn_config.learn_steps, learn_config.max_seconds
+    )
     observations = observations or experiment_training.ObservationConfig()
     if players != 2 and observations.concept_interval:
         logging.info(
@@ -329,6 +377,7 @@ def train_self_play(
     training_data_buffer = initialize_training_data_buffer(
         training_data_buffer_config,
         initial_training_dataset_path,
+        expected_initial_dataset_id,
     )
     model = models.build(
         model_settings,
@@ -338,6 +387,8 @@ def train_self_play(
     )
     optimizer = train.make_optimizer(model, training_config.learn_rate)
     run_configuration = {
+        "seed": run_seed,
+        "optimizer": {"type": "adam"},
         "players": players,
         "auxiliary_targets": auxiliary_targets or {"mode": "observed", "samples": 32},
         "model": {
@@ -360,9 +411,27 @@ def train_self_play(
             "loss_function": training_config.loss_function,
         },
     }
-    progress = checkpoint.TrainingProgress()
+    if parent is not None:
+        if initial_training_dataset_path is None:
+            raise ValueError("Continuation requires initial replay")
+        parent.restore(model, optimizer)
+        progress = parent.progress
+        checkpoint.restore_rng_state(parent.payload["rng_state"])
+    else:
+        progress = checkpoint.TrainingProgress()
 
-    state = experiment_training.TrainingState(progress)
+    next_game = (
+        parent.next_game(training_data_buffer)
+        if parent
+        else max(training_data_buffer.game_indices, default=-1) + 1
+    )
+    state = experiment_training.TrainingState(
+        progress,
+        inherited_progress=progress if parent else None,
+        inherited_generated_positions=parent.generated_positions if parent else 0,
+        next_game_index=next_game,
+    )
+    initial_iteration = progress.iteration
     recording = experiment_training.RecipeRecording(
         recorder,
         training_data_buffer,
@@ -374,13 +443,42 @@ def train_self_play(
         optimizer=optimizer,
         configuration=run_configuration,
         progress=progress,
+        continuation_state=state.continuation_state(),
     )
     initial = recording.register_snapshot(initial_path, state, role="initial")
     state = dataclasses.replace(state, snapshot=initial)
-    next_game = max(training_data_buffer.game_indices, default=-1) + 1
+    if parent is not None:
+        recording.event(
+            "continuation_started",
+            state,
+            context={
+                **parent.provenance,
+                "source_replay_path": str(initial_training_dataset_path),
+                "source_replay_dataset_id": training_data_buffer.dataset_id,
+                "next_game_index": next_game,
+            },
+        )
+    if initial_training_dataset_path is not None:
+        recording.save_replay(
+            training_data_buffer,
+            state=state,
+            generation=None,
+            generation_iteration=None,
+            game_count=0,
+            generation_settings={},
+        )
 
-    if observations.concepts_due(0, learn_config.learn_steps):
-        recording.concepts(state, explain.evaluate_concepts(model))
+    def evaluate_concepts():
+        rng = checkpoint.capture_rng_state()
+        try:
+            return explain.evaluate_concepts(model)
+        finally:
+            checkpoint.restore_rng_state(rng)
+
+    last_concepts = None
+    if observations.concept_interval:
+        recording.concepts(state, evaluate_concepts())
+        last_concepts = initial_iteration
     worker_settings = {
         "model_settings": model_settings,
         "auxiliary_objectives": auxiliary_objectives,
@@ -396,16 +494,30 @@ def train_self_play(
         "model_player": dataclasses.asdict(model_player_config),
         "auxiliary_targets": run_configuration["auxiliary_targets"],
     }
-    with mp.Pool(
-        processes=process_count,
-        initializer=configure_torch_worker,
-        initargs=(torch_threads_per_worker,),
-    ) as pool:
-        for iteration in range(progress.iteration + 1, learn_config.learn_steps + 1):
+    final_saved = False
+    with contextlib.ExitStack() as resources:
+        if budget.stop_reason(0) is None:
+            pool = resources.enter_context(
+                mp.Pool(
+                    processes=process_count,
+                    initializer=configure_torch_worker,
+                    initargs=(torch_threads_per_worker,),
+                )
+            )
+        # Pool/model construction must not consume a continuation's learner RNG.
+        if parent is not None:
+            checkpoint.restore_rng_state(parent.payload["rng_state"])
+        while budget.stop_reason(state.progress.iteration - initial_iteration) is None:
+            iteration = state.progress.iteration + 1
             iteration_started = time.perf_counter()
             timings = {}
             logging.info(
-                "[LEARN] Starting iteration %s/%s", iteration, learn_config.learn_steps
+                "[LEARN] Starting iteration %s | additional %s/%s | elapsed %.1fs / %ss",
+                iteration,
+                iteration - initial_iteration,
+                learn_config.learn_steps or "unlimited",
+                budget.elapsed(),
+                budget.max_seconds or "unlimited",
             )
 
             generation = state.snapshot
@@ -468,11 +580,13 @@ def train_self_play(
 
             concepts = None
             started = time.perf_counter()
-            if observations.concepts_due(iteration, learn_config.learn_steps):
-                concepts = explain.evaluate_concepts(model)
+            is_final = budget.stop_reason(iteration - initial_iteration) is not None
+            if observations.concepts_due(iteration, iteration if is_final else -1):
+                concepts = evaluate_concepts()
+                last_concepts = iteration
             timings["validation"] = time.perf_counter() - started
             started = time.perf_counter()
-            is_final = iteration == learn_config.learn_steps
+            is_final = budget.stop_reason(iteration - initial_iteration) is not None
             if is_final or iteration % checkpoint_interval == 0:
                 saved = recording.save_snapshot(
                     checkpoints_dir / f"checkpoint_{iteration:06d}.pth",
@@ -483,6 +597,7 @@ def train_self_play(
                     role="final" if is_final else "periodic",
                 )
                 state = dataclasses.replace(state, snapshot=saved)
+                final_saved = is_final
             timings["checkpoint_save"] = time.perf_counter() - started
 
             started = time.perf_counter()
@@ -499,8 +614,41 @@ def train_self_play(
                 recording.concepts(state, concepts)
             timings["iteration"] = time.perf_counter() - iteration_started
             recording.iteration(
-                state, prepared=prepared, replay=training_data_buffer, timings=timings
+                state,
+                prepared=prepared,
+                replay=training_data_buffer,
+                timings=timings,
+                budget_metrics=budget.metrics(),
             )
+
+    if observations.concept_interval and last_concepts != state.progress.iteration:
+        concepts = evaluate_concepts()
+    else:
+        concepts = None
+    if not final_saved:
+        saved = recording.save_snapshot(
+            checkpoints_dir / f"checkpoint_{state.progress.iteration:06d}_final.pth",
+            model,
+            optimizer,
+            run_configuration,
+            state,
+            role="final",
+        )
+        state = dataclasses.replace(state, snapshot=saved)
+    if concepts is not None:
+        recording.concepts(state, concepts)
+    metrics = budget.metrics()
+    reason = budget.stop_reason(state.progress.iteration - initial_iteration)
+    recording.event(
+        "budget_completed", state, metrics=metrics, context={"stop_reason": reason}
+    )
+    logging.info(
+        "[LEARN] Stopped: %s | %s additional iterations | elapsed %.1fs | overshoot %.1fs",
+        reason,
+        state.progress.iteration - initial_iteration,
+        metrics["time/run_seconds"],
+        metrics["time/budget_overshoot_seconds"],
+    )
 
 
 def create_random_potential_clear_position() -> sj.Skyjo:
@@ -516,12 +664,23 @@ def launch(
     repository: pathlib.Path,
     allow_dirty: bool = False,
 ) -> pathlib.Path:
-    """Start a fresh experiment and return its run directory."""
+    """Start one independent fresh or checkpoint-initialized recorded run."""
+    invocation_started = time.perf_counter()
     config = config.resolve()
     supplied, configuration_sources = experiment_config.configuration_sources(config)
     input_bytes = configuration_sources[-1]["content"].encode()
     resolved = experiment_config.resolve_configuration(
         supplied, base_directory=config.parent
+    )
+    budget = training_budget.TrainingBudget(
+        resolved["budget"]["iterations"],
+        resolved["budget"]["max_seconds"],
+        invocation_started,
+    )
+    parent = (
+        continuation.load(pathlib.Path(resolved["initial_checkpoint"]), resolved)
+        if resolved["initial_checkpoint"]
+        else None
     )
     recorder = runs.RunRecorder.create(
         root=runs_dir,
@@ -586,6 +745,7 @@ def launch(
                     "games_per_iteration"
                 ],
                 checkpoint_interval=resolved["budget"]["checkpoint_interval"],
+                max_seconds=resolved["budget"]["max_seconds"],
             )
             search = dict(resolved["search"])
             temperature = search.pop("action_softmax_temperature")
@@ -612,6 +772,9 @@ def launch(
             )
             initial_dataset = resolved["replay"]["initial_dataset"]
             train_self_play(
+                parent=parent,
+                budget=budget,
+                expected_initial_dataset_id=resolved["replay"]["dataset_id"],
                 auxiliary_targets=resolved["auxiliary_targets"],
                 process_count=execution["workers"],
                 torch_threads_per_worker=execution["threads_per_worker"],

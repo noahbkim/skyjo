@@ -192,8 +192,10 @@ To repeat a run under the current compatible code, launch its saved settings:
 uv run python distributed_main.py --config .runs/RUN_ID/resolved-config.json
 ```
 
-This creates a new run with fresh model initialization and the saved seed; it is
-not a resume. For historical reproduction, read the commit from `run.json`, create
+Without `initial_checkpoint`, this creates a new run with fresh model initialization
+and the saved seed. A continuation config instead starts again from its named parent,
+not from the child run's latest checkpoint. Neither operation resumes a run in place.
+For historical reproduction, read the commit from `run.json`, create
 a separate Git worktree at that commit, run `uv sync --locked` there, restore any
 required input dataset, and launch the saved JSON by absolute path. Saved code and
 seeds do not guarantee bit-identical results across devices or runtime versions.
@@ -230,6 +232,74 @@ whole snapshot.
 Completed, failed, and caught interrupted runs have explicit lifecycle events.
 An uncatchable termination may leave status `running` or an incomplete final JSONL
 line; only complete lines are evidence. There is no automatic recovery service.
+
+### Runtime budgets and checkpoint continuations
+
+The ordinary `[budget]` supports `iterations` and `max_seconds`. Zero disables a
+cap; at least one must be enabled. Existing configs default to `max_seconds = 0.0`.
+Time starts at runner entry, including configuration/model/replay loading, worker
+startup, generation, training, diagnostics, and saves. Every started iteration
+finishes completely, then the runner stops if either cap has been reached. It
+always registers a final checkpoint, even between periodic saves. A setup that
+exhausts the budget leaves an initialized final checkpoint without generating games.
+This is a soft time limit, not a deadline: the remainder of an iteration and
+finalization can exceed it. Separate faceoffs do not count toward training time.
+
+For a continuation, supply `initial_checkpoint` and `replay.initial_dataset` in
+an ordinary run config. Paths resolve relative to the file declaring them, including
+inherited files. Both inputs are required; use a stable replay snapshot (normally
+the completed parent's final replay). The runner verifies compatibility and detects
+replay replacement during loading. Inputs are never modified; a new run gets its
+own replay and checkpoints. Initial replay is copied before generation, and its
+child copy follows the ordinary latest-only retention policy.
+
+Weights, Adam moments/step counters, saved RNG state, and cumulative progress are
+restored. The child seed must match the parent's; legacy checkpoints obtain their
+seed from hash-verified parent-run records, so retain those records beside the
+checkpoint. New checkpoints retain the seed and next game index directly. Generation
+continues with unused game indices. Startup concept checks preserve RNG state.
+Model/player/head structure must match. Search, loss weights, batch size, replay
+ratio, and learning rate may change; child optimizer settings take precedence over
+saved settings without resetting moments. Offline sampler checkpoints and parent
+schedulers are not supported as ordinary self-play continuations.
+
+Iteration caps mean **additional** iterations in the child. For example, a parent
+at iteration 40 with `budget.iterations = 5` produces checkpoints through 45. Set
+`iterations = 0` explicitly for a time-only child, including when inheriting a config
+with an iteration cap. Cumulative counters remain available alongside
+`additional_*` progress. Unknown historical generated-position counts remain null;
+additional positions are always recorded. The final `budget_completed` event reports
+the stopping reason, actual invocation time, and overshoot. Parent checkpoint hashes,
+replay identity, inherited counters, and config changes appear in `continuation_started`.
+
+The checked-in `configs/continue_search32.toml` and
+`configs/continue_search128.toml` continue the completed iteration-40 run with
+32 and 128 search iterations respectively. They resolve the parent checkpoint
+and replay under this checkout's `.runs/20261003T045231Z-long-selfplay-1024-fdc1843ade`;
+change those two paths to use another compatible parent.
+
+Each config uses four self-play workers and one Torch thread per worker and
+learner. The higher-search config inherits all settings from the lower-search
+config except its name and search budget. Keep the 1,024-game generation batch
+and replay ratio unchanged so this only changes the available parallelism.
+Four workers halves the configured worker count, not necessarily throughput:
+concurrent learners, memory bandwidth, and different search costs also affect
+wall time.
+
+Launch each run separately in its own terminal. Both may run concurrently;
+there is no paired launcher, scheduler, or automatic evaluation:
+
+```sh
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 uv run python distributed_main.py --config configs/continue_search32.toml --runs-dir .runs
+```
+
+```sh
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 uv run python distributed_main.py --config configs/continue_search128.toml --runs-dir .runs
+```
+
+Use `--allow-dirty` during development. Each invocation independently copies the
+same parent state. Compare actual runtime, overshoot, generated positions, and
+optimizer steps; an eight-hour setting does not guarantee equal compute or volume.
 
 The next increments are curated Git-tracked experiment reports and findings,
 coherent resume, and focused comparison/evaluation tools. Historical compatibility,
@@ -306,6 +376,33 @@ The reusable `skyjo.evaluation.evaluate_checkpoints` accepts two versioned
 checkpoint paths and an `EvaluationConfig`, restores caller RNG state, and
 returns per-game identities, scores, shared-tie win credit, and summary metrics.
 Evaluation currently requires two-player checkpoints, checked before suite launch.
+
+Compare a frozen checkpoint at two search budgets without training:
+
+```bash
+uv run python run_checkpoint_comparison.py \
+  --control /path/to/checkpoint.pth \
+  --control-iterations 32 --variant-iterations 128 \
+  --seed-count 16 --seed 0 --threads 1 --runs-dir .runs
+```
+
+Omitting `--variant` uses the control checkpoint for both players. To compare
+training progress instead, supply `--variant /path/to/later-checkpoint.pth` and
+use `--iterations 32` for both players. Either per-player override falls back to
+`--iterations` (default 128). Add `--allow-dirty` for an uncommitted worktree.
+The library accepts the same overrides in `EvaluationConfig`; existing shared
+budgets keep their behavior.
+
+Each seed plays both seats, so 16 seeds produce 32 full games. Evaluation uses
+CPU inference, temperature zero, no Dirichlet noise, and outcome-only search.
+Seeds are common starting seeds, not guaranteed identical card sequences after
+search and actions diverge. `search_by_player` records the actual settings for
+each participant; the older `search` field retains the shared defaults.
+The CLI prints progress after every game and creates a recorded run containing
+checkpoint paths/hashes, per-game scores and win credit in `trajectory.jsonl`,
+and the final `comparison.json`. Completed game records survive interruption.
+Positive control-minus-variant score margins favor the variant; ties split win
+credit. Small comparisons screen for large effects, not proof of equal strength.
 
 The parent recorded run contains child configurations, independent child runs,
 per-pair comparison artifacts, and `comparison.json`. The report contains per-seed

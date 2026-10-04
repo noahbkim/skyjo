@@ -100,23 +100,30 @@ def _child_result(path: pathlib.Path) -> dict:
         json.loads(line)
         for line in (path / "trajectory.jsonl").read_text().splitlines()
     ]
-    last_iteration = next(
-        e for e in reversed(events) if e["kind"] == "iteration_completed"
+    last = next(
+        e
+        for e in reversed(events)
+        if e["kind"] in ("budget_completed", "iteration_completed")
     )
+    cumulative_times = {"time/run_seconds", "time/budget_overshoot_seconds"}
+    iterations = [e for e in events if e["kind"] == "iteration_completed"]
     timings = {
-        key: sum(
-            e["metrics"].get(key, 0)
-            for e in events
-            if e["kind"] == "iteration_completed"
-        )
-        for key in last_iteration["metrics"]
-        if key.startswith("time/")
+        key: sum(e["metrics"].get(key, 0) for e in iterations)
+        for key in {key for e in iterations for key in e["metrics"]}
+        if key.startswith("time/") and key not in cumulative_times
     }
+    timings.update(
+        {
+            key: last["metrics"][key]
+            for key in cumulative_times
+            if key in last["metrics"]
+        }
+    )
     return {
         "run_id": manifest["run_id"],
         "path": str(path),
         "checkpoint": {**final, "absolute_path": str(path / final["path"])},
-        "progress": last_iteration["progress"],
+        "progress": last["progress"],
         "timings": timings,
     }
 

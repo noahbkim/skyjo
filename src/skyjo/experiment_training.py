@@ -94,11 +94,43 @@ class TrainingState:
     progress: checkpoint.TrainingProgress
     generated_positions: int = 0
     snapshot: Snapshot | None = None
+    inherited_progress: checkpoint.TrainingProgress | None = None
+    inherited_generated_positions: int | None = 0
+    next_game_index: int = 0
 
     def point(self) -> dict:
-        return {
+        point = {
             **dataclasses.asdict(self.progress),
-            "generated_positions": self.generated_positions,
+            "generated_positions": self.generated_positions
+            + self.inherited_generated_positions
+            if self.inherited_generated_positions is not None
+            else None,
+        }
+        if self.inherited_progress is not None:
+            point.update(
+                {
+                    (
+                        "additional_iterations"
+                        if key == "iteration"
+                        else f"additional_{key}"
+                    ): getattr(self.progress, key)
+                    - getattr(self.inherited_progress, key)
+                    for key in (
+                        "iteration",
+                        "generated_games",
+                        "optimizer_steps",
+                        "sampled_positions",
+                        "trained_positions",
+                    )
+                }
+            )
+            point["additional_generated_positions"] = self.generated_positions
+        return point
+
+    def continuation_state(self) -> dict:
+        return {
+            "next_game_index": self.next_game_index,
+            "generated_positions": self.point()["generated_positions"],
         }
 
     def generated(self, *, games: int, positions: int) -> TrainingState:
@@ -108,10 +140,12 @@ class TrainingState:
                 self.progress, generated_games=self.progress.generated_games + games
             ),
             generated_positions=self.generated_positions + positions,
+            next_game_index=self.next_game_index + games,
         )
 
     def trained(self, *, iteration: int, steps: int, batch_size: int) -> TrainingState:
-        return TrainingState(
+        return dataclasses.replace(
+            self,
             progress=dataclasses.replace(
                 self.progress,
                 iteration=iteration,
@@ -121,6 +155,7 @@ class TrainingState:
                 trained_positions=self.progress.trained_positions + steps * batch_size,
             ),
             generated_positions=self.generated_positions,
+            snapshot=None,
         )
 
 
@@ -177,6 +212,7 @@ class RecipeRecording:
             optimizer=optimizer,
             configuration=configuration,
             progress=state.progress,
+            continuation_state=state.continuation_state(),
         )
         seconds = time.perf_counter() - started
         snapshot = self.register_snapshot(path, state, role=role)
@@ -207,18 +243,24 @@ class RecipeRecording:
         *,
         state: TrainingState,
         generation: Snapshot | None,
-        generation_iteration: int,
+        generation_iteration: int | None,
         game_count: int,
         generation_settings: dict,
     ) -> None:
-        batch = {
-            "run_id": self.recorder.manifest["run_id"] if self.recorder else None,
-            "generation_iteration": generation_iteration,
-            "game_count": game_count,
-            "checkpoint_artifact_id": generation.artifact_id if generation else None,
-            "checkpoint_path": str(generation.path) if generation else None,
-            "settings": generation_settings,
-        }
+        batch = (
+            None
+            if generation_iteration is None
+            else {
+                "run_id": self.recorder.manifest["run_id"] if self.recorder else None,
+                "generation_iteration": generation_iteration,
+                "game_count": game_count,
+                "checkpoint_artifact_id": generation.artifact_id
+                if generation
+                else None,
+                "checkpoint_path": str(generation.path) if generation else None,
+                "settings": generation_settings,
+            }
+        )
         metadata = {
             "initial_buffer": self.initial_buffer,
             "previous_dataset_id": self.previous_dataset_id,
@@ -321,6 +363,7 @@ class RecipeRecording:
         prepared: PreparedGames,
         replay,
         timings: dict,
+        budget_metrics: dict | None = None,
     ) -> None:
         games, before = prepared.games, prepared.replay_before
         new_positions = prepared.positions
@@ -344,6 +387,7 @@ class RecipeRecording:
                     0, before[1] + new_positions - len(replay)
                 ),
                 **{f"time/{key}_seconds": value for key, value in timings.items()},
+                **(budget_metrics or {}),
             },
             context={"game_sample_count": len(games)},
         )
@@ -361,6 +405,12 @@ class RecipeRecording:
             state.progress.iteration,
             timings["iteration"],
         )
+        if budget_metrics is not None:
+            logging.info(
+                "[BUDGET] Elapsed %.1fs / %ss",
+                budget_metrics["time/run_seconds"],
+                budget_metrics["budget/max_seconds"] or "unlimited",
+            )
         logging.debug("[LEARN] Phase timings (seconds): %s", timings)
 
     def save_rounds(

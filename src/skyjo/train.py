@@ -291,3 +291,4 @@ class LearnConfig(config.Config):
     learn_steps: int
     games_generated_per_iteration: int
     checkpoint_interval: int
+    max_seconds: float = 0.0

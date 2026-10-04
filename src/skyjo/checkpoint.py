@@ -95,6 +95,7 @@ def save_checkpoint(
     configuration: typing.Any = None,
     progress: TrainingProgress | None = None,
     sampling_rng: np.random.Generator | None = None,
+    continuation_state: dict | None = None,
 ) -> pathlib.Path:
     """Atomically save all state needed to resume a training run."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,6 +111,8 @@ def save_checkpoint(
     }
     if sampling_rng is not None:
         payload["sampling_rng_state"] = sampling_rng.bit_generator.state
+    if continuation_state is not None:
+        payload["continuation_state"] = continuation_state
     temporary_path = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, temporary_path)
     temporary_path.replace(path)

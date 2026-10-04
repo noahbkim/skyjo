@@ -19,6 +19,7 @@ DEFAULTS = {
     "notes": "",
     "seed": 0,
     "players": 2,
+    "initial_checkpoint": None,
     "auxiliary_objectives": {name: 0.0 for name in objectives.REGISTRY},
     "auxiliary_targets": {"mode": "observed", "samples": 32},
     "experiment": {"name": "", "variant": "", "suite_run_id": ""},
@@ -53,7 +54,7 @@ DEFAULTS = {
         "initial_dataset": None,
         "dataset_id": None,
     },
-    "budget": {"iterations": 10, "checkpoint_interval": 1},
+    "budget": {"iterations": 10, "max_seconds": 0.0, "checkpoint_interval": 1},
     "logging": {"progress_interval_seconds": 0.0},
     "validation": {"concept_interval": 5},
     "execution": {
@@ -97,6 +98,15 @@ def _merge(defaults: dict, supplied: dict, prefix: str = "") -> dict:
 def resolve_paths(config: dict, directory: pathlib.Path) -> dict:
     """Resolve path-valued settings at their declaration, including partial overrides."""
     config = copy.deepcopy(config)
+    if config.get("initial_checkpoint") is not None:
+        if (
+            not isinstance(config["initial_checkpoint"], str)
+            or not config["initial_checkpoint"]
+        ):
+            raise ValueError("initial_checkpoint must be a nonempty path string")
+        config["initial_checkpoint"] = str(
+            (directory / config["initial_checkpoint"]).resolve()
+        )
     replay = config.get("replay", {})
     if isinstance(replay, dict) and replay.get("initial_dataset") is not None:
         if not isinstance(replay["initial_dataset"], str):
@@ -185,12 +195,20 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         "selfplay": ("games_per_iteration", "games_per_task"),
         "search": ("iterations",),
         "replay": ("capacity",),
-        "budget": ("iterations", "checkpoint_interval"),
+        "budget": ("checkpoint_interval",),
         "execution": ("workers", "threads_per_worker"),
     }.items():
         for key in keys:
             if config[section][key] <= 0:
                 raise ValueError(f"{section}.{key} must be positive")
+    from .training_budget import validate_limits
+
+    validate_limits(config["budget"]["iterations"], config["budget"]["max_seconds"])
+    if config["initial_checkpoint"] is not None:
+        if replay["initial_dataset"] is None:
+            raise ValueError("initial_checkpoint requires replay.initial_dataset")
+        if not pathlib.Path(config["initial_checkpoint"]).is_file():
+            raise FileNotFoundError(config["initial_checkpoint"])
     if config["logging"]["progress_interval_seconds"] < 0:
         raise ValueError("logging.progress_interval_seconds cannot be negative")
     if config["validation"]["concept_interval"] < 0:
