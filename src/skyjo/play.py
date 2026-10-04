@@ -9,7 +9,7 @@ import typing
 import numpy as np
 
 from . import game as sj
-from . import player, skynet
+from . import objectives, player, skynet
 from .game_stats import GameStats, analyze_game
 
 # MARK: Types
@@ -75,17 +75,45 @@ class GameDataPoint(typing.NamedTuple):
 GameData: typing.TypeAlias = list[GameDataPoint]
 
 
-def game_result_to_game_data(result: GameResult) -> tuple[GameData, GameStats]:
+def game_result_to_game_data(
+    result: GameResult,
+    auxiliary_objectives=None,
+    *,
+    mode="observed",
+    samples=32,
+    seed=0,
+    game_index=0,
+) -> tuple[GameData, GameStats]:
     """Label observed decisions with the full-game outcome and summarize play."""
     stats = analyze_game(result)
     data = []
-    for round_result in result.rounds:
+    from .targets import CONTEXT_BUILDERS
+
+    resolved = objectives.resolve(auxiliary_objectives)
+    for round_index, round_result in enumerate(result.rounds):
+        contexts = {
+            dependency: CONTEXT_BUILDERS[dependency](
+                round_result,
+                mode=mode,
+                samples=samples,
+                seed=seed,
+                game_index=game_index,
+                round_index=round_index,
+            )
+            for dependency in {o.dependency for _, _, o in resolved.entries}
+        }
         for state, action, probabilities in round_result.history[:-1]:
             assert action is not None and probabilities is not None
             targets = {
                 "value": np.roll(stats.outcome_state_value, -sj.get_player(state)),
                 "policy": skynet.symmetrize_policy_target(state, probabilities),
             }
+            targets.update(
+                {
+                    name: objective.target(contexts[objective.dependency], state)
+                    for name, _, objective in resolved.entries
+                }
+            )
             data.append(GameDataPoint(state, action, targets))
     return data, stats
 

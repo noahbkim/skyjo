@@ -9,15 +9,26 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import json
 import pathlib
 import random
 import time
+from typing import Annotated
 
 import numpy as np
 import torch
 import typer
 
-from skyjo import buffer, checkpoint, skynet, train, train_utils
+from skyjo import (
+    buffer,
+    checkpoint,
+    losses,
+    models,
+    objectives,
+    offline,
+    skynet,
+    train,
+)
 
 DEFAULT_SEED = 0
 DEFAULT_BATCH_SIZE = 256
@@ -43,34 +54,21 @@ def build_model(
     embedding_dimensions: int,
     global_state_embedding_dimensions: int,
     num_heads: int,
+    auxiliary_objectives: dict | None = None,
 ) -> skynet.SkyNet:
-    value_targets = training_data_buffer.target_buffers[
-        train_utils.VALUE_TARGET_NAME
-    ]
-    policy_targets = training_data_buffer.target_buffers[
-        train_utils.POLICY_TARGET_NAME
-    ]
-    model_class = (
-        skynet.EquivariantSkyNetWithAuxiliaryHeads
-        if train_utils.FUTURE_CLEAR_TARGET_NAME
-        in training_data_buffer.target_buffers
-        else skynet.EquivariantSkyNet
-    )
-    return model_class(
-        spatial_input_shape=training_data_buffer.spatial_input_buffer.shape[1:],
-        non_spatial_input_shape=training_data_buffer.non_spatial_input_buffer.shape[
-            1:
-        ],
-        value_output_shape=value_targets.shape[1:],
-        policy_output_shape=policy_targets.shape[1:],
+    return models.build(
+        {
+            "embedding_dimensions": embedding_dimensions,
+            "global_state_embedding_dimensions": global_state_embedding_dimensions,
+            "num_heads": num_heads,
+        },
+        players=training_data_buffer.spatial_input_buffer.shape[1],
         device=device,
-        embedding_dimensions=embedding_dimensions,
-        global_state_embedding_dimensions=global_state_embedding_dimensions,
-        num_heads=num_heads,
+        auxiliary_objectives=auxiliary_objectives,
     )
 
 
-def _print_loss(prefix: str, loss_details: train_utils.LossDetails) -> None:
+def _print_loss(prefix: str, loss_details: losses.LossDetails) -> None:
     for name, value in sorted(loss_details.items()):
         typer.echo(f"{prefix}_{name}: {value:.8f}")
 
@@ -182,11 +180,13 @@ def main(
         "--policy-scale",
         help="Scale for the policy loss term.",
     ),
-    experiment_arm: str = typer.Option(
-        "control",
-        "--experiment-arm",
-        help="Auxiliary experiment preset: control, score, clear, or combined.",
-    ),
+    auxiliary_objectives: Annotated[
+        str | None,
+        typer.Option(
+            "--auxiliary-objectives",
+            help="JSON mapping of round objective names to weights; requires matching replay labels.",
+        ),
+    ] = None,
 ) -> None:
     """Train for an exact cumulative step budget and report evaluation loss."""
     device = torch.device(device_name)
@@ -194,20 +194,14 @@ def main(
 
     load_start = time.perf_counter()
     complete_buffer = buffer.ReplayBuffer.load(dataset_path)
-    try:
-        experiment = train_utils.get_auxiliary_experiment_preset(experiment_arm)
-    except ValueError as error:
-        raise typer.BadParameter(str(error), param_hint="--experiment-arm") from error
-    has_auxiliary_targets = (
-        train_utils.ROUND_SCORE_TARGET_NAME in complete_buffer.target_buffers
-        and train_utils.FUTURE_CLEAR_TARGET_NAME in complete_buffer.target_buffers
-    )
-    if (
-        experiment.round_score_scale > 0 or experiment.future_clear_scale > 0
-    ) and not has_auxiliary_targets:
+    selected_objectives = objectives.resolve(
+        json.loads(auxiliary_objectives) if auxiliary_objectives is not None else None
+    ).weights
+    missing = selected_objectives.keys() - complete_buffer.target_buffers.keys()
+    if missing:
         raise typer.BadParameter(
-            "selected experiment arm requires round_score and future_clear targets",
-            param_hint="--experiment-arm",
+            f"Missing required auxiliary targets: {sorted(missing)}",
+            param_hint="--auxiliary-objectives",
         )
     complete_buffer = _select_game_indices(complete_buffer, game_indices)
     if validation_fraction == 0.0:
@@ -226,23 +220,15 @@ def main(
         embedding_dimensions=embedding_dimensions,
         global_state_embedding_dimensions=global_state_embedding_dimensions,
         num_heads=num_heads,
+        auxiliary_objectives=selected_objectives,
     )
     optimizer = train.make_optimizer(model, learn_rate)
-    if has_auxiliary_targets:
-        loss_function = functools.partial(
-            train_utils.outcome_policy_auxiliary_loss,
-            value_scale=value_scale,
-            policy_scale=policy_scale,
-            round_score_scale=experiment.round_score_scale,
-            future_clear_scale=experiment.future_clear_scale,
-            clear_positive_weight=experiment.clear_positive_weight,
-        )
-    else:
-        loss_function = functools.partial(
-            train_utils.base_loss,
-            value_scale=value_scale,
-            policy_scale=policy_scale,
-        )
+    loss_function = functools.partial(
+        objectives.configured_loss,
+        auxiliary_objectives=selected_objectives,
+        value_scale=value_scale,
+        policy_scale=policy_scale,
+    )
     dataset_configuration = {
         "dataset_id": complete_buffer.dataset_id,
         "validation_fraction": validation_fraction,
@@ -251,36 +237,24 @@ def main(
     if game_indices:
         dataset_configuration["game_indices"] = list(complete_buffer.game_indices)
     resume_configuration = {
+        "players": model.players,
         "model": {
-            "name": getattr(model, "architecture_name", type(model).__name__),
+            "name": model.architecture_name,
             "embedding_dimensions": embedding_dimensions,
-            "global_state_embedding_dimensions": (
-                global_state_embedding_dimensions
-            ),
+            "global_state_embedding_dimensions": global_state_embedding_dimensions,
             "num_heads": num_heads,
+            "auxiliary_objectives": selected_objectives,
         },
         "training": {
             "optimizer": "adam",
             "batch_size": batch_size,
             "learn_rate": learn_rate,
             "loss": {
-                "name": "auxiliary" if has_auxiliary_targets else "base",
+                "name": "configured",
+                "auxiliary_objectives": selected_objectives,
                 "value_scale": value_scale,
                 "policy_scale": policy_scale,
-                **(
-                    {
-                        "experiment_arm": experiment.name,
-                        "round_score_scale": experiment.round_score_scale,
-                        "future_clear_scale": experiment.future_clear_scale,
-                        "clear_positive_weight": experiment.clear_positive_weight,
-                    }
-                    if has_auxiliary_targets
-                    else {}
-                ),
             },
-        },
-        "search": {
-            "score_utility_weight": experiment.score_utility_weight,
         },
         "dataset": dataset_configuration,
     }
@@ -300,31 +274,15 @@ def main(
         )
     remaining_steps = optimizer_steps - progress.optimizer_steps
 
+    trainer = offline.OfflineTrainer(model, optimizer, loss_function)
     train_start = time.perf_counter()
-    train.train_steps(
-        model,
-        training_buffer,
-        training_batch_size=batch_size,
-        optimizer_steps=remaining_steps,
-        optimizer=optimizer,
-        loss_function=loss_function,
-    )
+    trainer.fit(training_buffer, batch_size=batch_size, steps=remaining_steps)
     train_seconds = time.perf_counter() - train_start
 
     validation_start = time.perf_counter()
-    training_loss = train.evaluate_loss(
-        model,
-        training_buffer,
-        evaluation_batch_size=batch_size,
-        loss_function=loss_function,
-    )
+    training_loss = trainer.evaluate(training_buffer, batch_size=batch_size)
     validation_loss = (
-        train.evaluate_loss(
-            model,
-            validation_buffer,
-            evaluation_batch_size=batch_size,
-            loss_function=loss_function,
-        )
+        trainer.evaluate(validation_buffer, batch_size=batch_size)
         if validation_buffer is not None
         else None
     )

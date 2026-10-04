@@ -1,0 +1,6 @@
+extends = "round_score_doubling.toml"
+name = "round-score-weight-1"
+description = "Regular 16/32 model with raw-score loss weight 1.0 and doubling weight 0.1."
+
+[auxiliary_objectives]
+round_raw_score = 1.0

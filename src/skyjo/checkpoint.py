@@ -72,7 +72,9 @@ def capture_rng_state() -> dict[str, typing.Any]:
         "python": random.getstate(),
         "numpy": np.random.get_state(),
         "torch_cpu": torch.get_rng_state(),
-        "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+        "torch_cuda": torch.cuda.get_rng_state_all()
+        if torch.cuda.is_available()
+        else [],
     }
 
 
@@ -92,6 +94,8 @@ def save_checkpoint(
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     configuration: typing.Any = None,
     progress: TrainingProgress | None = None,
+    sampling_rng: np.random.Generator | None = None,
+    continuation_state: dict | None = None,
 ) -> pathlib.Path:
     """Atomically save all state needed to resume a training run."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,6 +109,10 @@ def save_checkpoint(
         "configuration": normalize_configuration(configuration),
         "progress": dataclasses.asdict(progress or TrainingProgress()),
     }
+    if sampling_rng is not None:
+        payload["sampling_rng_state"] = sampling_rng.bit_generator.state
+    if continuation_state is not None:
+        payload["continuation_state"] = continuation_state
     temporary_path = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, temporary_path)
     temporary_path.replace(path)
@@ -119,6 +127,7 @@ def load_checkpoint(
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     expected_configuration: typing.Any = None,
     restore_rng: bool = True,
+    sampling_rng: np.random.Generator | None = None,
     map_location: torch.device | str | None = None,
 ) -> TrainingProgress:
     """Load a strict Skyjo checkpoint into supplied runtime objects."""
@@ -133,7 +142,7 @@ def load_checkpoint(
         )
 
     actual_configuration = payload.get("configuration")
-    if expected_configuration is not None and actual_configuration is not None:
+    if expected_configuration is not None:
         expected = normalize_configuration(expected_configuration)
         if actual_configuration != expected:
             raise ValueError(
@@ -141,42 +150,78 @@ def load_checkpoint(
                 f"checkpoint={actual_configuration!r}, active={expected!r}"
             )
 
+    # Validate requested state before changing the model, optimizer, or RNGs.
+    required = ["model_state_dict", "progress"]
+    if optimizer is not None:
+        required.append("optimizer_state_dict")
+    if scheduler is not None:
+        required.append("scheduler_state_dict")
+    if restore_rng:
+        required.append("rng_state")
+    if sampling_rng is not None:
+        required.append("sampling_rng_state")
+    for name in required:
+        if payload.get(name) is None:
+            raise CheckpointFormatError(f"Checkpoint is missing required {name}")
+    try:
+        if not isinstance(payload["model_state_dict"], dict):
+            raise ValueError("model state must be a mapping")
+        if optimizer is not None:
+            saved = payload["optimizer_state_dict"]
+            if not isinstance(saved, dict) or not isinstance(saved.get("state"), dict):
+                raise ValueError("invalid optimizer state")
+            groups = saved.get("param_groups")
+            if not isinstance(groups, list) or len(groups) != len(
+                optimizer.param_groups
+            ):
+                raise ValueError("optimizer parameter groups do not match")
+            for actual, expected in zip(groups, optimizer.param_groups, strict=True):
+                if not isinstance(actual, dict) or not isinstance(
+                    actual.get("params"), list
+                ):
+                    raise ValueError("invalid optimizer parameter group")
+                if len(actual["params"]) != len(expected["params"]):
+                    raise ValueError("optimizer parameter counts do not match")
+        if scheduler is not None:
+            saved = payload["scheduler_state_dict"]
+            if (
+                not isinstance(saved, dict)
+                or scheduler.state_dict().keys() - saved.keys()
+            ):
+                raise ValueError("incomplete scheduler state")
+        progress = TrainingProgress(**payload["progress"])
+        if any(
+            type(value) is not int or value < 0
+            for value in dataclasses.asdict(progress).values()
+        ):
+            raise ValueError("progress counters must be nonnegative integers")
+        if restore_rng:
+            rng = payload["rng_state"]
+            random.Random().setstate(rng["python"])
+            np.random.RandomState().set_state(rng["numpy"])
+            torch.Generator().set_state(rng["torch_cpu"].cpu())
+            if not isinstance(rng["torch_cuda"], list):
+                raise ValueError("CUDA RNG state must be a list")
+            for state in rng["torch_cuda"]:
+                if (
+                    not isinstance(state, torch.Tensor)
+                    or state.dtype != torch.uint8
+                    or state.ndim != 1
+                ):
+                    raise ValueError("invalid CUDA RNG state")
+        if sampling_rng is not None:
+            probe = type(sampling_rng.bit_generator)()
+            probe.state = payload["sampling_rng_state"]
+    except (KeyError, TypeError, ValueError, RuntimeError, AttributeError) as error:
+        raise CheckpointFormatError(f"Invalid checkpoint metadata: {error}") from error
+
     model.load_state_dict(payload["model_state_dict"])
-    optimizer_state = payload.get("optimizer_state_dict")
-    if optimizer is not None and optimizer_state is not None:
-        optimizer.load_state_dict(optimizer_state)
-    scheduler_state = payload.get("scheduler_state_dict")
-    if scheduler is not None and scheduler_state is not None:
-        scheduler.load_state_dict(scheduler_state)
+    if optimizer is not None:
+        optimizer.load_state_dict(payload["optimizer_state_dict"])
+    if scheduler is not None:
+        scheduler.load_state_dict(payload["scheduler_state_dict"])
+    if sampling_rng is not None:
+        sampling_rng.bit_generator.state = payload["sampling_rng_state"]
     if restore_rng:
         restore_rng_state(payload["rng_state"])
-    return TrainingProgress(**payload["progress"])
-
-
-def load_auxiliary_warm_start(
-    path: pathlib.Path,
-    *,
-    model: torch.nn.Module,
-    map_location: torch.device | str | None = None,
-) -> None:
-    """Load a baseline checkpoint while allowing only new auxiliary heads."""
-    payload = torch.load(path, map_location=map_location, weights_only=False)
-    if not isinstance(payload, dict) or payload.get("format") != CHECKPOINT_FORMAT:
-        raise CheckpointFormatError(f"{path} is not a {CHECKPOINT_FORMAT} file")
-    if payload.get("version") != CHECKPOINT_VERSION:
-        raise CheckpointFormatError(
-            f"unsupported checkpoint version {payload.get('version')!r}; "
-            f"expected {CHECKPOINT_VERSION}"
-        )
-    incompatible = model.load_state_dict(payload["model_state_dict"], strict=False)
-    allowed_prefixes = ("round_score_tail.", "future_clear_tail.")
-    invalid_missing = [
-        key
-        for key in incompatible.missing_keys
-        if not key.startswith(allowed_prefixes)
-    ]
-    if invalid_missing or incompatible.unexpected_keys:
-        raise RuntimeError(
-            "warm-start checkpoint is incompatible outside auxiliary heads: "
-            f"missing={invalid_missing}, unexpected={incompatible.unexpected_keys}"
-        )
+    return progress

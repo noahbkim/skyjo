@@ -1,0 +1,5 @@
+extends = "continue_search32.toml"
+name = "continue-search128"
+
+[search]
+iterations = 128

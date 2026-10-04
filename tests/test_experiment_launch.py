@@ -7,11 +7,9 @@ from pathlib import Path
 import pytest
 import torch
 
-from skyjo import buffer, checkpoint, experiment_config, skynet
+from skyjo import buffer, checkpoint, experiment_config, selfplay_training, skynet
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPOSITORY))
-import distributed_main  # noqa: E402
 
 
 def events(path):
@@ -38,7 +36,12 @@ def test_invalid_config_fails_before_creating_run(tmp_path):
     config = tmp_path / "bad.toml"
     config.write_text("[training]\nbatch_size = 0\n")
     with pytest.raises(ValueError, match="training.batch_size must be positive"):
-        distributed_main.launch(config, tmp_path / "runs", allow_dirty=True)
+        selfplay_training.launch(
+            config,
+            tmp_path / "runs",
+            allow_dirty=True,
+            repository=REPOSITORY,
+        )
     assert not (tmp_path / "runs").exists()
 
 
@@ -72,7 +75,8 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         assert "Not suitable" in (run_path / "notes.md").read_text()
         trace = events(run_path / "trajectory.jsonl")
         assert any(
-            e["kind"] == "training" and "loss/outcome_value_loss" in e["metrics"] for e in trace
+            e["kind"] == "training" and "loss/outcome_value_loss" in e["metrics"]
+            for e in trace
         )
         artifacts = events(run_path / "artifacts.jsonl")
         checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
@@ -114,10 +118,16 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         assert replay.dataset_id == data_record["metadata"]["dataset_id"]
         assert replay.game_count == 2
         assert set(replay.target_names) == {"value", "policy"}
-        initial_payload = torch.load(run_path / checkpoints[0]["path"], weights_only=False)
-        final_payload = torch.load(run_path / checkpoints[-1]["path"], weights_only=False)
-        assert any(not torch.equal(initial_payload["model_state_dict"][k], v)
-                   for k, v in final_payload["model_state_dict"].items())
+        initial_payload = torch.load(
+            run_path / checkpoints[0]["path"], weights_only=False
+        )
+        final_payload = torch.load(
+            run_path / checkpoints[-1]["path"], weights_only=False
+        )
+        assert any(
+            not torch.equal(initial_payload["model_state_dict"][k], v)
+            for k, v in final_payload["model_state_dict"].items()
+        )
         final = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"][-1]
         model = skynet.EquivariantSkyNet(
             spatial_input_shape=replay.spatial_input_buffer.shape[1:],
@@ -159,9 +169,7 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
 def test_continuous_training_records_exact_snapshots(
     tmp_path, monkeypatch, iterations, interval
 ):
-    _, config = experiment_config.load_configuration(
-        REPOSITORY / "configs/smoke.toml"
-    )
+    _, config = experiment_config.load_configuration(REPOSITORY / "configs/smoke.toml")
     config["budget"].update(iterations=iterations, checkpoint_interval=interval)
     config["selfplay"]["games_per_iteration"] = 1
     source = tmp_path / "small.json"
@@ -170,12 +178,14 @@ def test_continuous_training_records_exact_snapshots(
     # Real generation and optimizer updates.
     # Capture training outputs so checkpoint assertions detect any later rollback.
     trained = []
-    original_train = distributed_main.train.train_steps
+    original_train = selfplay_training.train.train_steps
 
     def capture_training(model, replay, **kwargs):
         optimizer = kwargs["optimizer"]
         if trained:
-            torch.testing.assert_close(model.state_dict(), trained[-1][0], rtol=0, atol=0)
+            torch.testing.assert_close(
+                model.state_dict(), trained[-1][0], rtol=0, atol=0
+            )
             torch.testing.assert_close(
                 optimizer.state_dict(), trained[-1][1], rtol=0, atol=0
             )
@@ -183,9 +193,13 @@ def test_continuous_training_records_exact_snapshots(
         trained.append(copy.deepcopy((model.state_dict(), optimizer.state_dict())))
         return losses
 
-    monkeypatch.setattr(distributed_main.train, "train_steps", capture_training)
-    path = distributed_main.launch(source, tmp_path / "runs", allow_dirty=True)
-    trace = events(path / "trajectory.jsonl")
+    monkeypatch.setattr(selfplay_training.train, "train_steps", capture_training)
+    path = selfplay_training.launch(
+        source,
+        tmp_path / "runs",
+        allow_dirty=True,
+        repository=REPOSITORY,
+    )
     artifacts = events(path / "artifacts.jsonl")
     boundaries = sorted({*range(interval, iterations + 1, interval), iterations})
     checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
@@ -203,12 +217,14 @@ def test_continuous_training_records_exact_snapshots(
         torch.testing.assert_close(
             payload["optimizer_state_dict"], optimizer_state, rtol=0, atol=0
         )
-        assert payload["progress"]["optimizer_steps"] == saved["progress"]["optimizer_steps"]
+        assert (
+            payload["progress"]["optimizer_steps"]
+            == saved["progress"]["optimizer_steps"]
+        )
         assert all(
             s["step"].item() == payload["progress"]["optimizer_steps"]
             for s in optimizer_state["state"].values()
         )
-
 
     replays = [e for e in artifacts if e.get("artifact_kind") == "replay_data"]
     superseded = [e for e in artifacts if e["kind"] == "superseded"]
@@ -231,3 +247,24 @@ def test_continuous_training_records_exact_snapshots(
     assert manifest["dataset_id"] == replays[-1]["metadata"]["dataset_id"]
     assert manifest["source_checkpoint"] is None
     assert manifest["game_count"] == iterations
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"players": 9},
+        {"players": 1},
+        {"search": {"c_puct": 0}},
+        {"search": {"c_puct": float("inf")}},
+        {"search": {"action_softmax_temperature": -1}},
+        {"search": {"action_softmax_temperature": float("nan")}},
+    ],
+)
+def test_invalid_domain_config_fails_before_creating_artifacts(tmp_path, settings):
+    config = tmp_path / "invalid.json"
+    config.write_text(json.dumps(settings))
+    with pytest.raises(ValueError):
+        selfplay_training.launch(
+            config, tmp_path / "runs", repository=REPOSITORY, allow_dirty=True
+        )
+    assert not (tmp_path / "runs").exists()

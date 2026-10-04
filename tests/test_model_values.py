@@ -3,23 +3,7 @@ import pytest
 import torch
 
 import skyjo as sj
-from skyjo import skynet, train_utils
-
-
-def test_scores_to_score_differential_value_two_players():
-    scores = np.array([20, 35], dtype=np.float32)
-
-    actual = skynet.scores_to_score_differential_value(scores)
-
-    assert np.array_equal(actual, np.array([0, -15], dtype=np.float32))
-
-
-def test_scores_to_score_differential_value_multi_player_tie_for_best():
-    scores = np.array([10, 25, 10], dtype=np.float32)
-
-    actual = skynet.scores_to_score_differential_value(scores)
-
-    assert np.array_equal(actual, np.array([0, -15, 0], dtype=np.float32))
+from skyjo import losses, observations, skynet
 
 
 def test_normalize_round_scores_uses_expanded_bounds():
@@ -40,7 +24,7 @@ def test_normalize_round_scores_uses_expanded_bounds():
 def test_equivariant_skynet_value_returns_outcome_probability_simplex():
     model = skynet.EquivariantSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -59,7 +43,7 @@ def test_equivariant_skynet_value_returns_outcome_probability_simplex():
                 sj.COLUMN_COUNT,
                 sj.FINGER_SIZE,
             ),
-            torch.rand(batch_size, *skynet.get_non_spatial_input_shape(2)),
+            torch.rand(batch_size, *observations.get_non_spatial_input_shape(2)),
             torch.ones(batch_size, sj.MASK_SIZE),
         )
 
@@ -80,9 +64,10 @@ def test_outcome_probability_tail_still_returns_probability_simplex():
 
 
 def test_auxiliary_round_score_model_returns_round_score_output():
-    model = skynet.EquivariantSkyNetWithRoundScoreAux(
+    model = skynet.EquivariantSkyNet(
+        auxiliary_objectives={"round_score": 0.1},
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
         device=torch.device("cpu"),
@@ -101,7 +86,7 @@ def test_auxiliary_round_score_model_returns_round_score_output():
                 sj.COLUMN_COUNT,
                 sj.FINGER_SIZE,
             ),
-            torch.rand(batch_size, *skynet.get_non_spatial_input_shape(2)),
+            torch.rand(batch_size, *observations.get_non_spatial_input_shape(2)),
             torch.ones(batch_size, sj.MASK_SIZE),
         )
 
@@ -119,15 +104,12 @@ def test_base_loss_uses_outcome_mse():
     policy_output = torch.tensor([[0.0, 0.0]], dtype=torch.float32)
     policy_target = torch.tensor([[1.0, 0.0]], dtype=torch.float32)
 
-    loss, details = train_utils.base_loss(
+    loss, details = losses.base_loss(
         skynet.EquivariantOutput(
             value_output,
             policy_output,
         ),
-        train_utils.TensorTrainingTargets(
-            value_target,
-            policy_target,
-        ),
+        {"value": value_target, "policy": policy_target},
         policy_scale=0.0,
     )
 

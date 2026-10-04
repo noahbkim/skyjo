@@ -11,12 +11,8 @@ from collections import deque
 
 import numpy as np
 
-from . import checkpoint
-from . import config
+from . import batches, checkpoint, config, play
 from . import game as sj
-from . import play
-from . import skynet
-from . import train_utils
 
 DATASET_FORMAT = "skyjo.replay-dataset"
 DATASET_VERSION = 1
@@ -45,45 +41,12 @@ def core_target_specs(
 ) -> TargetSpecs:
     return (
         TargetShapeSpec(
-            name=train_utils.VALUE_TARGET_NAME,
+            name=batches.VALUE_TARGET_NAME,
             shape=(players,),
         ),
         TargetShapeSpec(
-            name=train_utils.POLICY_TARGET_NAME,
+            name=batches.POLICY_TARGET_NAME,
             shape=action_mask_shape,
-        ),
-    )
-
-
-def auxiliary_target_specs(
-    players: int,
-    action_mask_shape: tuple[int, ...],
-    columns: int = sj.COLUMN_COUNT,
-) -> TargetSpecs:
-    """Target schema shared by score/clearing experiment arms."""
-    return (
-        *core_target_specs(players, action_mask_shape),
-        TargetShapeSpec(
-            name=train_utils.ROUND_SCORE_TARGET_NAME,
-            shape=(players,),
-        ),
-        TargetShapeSpec(
-            name=train_utils.FUTURE_CLEAR_TARGET_NAME,
-            shape=(players, columns),
-        ),
-    )
-
-
-def round_score_target_specs(
-    players: int,
-    action_mask_shape: tuple[int, ...],
-) -> TargetSpecs:
-    """Target schema for outcome, policy, and final-round-score training."""
-    return (
-        *core_target_specs(players, action_mask_shape),
-        TargetShapeSpec(
-            name=train_utils.ROUND_SCORE_TARGET_NAME,
-            shape=(players,),
         ),
     )
 
@@ -244,7 +207,10 @@ class ReplayBuffer:
             config.non_spatial_input_shape,
             config.action_mask_shape,
         )
-        if actual_shapes != expected_shapes or replay_buffer.target_specs != expected_specs:
+        if (
+            actual_shapes != expected_shapes
+            or replay_buffer.target_specs != expected_specs
+        ):
             raise ValueError(
                 "saved replay dataset does not match the configured shapes or targets"
             )
@@ -265,7 +231,9 @@ class ReplayBuffer:
             with manifest_path.open(encoding="utf-8") as file:
                 manifest = json.load(file)
         except (OSError, json.JSONDecodeError) as error:
-            raise DatasetFormatError(f"could not read {manifest_path}: {error}") from error
+            raise DatasetFormatError(
+                f"could not read {manifest_path}: {error}"
+            ) from error
         if not isinstance(manifest, dict) or manifest.get("format") != DATASET_FORMAT:
             raise DatasetFormatError(f"{path} is not a {DATASET_FORMAT} dataset")
         if manifest.get("version") != DATASET_VERSION:
@@ -383,7 +351,12 @@ class ReplayBuffer:
             raise DatasetFormatError("dataset game_count must be positive")
         if not isinstance(manifest.get("dataset_id"), str):
             raise DatasetFormatError("dataset manifest is missing dataset_id")
-        arrays = (spatial_inputs, non_spatial_inputs, action_masks, *target_arrays.values())
+        arrays = (
+            spatial_inputs,
+            non_spatial_inputs,
+            action_masks,
+            *target_arrays.values(),
+        )
         if any(len(array) != position_count for array in arrays):
             raise DatasetFormatError("dataset arrays do not match position_count")
         expected_shapes = {
@@ -526,15 +499,11 @@ class ReplayBuffer:
                 (capacity, *action_masks.shape[1:]), dtype=action_masks.dtype
             )
             replay_buffer.target_buffers = {
-                name: np.empty(
-                    (capacity, *values.shape[1:]), dtype=values.dtype
-                )
+                name: np.empty((capacity, *values.shape[1:]), dtype=values.dtype)
                 for name, values in target_arrays.items()
             }
             replay_buffer.spatial_input_buffer[:position_count] = spatial_inputs
-            replay_buffer.non_spatial_input_buffer[:position_count] = (
-                non_spatial_inputs
-            )
+            replay_buffer.non_spatial_input_buffer[:position_count] = non_spatial_inputs
             replay_buffer.action_masks[:position_count] = action_masks
             for name, values in target_arrays.items():
                 replay_buffer.target_buffers[name][:position_count] = values
@@ -620,27 +589,33 @@ class ReplayBuffer:
             game_index = self._next_game_index
         if any(record.game_index == game_index for record in self._games):
             raise ValueError(f"game_index {game_index} is already in the buffer")
-        self._next_game_index = max(self._next_game_index, game_index + 1)
+        # Prepare the whole game before eviction: a rejected append is a no-op.
+        prepared = batches.game_data_to_training_batch(game_data, self.target_names)
+        arrays = [
+            prepared.spatial_inputs,
+            prepared.non_spatial_inputs,
+            prepared.action_masks,
+        ]
+        destinations = [
+            self.spatial_input_buffer,
+            self.non_spatial_input_buffer,
+            self.action_masks,
+        ]
+        arrays.extend(prepared.targets[name] for name in self.target_names)
+        destinations.extend(self.target_buffers[name] for name in self.target_names)
+        for array, destination in zip(arrays, destinations, strict=True):
+            expected = (game_length, *destination.shape[1:])
+            if array.shape != expected:
+                raise ValueError(f"Expected replay shape {expected}, got {array.shape}")
 
+        self._next_game_index = max(self._next_game_index, game_index + 1)
         while self._games and self._size + game_length > self.max_size:
             evicted = self._games.popleft()
             self._size -= evicted.length
-
         start = self._write_index
-        for offset, data_point in enumerate(game_data):
-            index = (start + offset) % self.max_size
-            normalized_targets = train_utils.normalize_numpy_targets(
-                data_point.targets, self.target_names
-            )
-            self.spatial_input_buffer[index] = skynet.get_spatial_state_numpy(
-                data_point.state
-            )
-            self.non_spatial_input_buffer[index] = (
-                skynet.get_non_spatial_state_numpy(data_point.state)
-            )
-            self.action_masks[index] = sj.actions(data_point.state).astype(np.float32)
-            for name, target_buffer in self.target_buffers.items():
-                target_buffer[index] = normalized_targets[name]
+        indices = (start + np.arange(game_length)) % self.max_size
+        for array, destination in zip(arrays, destinations, strict=True):
+            destination[indices] = array
 
         self._games.append(
             GameRecord(
@@ -655,31 +630,18 @@ class ReplayBuffer:
         self._size += game_length
         self.count += game_length
 
-    def sample_element(self) -> train_utils.TrainingDataPoint:
-        if not self:
-            raise ValueError("ReplayBuffer is empty")
-        logical_index = np.random.randint(len(self))
-        index = int(
-            self._logical_to_physical(np.array([logical_index], dtype=np.int64))[0]
-        )
-        return train_utils.TrainingDataPoint(
-            self.spatial_input_buffer[index],
-            self.non_spatial_input_buffer[index],
-            self.action_masks[index],
-            {
-                name: target_buffer[index]
-                for name, target_buffer in self.target_buffers.items()
-            },
-        )
-
-    def sample_batch(self, batch_size: int) -> train_utils.TrainingBatch:
+    def sample_batch(
+        self, batch_size: int, *, rng: np.random.Generator | None = None
+    ) -> batches.TrainingBatch:
         if not self:
             raise ValueError("ReplayBuffer is empty")
         if batch_size < 1:
             raise ValueError("batch_size must be at least one")
-        logical_indices = np.random.choice(len(self), size=batch_size, replace=True)
+        logical_indices = (np.random if rng is None else rng).choice(
+            len(self), size=batch_size, replace=True
+        )
         indices = self._logical_to_physical(logical_indices)
-        return train_utils.TrainingBatch(
+        return batches.TrainingBatch(
             self.spatial_input_buffer[indices],
             self.non_spatial_input_buffer[indices],
             self.action_masks[indices],
@@ -689,25 +651,28 @@ class ReplayBuffer:
             },
         )
 
-    def generate_training_batches(
-        self, batch_size: int, batch_count: int
-    ) -> typing.Generator[train_utils.TrainingBatch, None, None]:
-        for _ in range(batch_count):
-            yield self.sample_batch(batch_size)
-
-    def ordered_batch(self) -> train_utils.TrainingBatch:
+    def ordered_batch(self) -> batches.TrainingBatch:
         """Return all retained positions in chronological game order."""
         return self.batch_range(0, len(self))
 
-    def batch_range(self, start: int, stop: int) -> train_utils.TrainingBatch:
+    def batch_range(self, start: int, stop: int) -> batches.TrainingBatch:
         """Return a chronological half-open range of retained positions."""
         if not 0 <= start <= stop <= len(self):
             raise IndexError(
                 f"invalid replay range [{start}, {stop}) for size {len(self)}"
             )
-        logical_indices = np.arange(start, stop, dtype=np.int64)
+        return self.batch_indices(np.arange(start, stop, dtype=np.int64))
+
+    def batch_indices(self, logical_indices: np.ndarray) -> batches.TrainingBatch:
+        logical_indices = np.asarray(logical_indices, dtype=np.int64)
+        if (
+            logical_indices.ndim != 1
+            or np.any(logical_indices < 0)
+            or np.any(logical_indices >= len(self))
+        ):
+            raise IndexError("Replay indices out of range")
         indices = self._logical_to_physical(logical_indices)
-        return train_utils.TrainingBatch(
+        return batches.TrainingBatch(
             self.spatial_input_buffer[indices],
             self.non_spatial_input_buffer[indices],
             self.action_masks[indices],
@@ -878,9 +843,7 @@ class ReplayBuffer:
                 "position_count": len(self),
                 "game_count": self.game_count,
                 "replay_capacity": self.max_size,
-                "spatial_input_shape": list(
-                    self.spatial_input_buffer.shape[1:]
-                ),
+                "spatial_input_shape": list(self.spatial_input_buffer.shape[1:]),
                 "non_spatial_input_shape": list(
                     self.non_spatial_input_buffer.shape[1:]
                 ),
@@ -891,9 +854,7 @@ class ReplayBuffer:
                 ],
                 "dtypes": {
                     "spatial_inputs": str(self.spatial_input_buffer.dtype),
-                    "non_spatial_inputs": str(
-                        self.non_spatial_input_buffer.dtype
-                    ),
+                    "non_spatial_inputs": str(self.non_spatial_input_buffer.dtype),
                     "action_masks": str(self.action_masks.dtype),
                     **{
                         f"target:{name}": str(values.dtype)
@@ -912,9 +873,7 @@ class ReplayBuffer:
                 ),
                 "git": _git_provenance(),
             }
-            with (temporary_path / MANIFEST_FILE).open(
-                "w", encoding="utf-8"
-            ) as file:
+            with (temporary_path / MANIFEST_FILE).open("w", encoding="utf-8") as file:
                 json.dump(manifest, file, indent=2, sort_keys=True)
                 file.write("\n")
 

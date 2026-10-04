@@ -6,12 +6,9 @@ import dataclasses
 import typing
 
 import numpy as np
-import torch
 
-from . import config
-from . import predictor
+from . import config, predictor, skynet
 from . import game as sj
-from . import skynet
 
 # MARK: Config
 
@@ -23,7 +20,6 @@ class MCTSConfig(config.Config):
     after_state_evaluate_all_children: bool
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
-    score_utility_weight: float = 0.0
 
 
 # MARK: NODE SCORING
@@ -49,7 +45,7 @@ def ucb_score(
         * np.sqrt(parent.visit_count + 1)
         / (1 + child.visit_count)
     )
-    return value + exploration - getattr(child, "virtual_loss", 0.0)
+    return value + exploration
 
 
 # MARK: NODES
@@ -64,14 +60,11 @@ class DecisionStateNode:
     model_prediction: skynet.SkyNetPrediction | None = None
     children: dict[sj.SkyjoAction, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
-    virtual_loss_total: float = 0.0
     is_expanded: bool = False
-    are_children_discovered: bool = False
     dirichlet_noise: np.ndarray[tuple[int], np.float32] | None = None
     dirichlet_epsilon: float = 0.0
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
-    score_utility_weight: float = 0.0
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -88,20 +81,8 @@ class DecisionStateNode:
             f"State Value: {self.state_value}\n"
             f"Is Expanded: {self.is_expanded}\n"
             f"Model Prediction: {self.model_prediction}\n"
-            f"Children visit counts: {self.policy_targets() * sum(child.visit_count for child in self.children.values())}\n"
+            f"Children visit counts: { {action: child.visit_count for action, child in self.children.items()} }\n"
         )
-
-    @property
-    def total_count(self) -> int:
-        return self.visit_count
-
-    @property
-    def child_count(self) -> int:
-        return self.visit_count
-
-    @property
-    def virtual_loss(self) -> float:
-        return self.virtual_loss_total
 
     @property
     def has_value_estimate(self) -> bool:
@@ -110,14 +91,14 @@ class DecisionStateNode:
     @property
     def model_value_for_current_player(self) -> float:
         assert self.model_prediction is not None, "expected an expanded decision node"
-        return self.model_prediction.search_value(self.score_utility_weight)[0].item()
+        return self.model_prediction.value_output[0].item()
 
     @property
     def state_value(self) -> skynet.StateValue:
         if self.visit_count == 0:
             if self.model_prediction is not None:
                 return skynet.to_state_value(
-                    self.model_prediction.search_value(self.score_utility_weight),
+                    self.model_prediction.value_output,
                     sj.get_player(self.state),
                 )
             return np.zeros(sj.get_player_count(self.state), dtype=np.float32)
@@ -133,9 +114,6 @@ class DecisionStateNode:
             return candidates[0]
         return np.random.choice(candidates)
 
-    def highest_visit_child(self) -> MCTSNode:
-        return max(self.children.values(), key=lambda x: x.visit_count)
-
     def expand(
         self,
         model_prediction: skynet.SkyNetPrediction,
@@ -146,9 +124,7 @@ class DecisionStateNode:
         self.model_prediction = model_prediction
         self.is_expanded = True
         for action in sj.get_actions(self.state):
-            self.children[action] = self.create_child_node(
-                action
-            )
+            self.children[action] = self.create_child_node(action)
 
     def select_child(self, **kwargs) -> MCTSNode:
         return self._select_highest_ucb_child()
@@ -174,23 +150,28 @@ class DecisionStateNode:
             action=action,
             c_puct=self.c_puct,
             fpu_reduction=self.fpu_reduction,
-            score_utility_weight=self.score_utility_weight,
         )
 
     def policy_targets(
         self, temperature: float = 1.0
     ) -> np.ndarray[tuple[int], np.float32]:
-        visit_counts = np.zeros((sj.MASK_SIZE,), dtype=np.float32)
+        if not np.isfinite(temperature) or temperature < 0:
+            raise ValueError("temperature must be finite and nonnegative")
+        visit_counts = np.zeros(sj.MASK_SIZE, dtype=np.float64)
         for action, child in self.children.items():
             visit_counts[action] = child.visit_count
-
+        visited = (visit_counts > 0) & sj.actions(self.state).astype(bool)
+        if not visited.any():
+            raise ValueError("policy requires at least one visited legal action")
+        probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
         if temperature == 0:
-            visit_probabilities = np.zeros(visit_counts.shape, dtype=np.float32)
-            visit_probabilities[visit_counts.argmax().item()] = 1
-            return visit_probabilities
-        visit_probabilities = visit_counts ** (1 / temperature)
-        visit_probabilities = visit_probabilities / visit_probabilities.sum()
-        return visit_probabilities
+            probabilities[np.where(visited, visit_counts, -1).argmax()] = 1
+        else:
+            logs = np.log(visit_counts[visited])
+            with np.errstate(over="ignore"):
+                weights = np.exp((logs - logs.max()) / temperature)
+            probabilities[visited] = weights / weights.sum()
+        return probabilities
 
     def action_probability(self, action) -> float:
         assert self.model_prediction is not None, (
@@ -215,7 +196,6 @@ class AfterStateNode:
     child_weights: dict[int, float] = dataclasses.field(default_factory=dict)
     child_weight_total: float = 0.0
     visit_count: int = 0
-    virtual_loss_total: float = 0.0
     is_expanded: bool = False
     all_children_discovered: bool = False
 
@@ -234,14 +214,6 @@ class AfterStateNode:
             f"Is Expanded: {self.is_expanded}\n"
             f"Children: {len(self.children)}\n"
         )
-
-    @property
-    def child_count(self) -> int:
-        return self.visit_count
-
-    @property
-    def virtual_loss(self) -> float:
-        return self.virtual_loss_total
 
     @property
     def has_value_estimate(self) -> bool:
@@ -273,12 +245,7 @@ class AfterStateNode:
             action=self.action,
             c_puct=self.parent.c_puct,
             fpu_reduction=self.parent.fpu_reduction,
-            score_utility_weight=self.parent.score_utility_weight,
         )
-
-    def realize_outcomes(self, n) -> None:
-        for _ in range(n):
-            _ = self._realize_outcome()
 
     def _realize_outcome(self) -> sj.Skyjo:
         outcome_state = sj.apply_action(self.state, self.action)
@@ -291,7 +258,7 @@ class AfterStateNode:
         return outcome_state
 
     def _expand_single_child(self) -> None:
-        # Realize a single next child state. Child weights are now observered
+        # Realize a single next child state. Child weights are now observed
         # frequencies of the child states.
         next_state = self._realize_outcome()
         next_state_hash = sj.hash_skyjo(next_state)
@@ -302,38 +269,30 @@ class AfterStateNode:
         self.all_children_discovered = True
         # Realize all possible child states. Child weights are now exactly the
         # probabilities of those child states computed from the deck card counts.
-        cards_remaining = np.sum(sj.get_deck(self.state))
-        for card, card_count in enumerate(sj.get_deck(self.state)):
-            if card_count > 0:
-                next_state = sj.apply_action(
-                    sj.preordain(self.state, card), self.action
-                )
-                child = self._create_child(next_state)
-                self.children[sj.hash_skyjo(next_state)] = child
-                # Child weight is the probability of that card being next
-                self.child_weights[sj.hash_skyjo(next_state)] = (
-                    card_count / cards_remaining
-                )
+        state = sj.prepare_draw_pile(self.state)
+        deck = sj.get_deck(state)
+        predetermined = state.pending_card
+        outcomes = (
+            [(predetermined, 1.0)]
+            if predetermined is not None
+            else [
+                (card, count / deck.sum())
+                for card, count in enumerate(deck)
+                if count > 0
+            ]
+        )
+        for card, probability in outcomes:
+            next_state = sj.apply_action(sj.preordain(state, card), self.action)
+            key = sj.hash_skyjo(next_state)
+            self.children[key] = self._create_child(next_state)
+            self.child_weights[key] = probability
         self.child_weight_total = 1.0
-
-    def _compute_state_value_from_children(self) -> skynet.StateValue:
-        state_value = np.zeros(sj.get_player_count(self.state), dtype=np.float32)
-        for key_hash, child in self.children.items():
-            state_value += (
-                child.state_value
-                * self.child_weights[key_hash]
-                / self.child_weight_total
-            )
-        return state_value
-
-    def highest_visit_child(self) -> MCTSNode:
-        return max(self.children.values(), key=lambda x: x.visit_count)
 
     def discover(
         self,
         discover_all_children: bool = False,
     ):
-        """Expands node after all initial children values are ready"""
+        """Create one sampled outcome or enumerate every possible outcome."""
         assert len(self.children) == 0, "Children not empty"
         if discover_all_children:
             self.all_children_discovered = True
@@ -389,14 +348,9 @@ class RoundBoundaryNode:
     parent: AfterStateNode | DecisionStateNode
     action: sj.SkyjoAction
     visit_count: int = 0
-    virtual_loss: float = 0.0
     is_expanded: bool = False
     next_round_state: sj.Skyjo | None = None
     value: skynet.StateValue | None = None
-
-    @property
-    def child_count(self) -> int:
-        return self.visit_count
 
     @property
     def has_value_estimate(self) -> bool:
@@ -470,14 +424,13 @@ def backpropagate(search_path: list[MCTSNode], value: skynet.StateValue) -> None
 
 def run_mcts(
     game_state: sj.Skyjo,
-    predictor_client: predictor.AbstractPredictorClient,
+    inference: predictor.LocalPredictor,
     iterations: int,
     *,
     dirichlet_epsilon: float = 0.0,
     after_state_evaluate_all_children: bool = False,
     c_puct: float = 1.5,
     fpu_reduction: float = 0.0,
-    score_utility_weight: float = 0.0,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Search within a round, using one cached game-value sample at its boundary.
@@ -485,36 +438,27 @@ def run_mcts(
     A continuing round bootstraps from the model's value of the next deal.
     Ordinary in-round chance nodes retain their existing sampling behavior.
     """
-    if c_puct <= 0:
-        raise ValueError("c_puct must be positive")
+    if not np.isfinite(c_puct) or c_puct <= 0:
+        raise ValueError("c_puct must be finite and positive")
     if fpu_reduction < 0:
         raise ValueError("fpu_reduction cannot be negative")
-    if score_utility_weight != 0:
-        raise ValueError("Full-game search requires score_utility_weight=0")
 
     # Get model prediction for root state
     if root_node is None:
-        _ = predictor_client.put(game_state)
-        predictor_client.send()
-        _, prediction = predictor_client.get()
+        prediction = inference.predict(game_state)
         root_node = DecisionStateNode(
             state=game_state,
             parent=None,
             action=None,
             c_puct=c_puct,
             fpu_reduction=fpu_reduction,
-            score_utility_weight=score_utility_weight,
         )
         root_node.expand(model_prediction=prediction)
 
     else:
         if not isinstance(root_node, DecisionStateNode):
             raise TypeError("root_node must be a DecisionStateNode")
-        if (
-            root_node.c_puct != c_puct
-            or root_node.fpu_reduction != fpu_reduction
-            or root_node.score_utility_weight != score_utility_weight
-        ):
+        if root_node.c_puct != c_puct or root_node.fpu_reduction != fpu_reduction:
             raise ValueError("reused root scoring configuration does not match")
 
     # Root noise is local to this search invocation.
@@ -527,69 +471,37 @@ def run_mcts(
         )
         root_node.dirichlet_noise[sj.get_actions(root_node.state)] = dirichlet_noise
 
-    search_depths = []
     for _ in range(iterations):
         search_path = find_leaf(
             root_node,
             update_after_state_child_weights=not after_state_evaluate_all_children,
         )
-        search_depths.append(len(search_path))
         leaf = search_path[-1]
 
         if isinstance(leaf, RoundBoundaryNode):
             next_round = leaf.prepare()
             if next_round is not None:
-                prediction_id = predictor_client.put(next_round)
-                predictor_client.send()
-                returned_id, prediction = predictor_client.get()
-                assert prediction_id == returned_id
-                leaf.set_prediction(prediction)
+                leaf.set_prediction(inference.predict(next_round))
             backup_value = leaf.state_value.copy()
 
-        # AFTER STATE LEAF
-        # We want to pre-expand the afterstate and either realize all potential
-        # outcomes or just roll a single next state based on parameter
-        #
-        # We also need to queue all the children decision state for model prediction
+        # Evaluate the sampled outcome or every possible chance outcome.
         elif isinstance(leaf, AfterStateNode):
             leaf.discover(discover_all_children=after_state_evaluate_all_children)
 
-            afterstate_prediction_ids = {}
-            # Add realized outcome children to prediction
-            for hash_, child in leaf.children.items():
-                prediction_id = predictor_client.put(child.state)
-                afterstate_prediction_ids[prediction_id] = hash_
-
-            if afterstate_prediction_ids:
-                predictor_client.send()
-
-            for prediction_id, prediction in predictor_client.get_all():
-                child_hash = afterstate_prediction_ids[prediction_id]
-                child = leaf.children[child_hash]
+            children = list(leaf.children.values())
+            predictions = inference.predict_many([child.state for child in children])
+            for child, prediction in zip(children, predictions, strict=True):
                 child.expand(model_prediction=prediction)
-                del afterstate_prediction_ids[prediction_id]
 
             leaf.expand()
             backup_value = leaf.state_value.copy()
 
-        # DECISION STATE LEAF
-        # We want to queue the decision state for model prediction. Also
-        # we want to pre-expand the decision state, so that parallel threads
-        # can go deeper and queue a child state for model prediction.
         elif isinstance(leaf, DecisionStateNode):
-            prediction_id = predictor_client.put(leaf.state)
-            predictor_client.send()
-            returned_prediction_id, prediction = predictor_client.get()
-            assert prediction_id == returned_prediction_id, (
-                f"Returned prediction id: {returned_prediction_id} "
-                f"does NOT match given prediction id: {prediction_id}"
-            )
-            leaf.expand(model_prediction=prediction)
+            leaf.expand(model_prediction=inference.predict(leaf.state))
             backup_value = leaf.state_value.copy()
         else:
             backup_value = leaf.state_value.copy()
         backpropagate(search_path, backup_value)
-    # print(sum(search_depths) / len(search_depths))
     return root_node
 
 
@@ -597,29 +509,6 @@ def run_mcts(
 
 MCTSNode: typing.TypeAlias = DecisionStateNode | AfterStateNode | RoundBoundaryNode
 
-
-if __name__ == "__main__":
-    import explain
-
-    np.random.seed(42)
-    torch.manual_seed(42)
-    players = 2
-    model = skynet.SimpleSkyNet(
-        spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(players),
-        value_output_shape=(players,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        hidden_layers=[64, 64],
-        device=torch.device("cpu"),
-    )
-    predictor_client = predictor.NaivePredictorClient(model)
-    winning_state = explain.create_almost_surely_winning_position()
-    root_node = run_mcts(
-        sj.apply_action(sj.apply_action(winning_state, sj.MASK_TAKE), sj.MASK_SIZE - 1),
-        predictor_client,
-        iterations=1600,
-    )
-    print(root_node)
 
 # MARK: Debugging
 

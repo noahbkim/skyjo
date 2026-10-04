@@ -6,14 +6,11 @@ import abc
 import dataclasses
 
 import numpy as np
-import torch
 
 from . import config
 from . import mcts
-from . import parallel_mcts
 from . import predictor
 from . import game as sj
-from . import skynet
 
 
 class AbstractPlayer(abc.ABC):
@@ -31,17 +28,7 @@ class AbstractPlayer(abc.ABC):
         assert sj.actions(game_state)[action]
         return action_probabilities
 
-    def _actions_to_action_probabilities(
-        self, actions: list[sj.SkyjoAction], game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        action_probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-        for action in actions:
-            action_probabilities[action] = 1.0
-            assert sj.actions(game_state)[action]
-        action_probabilities /= sum(action_probabilities)
-        return action_probabilities
-
-    def get_action(self, game_state: sj.Skyjo) -> np.ndarray[tuple[int], np.float32]:
+    def get_action(self, game_state: sj.Skyjo) -> sj.SkyjoAction:
         action = np.random.choice(
             sj.MASK_SIZE, p=self.get_action_probabilities(game_state)
         )
@@ -55,17 +42,6 @@ class AbstractPlayer(abc.ABC):
         raise NotImplementedError("Not implemented")
 
 
-class NaiveQuickFinishPlayer(AbstractPlayer):
-    """A player that plays an action to finish the game as quickly as possible."""
-
-    def get_action_probabilities(
-        self, game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        return self._action_to_action_probabilities(
-            sj.quick_finish_action(game_state), game_state
-        )
-
-
 class RandomPlayer(AbstractPlayer):
     """A player that plays a random valid action."""
 
@@ -77,233 +53,6 @@ class RandomPlayer(AbstractPlayer):
         )
 
 
-class GreedyExpectedValuePlayer(AbstractPlayer):
-    """A player that plays the action with the best greedy expected value.
-
-    Computes the expected value of a remaining random card in the deck. Uses
-    this value to determine the 'expected value' of each valid action based on
-    how it would lower the board point total. Note this does not account for
-    clears and simply considers the raw point values of each card.
-
-    For example, for a replace action on a hidden slot the expected value would
-    be top card - average remaining card value. For flip, the value is 0 since
-    there is no change in the expected point value of that slot."""
-
-    def get_action_probabilities(
-        self, game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        return self._actions_to_action_probabilities(
-            self._highest_expected_value_actions(game_state), game_state
-        )
-
-    def _highest_expected_value_actions(self, game_state: sj.Skyjo) -> sj.SkyjoAction:
-        game = game_state[0]
-        deck = game_state[2]
-        if game[sj.GAME_ACTION + sj.ACTION_FLIP_SECOND]:
-            return [sj.MASK_FLIP_SECOND_BELOW]
-        if game[sj.GAME_ACTION + sj.ACTION_DRAW_OR_TAKE]:
-            # unknown_expected_value = sum(
-            #     [(idx - 2) * count for idx, count in enumerate(deck.astype(np.int32))]
-            # ) / sum(deck)
-            unknown_expected_value = 5
-            if self._expected_draw_value(
-                game_state, unknown_expected_value
-            ) > self._expected_take_value(game_state, unknown_expected_value):
-                return [sj.MASK_TAKE]
-            else:
-                return [sj.MASK_DRAW]
-        if game[sj.GAME_ACTION + sj.ACTION_FLIP_OR_REPLACE]:
-            unknown_expected_value = sum(
-                [(idx - 2) * count for idx, count in enumerate(deck.astype(np.int32))]
-            ) / sum(deck)
-            unknown_expected_value = 5
-            replace_expected_values = []
-            flip_coords = []
-            for index in range(sj.FINGER_COUNT):
-                row, column = divmod(index, sj.COLUMN_COUNT)
-                replace_expected_values.append(
-                    (
-                        (row, column),
-                        self._expected_replace_value(
-                            game_state, sj.MASK_REPLACE + index, unknown_expected_value
-                        ),
-                    )
-                )
-                if sj.get_finger(game_state, row, column, 0) == sj.FINGER_HIDDEN:
-                    flip_coords.append((row, column))
-            sorted_replace_expected_values = sorted(
-                replace_expected_values, key=lambda x: x[1]
-            )
-            if sorted_replace_expected_values[0][1] >= self._expected_flip_value():
-                return [
-                    sj.MASK_FLIP + flip_coord[0] * sj.COLUMN_COUNT + flip_coord[1]
-                    for flip_coord in flip_coords
-                ]
-            else:
-                best_ev = sorted_replace_expected_values[0][1]
-                best_coords = []
-                for coord, ev in sorted_replace_expected_values:
-                    if abs(ev - best_ev) < 1e-6:
-                        best_coords.append(coord)
-                    else:
-                        break
-                return [
-                    sj.MASK_REPLACE + coord[0] * sj.COLUMN_COUNT + coord[1]
-                    for coord in best_coords
-                ]
-        if game[sj.GAME_ACTION + sj.ACTION_REPLACE]:
-            unknown_expected_value = sum(
-                [(idx - 2) * count for idx, count in enumerate(deck.astype(np.int32))]
-            ) / sum(deck)
-            unknown_expected_value = 5
-            replace_expected_values = []
-            for index in range(sj.FINGER_COUNT):
-                row, column = divmod(index, sj.COLUMN_COUNT)
-                replace_expected_values.append(
-                    (
-                        (row, column),
-                        self._expected_replace_value(
-                            game_state, sj.MASK_REPLACE + index, unknown_expected_value
-                        ),
-                    )
-                )
-            sorted_replace_expected_values = sorted(
-                replace_expected_values, key=lambda x: x[1]
-            )
-            best_ev = sorted_replace_expected_values[0][1]
-            best_coords = []
-            for coord, ev in sorted_replace_expected_values:
-                if abs(ev - best_ev) < 1e-6:
-                    best_coords.append(coord)
-                else:
-                    break
-            return [
-                sj.MASK_REPLACE + coord[0] * sj.COLUMN_COUNT + coord[1]
-                for coord in best_coords
-            ]
-        raise ValueError("No valid action specified")
-
-    def _highest_curr_card_value(self, game_state: sj.Skyjo) -> float:
-        cards = []
-        for idx in range(sj.FINGER_COUNT):
-            row, column = divmod(idx, sj.COLUMN_COUNT)
-            if sj.get_finger(game_state, row, column, 0) < sj.CARD_SIZE:
-                cards.append(sj.get_finger(game_state, row, column, 0) - 2)
-
-        if len(cards) == 0:
-            return 0
-        return max(cards)
-
-    def _expected_draw_value(
-        self,
-        game_state: sj.Skyjo,
-        unknown_expected_value: float,
-    ) -> float:
-        highest_curr_card_value = self._highest_curr_card_value(game_state)
-        # small incentive to draw a card over placing for when placing from discard wouldn't change value at all
-        return min(unknown_expected_value - highest_curr_card_value, -0.01)
-
-    def _expected_take_value(
-        self,
-        game_state: sj.Skyjo,
-        unknown_expected_value: float,
-    ) -> float:
-        highest_curr_card_value = self._highest_curr_card_value(game_state)
-        return min(
-            (sj.get_top(game_state) - 2) - highest_curr_card_value,
-            (sj.get_top(game_state) - 2) - unknown_expected_value,
-        )
-
-    def _expected_flip_value(
-        self,
-    ) -> float:
-        return 0
-
-    def _expected_replace_value(
-        self,
-        game_state: sj.Skyjo,
-        action: sj.SkyjoAction,
-        unknown_expected_value: float,
-    ) -> float:
-        row, col = divmod(action - sj.MASK_REPLACE, sj.COLUMN_COUNT)
-        curr_card = sj.get_finger(game_state, row, col, 0)
-        if curr_card == sj.FINGER_HIDDEN:
-            return (sj.get_top(game_state) - 2) - unknown_expected_value
-        if curr_card == sj.FINGER_CLEARED:
-            return float("inf")
-        return sj.get_top(game_state) - (curr_card)
-
-
-class CappedModelPlayer(AbstractPlayer):
-    """Player that uses a capped MCTS with specified model and parameters."""
-
-    def __init__(
-        self,
-        predictor_client: predictor.AbstractPredictorClient,
-        action_softmax_temperature: float,
-        full_search_rate: float,
-        fast_mcts_iterations: int,
-        full_mcts_iterations: int,
-        fast_mcts_dirichlet_epsilon: float,
-        full_mcts_dirichlet_epsilon: float,
-        fast_mcts_after_state_evaluate_all_children: bool,
-        full_mcts_after_state_evaluate_all_children: bool,
-        fast_mcts_c_puct: float = 1.5,
-        full_mcts_c_puct: float = 1.5,
-        fast_mcts_fpu_reduction: float = 0.0,
-        full_mcts_fpu_reduction: float = 0.0,
-        fast_mcts_score_utility_weight: float = 0.0,
-        full_mcts_score_utility_weight: float = 0.0,
-    ):
-        self.predictor_client = predictor_client
-        self.action_softmax_temperature = action_softmax_temperature
-        self.full_search_rate = full_search_rate
-        self.fast_mcts_iterations = fast_mcts_iterations
-        self.full_mcts_iterations = full_mcts_iterations
-        self.fast_mcts_dirichlet_epsilon = fast_mcts_dirichlet_epsilon
-        self.full_mcts_dirichlet_epsilon = full_mcts_dirichlet_epsilon
-        self.fast_mcts_after_state_evaluate_all_children = (
-            fast_mcts_after_state_evaluate_all_children
-        )
-        self.full_mcts_after_state_evaluate_all_children = (
-            full_mcts_after_state_evaluate_all_children
-        )
-        self.fast_mcts_c_puct = fast_mcts_c_puct
-        self.full_mcts_c_puct = full_mcts_c_puct
-        self.fast_mcts_fpu_reduction = fast_mcts_fpu_reduction
-        self.full_mcts_fpu_reduction = full_mcts_fpu_reduction
-        self.fast_mcts_score_utility_weight = fast_mcts_score_utility_weight
-        self.full_mcts_score_utility_weight = full_mcts_score_utility_weight
-
-    def get_action_probabilities(
-        self, game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        if np.random.random() < self.full_search_rate:
-            root = mcts.run_mcts(
-                game_state,
-                self.predictor_client,
-                self.full_mcts_iterations,
-                dirichlet_epsilon=self.full_mcts_dirichlet_epsilon,
-                after_state_evaluate_all_children=self.full_mcts_after_state_evaluate_all_children,
-                c_puct=self.full_mcts_c_puct,
-                fpu_reduction=self.full_mcts_fpu_reduction,
-                score_utility_weight=self.full_mcts_score_utility_weight,
-            )
-            return root.policy_targets(self.action_softmax_temperature)
-        else:
-            root = mcts.run_mcts(
-                game_state,
-                self.predictor_client,
-                self.fast_mcts_iterations,
-                dirichlet_epsilon=self.fast_mcts_dirichlet_epsilon,
-                after_state_evaluate_all_children=self.fast_mcts_after_state_evaluate_all_children,
-                c_puct=self.fast_mcts_c_puct,
-                fpu_reduction=self.fast_mcts_fpu_reduction,
-                score_utility_weight=self.fast_mcts_score_utility_weight,
-            )
-            return root.policy_targets(self.action_softmax_temperature)
-
-
 @dataclasses.dataclass(slots=True)
 class ModelPlayerConfig(config.Config):
     action_softmax_temperature: float
@@ -312,7 +61,6 @@ class ModelPlayerConfig(config.Config):
     mcts_after_state_evaluate_all_children: bool
     mcts_c_puct: float = 1.5
     mcts_fpu_reduction: float = 0.0
-    mcts_score_utility_weight: float = 0.0
 
 
 class ModelPlayer(AbstractPlayer):
@@ -320,16 +68,15 @@ class ModelPlayer(AbstractPlayer):
 
     def __init__(
         self,
-        predictor_client: predictor.AbstractPredictorClient,
+        inference: predictor.LocalPredictor,
         action_softmax_temperature: float,
         mcts_iterations: int,
         mcts_dirichlet_epsilon: float,
         mcts_after_state_evaluate_all_children: bool,
         mcts_c_puct: float = 1.5,
         mcts_fpu_reduction: float = 0.0,
-        mcts_score_utility_weight: float = 0.0,
     ):
-        self.predictor_client = predictor_client
+        self.inference = inference
         self.action_softmax_temperature = action_softmax_temperature
         self.mcts_iterations = mcts_iterations
         self.mcts_dirichlet_epsilon = mcts_dirichlet_epsilon
@@ -338,7 +85,6 @@ class ModelPlayer(AbstractPlayer):
         )
         self.mcts_c_puct = mcts_c_puct
         self.mcts_fpu_reduction = mcts_fpu_reduction
-        self.mcts_score_utility_weight = mcts_score_utility_weight
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -353,199 +99,14 @@ class ModelPlayer(AbstractPlayer):
     ) -> mcts.MCTSNode:
         return mcts.run_mcts(
             game_state,
-            self.predictor_client,
+            self.inference,
             self.mcts_iterations,
             dirichlet_epsilon=self.mcts_dirichlet_epsilon,
             after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
             c_puct=self.mcts_c_puct,
             fpu_reduction=self.mcts_fpu_reduction,
-            score_utility_weight=self.mcts_score_utility_weight,
             root_node=root_node,
         )
-
-
-@dataclasses.dataclass(slots=True)
-class BatchedModelPlayerConfig(config.Config):
-    action_softmax_temperature: float
-    mcts_iterations: int
-    mcts_dirichlet_epsilon: float
-    mcts_after_state_evaluate_all_children: bool
-    mcts_batched_leaf_count: int
-    mcts_virtual_loss: float
-    mcts_c_puct: float = 1.5
-    mcts_fpu_reduction: float = 0.0
-    mcts_score_utility_weight: float = 0.0
-
-
-class BatchedModelPlayer(AbstractPlayer):
-    """Runs a parallel MCTS with specified model and parameters."""
-
-    def __init__(
-        self,
-        predictor_client: predictor.AbstractPredictorClient,
-        action_softmax_temperature: float,
-        mcts_iterations: int,
-        mcts_dirichlet_epsilon: float,
-        mcts_after_state_evaluate_all_children: bool,
-        mcts_batched_leaf_count: int,
-        mcts_virtual_loss: float,
-        mcts_c_puct: float = 1.5,
-        mcts_fpu_reduction: float = 0.0,
-        mcts_score_utility_weight: float = 0.0,
-        debug: bool = False,
-    ):
-        self.predictor_client = predictor_client
-        self.action_softmax_temperature = action_softmax_temperature
-        self.mcts_iterations = mcts_iterations
-        self.mcts_dirichlet_epsilon = mcts_dirichlet_epsilon
-        self.mcts_after_state_evaluate_all_children = (
-            mcts_after_state_evaluate_all_children
-        )
-        self.mcts_batched_leaf_count = mcts_batched_leaf_count
-        self.mcts_virtual_loss = mcts_virtual_loss
-        self.mcts_c_puct = mcts_c_puct
-        self.mcts_fpu_reduction = mcts_fpu_reduction
-        self.mcts_score_utility_weight = mcts_score_utility_weight
-        self.debug = debug
-
-    def get_action_probabilities(
-        self,
-        game_state: sj.Skyjo,
-    ) -> np.ndarray[tuple[int], np.float32]:
-        node = self.run_mcts(game_state)
-        if self.debug:
-            print(node)
-        return node.policy_targets(self.action_softmax_temperature)
-
-    def run_mcts(
-        self,
-        game_state: sj.Skyjo,
-        root_node: mcts.MCTSNode | None = None,
-    ) -> mcts.MCTSNode:
-        return parallel_mcts.run_mcts(
-            game_state,
-            self.predictor_client,
-            self.mcts_iterations,
-            dirichlet_epsilon=self.mcts_dirichlet_epsilon,
-            after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
-            batched_leaf_count=self.mcts_batched_leaf_count,
-            virtual_loss=self.mcts_virtual_loss,
-            c_puct=self.mcts_c_puct,
-            fpu_reduction=self.mcts_fpu_reduction,
-            score_utility_weight=self.mcts_score_utility_weight,
-            root_node=root_node,
-        )
-
-
-class PureModelPolicyPlayer(AbstractPlayer):
-    """Uses only the model to predict the action probabilities."""
-
-    def __init__(self, model: skynet.SkyNet, temperature: float = 1.0):
-        self.model = model
-        self.temperature = temperature
-
-    def get_action_probabilities(
-        self, game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        self.model.eval()
-        with torch.inference_mode():
-            prediction = self.model.predict(game_state)
-        if self.temperature == 0:
-            action_probabilities = np.zeros(prediction.policy_output.shape)
-            action_probabilities[prediction.policy_output.argmax().item()] = 1
-            return action_probabilities
-        action_probabilities = prediction.policy_output ** (1 / self.temperature)
-        action_probabilities = action_probabilities / action_probabilities.sum()
-        return action_probabilities
-
-
-class PureModelValuePlayer(AbstractPlayer):
-    """Uses only the model to predict the value of the game."""
-
-    def __init__(self, model: skynet.SkyNet, terminal_state_rollouts: int = 10):
-        self.model = model
-        self.terminal_state_rollouts = terminal_state_rollouts
-
-    @torch.inference_mode()
-    def get_action_probabilities(
-        self, game_state: sj.Skyjo
-    ) -> np.ndarray[tuple[int], np.float32]:
-        self.model.eval()
-        action_values = np.full(sj.MASK_SIZE, -np.inf, dtype=np.float32)
-        for action in sj.get_actions(game_state):
-            action_values[action] = 0.0
-            if sj.get_round_about_to_end(game_state):
-                for _ in range(self.terminal_state_rollouts):
-                    next_state = sj.apply_action(game_state, action)
-                    action_values[action] += (
-                        skynet.state_value_for_player(
-                            skynet.skyjo_to_state_value(next_state),
-                            sj.get_player(game_state),
-                        )
-                        / self.terminal_state_rollouts
-                    )
-
-            elif sj.is_action_random(action, game_state):
-                spatial_inputs = []
-                non_spatial_inputs = []
-                action_masks = []
-                cards_remaining = np.sum(sj.get_deck(game_state))
-                next_states = []
-                for card, card_count in enumerate(sj.get_deck(game_state)):
-                    if card_count > 0:
-                        next_state = sj.apply_action(
-                            sj.preordain(game_state, card), action
-                        )
-                        spatial_inputs.append(
-                            skynet.get_spatial_state_numpy(next_state)
-                        )
-                        non_spatial_inputs.append(
-                            skynet.get_non_spatial_state_numpy(next_state)
-                        )
-                        action_masks.append(sj.actions(next_state))
-                        next_states.append(next_state)
-                model_output = self.model.forward(
-                    torch.tensor(
-                        spatial_inputs, dtype=torch.float32, device=self.model.device
-                    ),
-                    torch.tensor(
-                        non_spatial_inputs,
-                        dtype=torch.float32,
-                        device=self.model.device,
-                    ),
-                    torch.tensor(
-                        action_masks, dtype=torch.float32, device=self.model.device
-                    ),
-                )
-                idx = 0
-                for card, card_count in enumerate(sj.get_deck(game_state)):
-                    if card_count > 0:
-                        model_value_prediction = model_output.value[idx]
-                        if self.model.device != torch.device("cpu"):
-                            value_output = model_value_prediction.cpu().detach().numpy()
-                        else:
-                            value_output = model_value_prediction.detach().numpy()
-                        action_values[action] += (
-                            skynet.to_state_value(
-                                value_output,
-                                sj.get_player(next_states[idx]),
-                            )[sj.get_player(game_state)]
-                            * card_count
-                            / cards_remaining
-                        )
-                        idx += 1
-
-            else:
-                next_state = sj.apply_action(game_state, action)
-                model_prediction = self.model.predict(next_state)
-                action_values[action] = skynet.to_state_value(
-                    model_prediction.value_output, sj.get_player(next_state)
-                )[sj.get_player(game_state)]
-        # print(action_values)
-        # print(sj.get_action_name(np.argmax(action_values).item()))
-        action_probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-        action_probabilities[np.argmax(action_values).item()] = 1
-        return action_probabilities
 
 
 class HumanPlayer(AbstractPlayer):

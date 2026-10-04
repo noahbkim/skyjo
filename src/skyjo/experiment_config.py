@@ -6,11 +6,11 @@ import copy
 import json
 import math
 import pathlib
-
 import tomllib
+
 import torch
 
-from . import buffer, game, skynet
+from . import buffer, game, models, objectives, observations
 
 DEFAULTS = {
     "name": "full-game-baseline",
@@ -19,6 +19,10 @@ DEFAULTS = {
     "notes": "",
     "seed": 0,
     "players": 2,
+    "initial_checkpoint": None,
+    "auxiliary_objectives": {name: 0.0 for name in objectives.REGISTRY},
+    "auxiliary_targets": {"mode": "observed", "samples": 32},
+    "experiment": {"name": "", "variant": "", "suite_run_id": ""},
     "model": {
         "embedding_dimensions": 16,
         "global_state_embedding_dimensions": 32,
@@ -30,6 +34,7 @@ DEFAULTS = {
         "learn_rate": 0.001,
         "value_scale": 1.0,
         "policy_scale": 1.0,
+        "gradient_diagnostic": False,
     },
     "selfplay": {
         "games_per_iteration": 1024,
@@ -49,7 +54,7 @@ DEFAULTS = {
         "initial_dataset": None,
         "dataset_id": None,
     },
-    "budget": {"iterations": 10, "checkpoint_interval": 1},
+    "budget": {"iterations": 10, "max_seconds": 0.0, "checkpoint_interval": 1},
     "logging": {"progress_interval_seconds": 0.0},
     "validation": {"concept_interval": 5},
     "execution": {
@@ -90,26 +95,98 @@ def _merge(defaults: dict, supplied: dict, prefix: str = "") -> dict:
     return result
 
 
+def resolve_paths(config: dict, directory: pathlib.Path) -> dict:
+    """Resolve path-valued settings at their declaration, including partial overrides."""
+    config = copy.deepcopy(config)
+    if config.get("initial_checkpoint") is not None:
+        if (
+            not isinstance(config["initial_checkpoint"], str)
+            or not config["initial_checkpoint"]
+        ):
+            raise ValueError("initial_checkpoint must be a nonempty path string")
+        config["initial_checkpoint"] = str(
+            (directory / config["initial_checkpoint"]).resolve()
+        )
+    replay = config.get("replay", {})
+    if isinstance(replay, dict) and replay.get("initial_dataset") is not None:
+        if not isinstance(replay["initial_dataset"], str):
+            raise ValueError("replay.initial_dataset must be a path string")
+        replay["initial_dataset"] = str(
+            (directory / replay["initial_dataset"]).resolve()
+        )
+    return config
+
+
+def configuration_sources(path: pathlib.Path) -> tuple[dict, list[dict]]:
+    """Load inheritance before defaults, retaining declaring-file provenance."""
+    import hashlib
+
+    def read(current, ancestors):
+        current = current.resolve()
+        if current in ancestors:
+            raise ValueError(f"Configuration inheritance cycle: {current}")
+        raw = current.read_bytes()
+        if current.suffix == ".toml":
+            supplied = tomllib.loads(raw.decode("utf-8"))
+        elif current.suffix == ".json":
+            supplied = json.loads(raw)
+        else:
+            raise ValueError("Configuration must be .toml or .json")
+        if not isinstance(supplied, dict):
+            raise ValueError("Configuration must be an object")
+        parent = supplied.pop("extends", None)
+        base, sources = {}, []
+        if parent is not None:
+            if not isinstance(parent, str) or not parent:
+                raise ValueError("extends must be a configuration path")
+            base, sources = read(current.parent / parent, (*ancestors, current))
+        sources.append(
+            {
+                "path": str(current),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "content": raw.decode("utf-8"),
+            }
+        )
+        return overlay(base, resolve_paths(supplied, current.parent)), sources
+
+    return read(path, ())
+
+
+def overlay(base: dict, overrides: dict) -> dict:
+    result = copy.deepcopy(base)
+    for key, value in overrides.items():
+        result[key] = (
+            overlay(result[key], value)
+            if isinstance(value, dict) and isinstance(result.get(key), dict)
+            else copy.deepcopy(value)
+        )
+    return result
+
+
 def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
-    """Resolve rerunnable settings without constructing a model or replay arrays."""
-    raw = path.read_bytes()
-    if path.suffix == ".toml":
-        supplied = tomllib.loads(raw.decode("utf-8"))
-    elif path.suffix == ".json":
-        supplied = json.loads(raw)
-    else:
-        raise ValueError("Configuration must be .toml or .json")
+    supplied, sources = configuration_sources(path)
+    return sources[-1]["content"].encode(), resolve_configuration(
+        supplied, base_directory=path.parent
+    )
+
+
+def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> dict:
+    supplied = copy.deepcopy(supplied)
     if not isinstance(supplied, dict):
         raise ValueError("Configuration must be an object")
     prior_derived = supplied.pop("derived", None)
-    config = _merge(DEFAULTS, supplied)
-    model, training, replay = (config[key] for key in ("model", "training", "replay"))
+    model_settings = models.resolve(supplied.pop("model", {}))
+    config = resolve_paths(_merge(DEFAULTS, supplied), base_directory)
+    config["model"] = model_settings
+    config["auxiliary_objectives"] = objectives.resolve(
+        config["auxiliary_objectives"]
+    ).weights
+    if config["auxiliary_targets"]["mode"] not in ("observed", "resampled"):
+        raise ValueError("auxiliary_targets.mode must be observed or resampled")
+    if config["auxiliary_targets"]["samples"] < 1:
+        raise ValueError("auxiliary_targets.samples must be positive")
+    training, replay = (config[key] for key in ("training", "replay"))
     for section, keys in {
-        "model": (
-            "embedding_dimensions",
-            "global_state_embedding_dimensions",
-            "num_heads",
-        ),
         "training": (
             "batch_size",
             "replay_ratio",
@@ -118,25 +195,32 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         "selfplay": ("games_per_iteration", "games_per_task"),
         "search": ("iterations",),
         "replay": ("capacity",),
-        "budget": ("iterations", "checkpoint_interval"),
+        "budget": ("checkpoint_interval",),
         "execution": ("workers", "threads_per_worker"),
     }.items():
         for key in keys:
             if config[section][key] <= 0:
                 raise ValueError(f"{section}.{key} must be positive")
+    from .training_budget import validate_limits
+
+    validate_limits(config["budget"]["iterations"], config["budget"]["max_seconds"])
+    if config["initial_checkpoint"] is not None:
+        if replay["initial_dataset"] is None:
+            raise ValueError("initial_checkpoint requires replay.initial_dataset")
+        if not pathlib.Path(config["initial_checkpoint"]).is_file():
+            raise FileNotFoundError(config["initial_checkpoint"])
     if config["logging"]["progress_interval_seconds"] < 0:
         raise ValueError("logging.progress_interval_seconds cannot be negative")
     if config["validation"]["concept_interval"] < 0:
         raise ValueError("validation.concept_interval cannot be negative")
-    if config["players"] < 2 or config["seed"] < 0:
-        raise ValueError("players must be at least two and seed must be nonnegative")
+    if not 2 <= config["players"] <= game.PLAYER_COUNT or config["seed"] < 0:
+        raise ValueError(
+            "players must be between two and eight and seed must be nonnegative"
+        )
     if config["seed"] > 2**32 - 1:
         raise ValueError("seed must fit a uint32")
     if not all(isinstance(tag, str) for tag in config["tags"]):
         raise ValueError("tags must be strings")
-    for key in ("embedding_dimensions", "global_state_embedding_dimensions"):
-        if model[key] % model["num_heads"]:
-            raise ValueError(f"model.{key} must be divisible by num_heads")
     for key in (
         "value_scale",
         "policy_scale",
@@ -146,6 +230,8 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     search = config["search"]
     if not 0 <= search["dirichlet_epsilon"] <= 1:
         raise ValueError("search.dirichlet_epsilon must be between zero and one")
+    if search["c_puct"] <= 0:
+        raise ValueError("search.c_puct must be positive")
     if any(
         search[key] < 0
         for key in ("c_puct", "fpu_reduction", "action_softmax_temperature")
@@ -169,16 +255,16 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise ValueError("Requested MPS device is unavailable")
     players = config["players"]
-    spatial = [players, game.ROW_COUNT, game.COLUMN_COUNT, game.FINGER_SIZE]
-    non_spatial = list(skynet.get_non_spatial_input_shape(players))
+    spatial = list(observations.spatial_input_shape(players))
+    non_spatial = list(observations.get_non_spatial_input_shape(players))
     targets = [
         {"name": spec.name, "shape": list(spec.shape)}
-        for spec in buffer.core_target_specs(players, (game.MASK_SIZE,))
+        for spec in target_specs(players, config["auxiliary_objectives"])
     ]
     derived = {
         "spatial_input_shape": spatial,
         "non_spatial_input_shape": non_spatial,
-        "action_mask_shape": [game.MASK_SIZE],
+        "action_mask_shape": list(observations.action_mask_shape()),
         "target_specs": targets,
         "optimizer": {"type": "adam", "weight_decay": 1e-4},
     }
@@ -190,7 +276,7 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
     if replay["initial_dataset"] is not None:
         if not isinstance(replay["initial_dataset"], str):
             raise ValueError("replay.initial_dataset must be a path string")
-        dataset_path = (path.parent / replay["initial_dataset"]).resolve()
+        dataset_path = (base_directory / replay["initial_dataset"]).resolve()
         manifest = json.loads((dataset_path / buffer.MANIFEST_FILE).read_text())
         if (
             manifest.get("format") != buffer.DATASET_FORMAT
@@ -217,4 +303,14 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
         )
     elif replay["dataset_id"] is not None:
         raise ValueError("dataset_id requires initial_dataset")
-    return raw, config
+    return config
+
+
+def target_specs(players, configuration=None):
+    return (
+        *buffer.core_target_specs(players, (game.MASK_SIZE,)),
+        *(
+            buffer.TargetShapeSpec(name, shape)
+            for name, shape in objectives.resolve(configuration).shapes(players).items()
+        ),
+    )

@@ -1,37 +1,90 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from skyjo import game as sj
-from skyjo import skynet
+from skyjo import observations, predictor, skynet
 
 
-def test_numpy_batch_policy_renormalization_handles_zero_rows() -> None:
-    policies = np.array([[0.2, 0.8, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
-    masks = np.array([[1, 0, 1], [0, 1, 1]], dtype=np.int8)
-    result = skynet.batch_mask_and_renormalize_policy_probabilities(policies, masks)
-    assert isinstance(result, np.ndarray)
-    assert np.allclose(result, [[1.0, 0.0, 0.0], [0.0, 0.5, 0.5]])
-
-
-class InferenceCheckingSkyNet(skynet.SimpleSkyNet):
+class InferenceCheckingSkyNet(skynet.EquivariantSkyNet):
     def forward(self, *args, **kwargs):
         assert torch.is_inference_mode_enabled()
+        assert not self.training
         return super().forward(*args, **kwargs)
 
 
-def test_direct_predict_has_guaranteed_inference_mode() -> None:
-    model = InferenceCheckingSkyNet(
+def make_model(auxiliary_objectives=None):
+    torch.manual_seed(3)
+    return InferenceCheckingSkyNet(
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=skynet.get_non_spatial_input_shape(2),
+        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
         value_output_shape=(2,),
         policy_output_shape=(sj.MASK_SIZE,),
-        hidden_layers=[8],
+        embedding_dimensions=4,
+        global_state_embedding_dimensions=8,
+        num_heads=1,
+        auxiliary_objectives=auxiliary_objectives,
         device=torch.device("cpu"),
     )
+
+
+def test_direct_predict_has_guaranteed_inference_mode() -> None:
+    model = make_model()
     model.train()
     prediction = model.predict(sj.new(players=2, top=sj.CARD_0))
     assert not model.training
     assert isinstance(prediction.value_output, np.ndarray)
     assert isinstance(prediction.policy_output, np.ndarray)
+
+
+@pytest.mark.parametrize(
+    "auxiliary",
+    [
+        {},
+        {"round_score": 0.1, "round_raw_score": 0.1, "round_doubled": 0.1},
+    ],
+)
+def test_local_inference_preserves_all_predictions_across_chunks(auxiliary):
+    model = make_model(auxiliary)
+    inference = predictor.LocalPredictor(model, max_batch_size=2)
+    # Distinct observations make output ordering observable across three chunks.
+    states = [sj.new(players=2, top=card) for card in range(5)]
+    expected = [model.predict(state) for state in states]
+    model.train()
+    actual = inference.predict_many(states)
+    assert not model.training
+    assert len(actual) == len(states)
+    for state, observed, direct in zip(states, actual, expected, strict=True):
+        np.testing.assert_allclose(
+            observed.value_output, direct.value_output, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            observed.policy_output, direct.policy_output, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            observed.policy_logits, direct.policy_logits, atol=1e-6
+        )
+        assert np.isclose(observed.policy_output.sum(), 1.0)
+        assert not observed.policy_output[sj.actions(state) == 0].any()
+        assert set(observed.auxiliary_outputs or {}) == set(auxiliary)
+        for name in auxiliary:
+            np.testing.assert_allclose(
+                observed.auxiliary_outputs[name],
+                direct.auxiliary_outputs[name],
+                atol=1e-6,
+            )
+    assert inference.predict_many([]) == []
+    singleton = inference.predict(states[-1])
+    np.testing.assert_allclose(
+        singleton.value_output, expected[-1].value_output, atol=1e-6
+    )
+    # A subsequent request must contain only its own results.
+    assert len(inference.predict_many(states[:1])) == 1
+
+
+@pytest.mark.parametrize("limit", [0, -1, 1.5, True])
+def test_local_inference_rejects_invalid_batch_limit(limit):
+    with pytest.raises(ValueError, match="positive integer"):
+        predictor.LocalPredictor(make_model(), max_batch_size=limit)
