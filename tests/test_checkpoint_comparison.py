@@ -55,6 +55,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
             "sha256": hashlib.sha256(boundary_path.read_bytes()).hexdigest(),
         }
     calls = 0
+    all_outcomes_side = boundary_side or "variant"
 
     def play_game(agents):
         nonlocal calls
@@ -63,6 +64,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
         for side, agent in zip(seats, agents, strict=True):
             assert agent.mcts_iterations == (1 if side == "control" else 2)
             assert agent.mcts_merge_symmetric_actions == (side == "variant")
+            assert agent.mcts_after_state_evaluate_all_children == (side == all_outcomes_side)
             assert agent.mcts_boundary_samples == (10 if side == boundary_side else 1)
             identity = boundary_identities[side]
             assert agent.mcts_boundary_value_checkpoint == (
@@ -93,6 +95,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
                 "--allow-dirty",
                 "--no-control-merge-symmetric-actions",
                 "--variant-merge-symmetric-actions",
+                f"--{all_outcomes_side}-after-state-evaluate-all-children",
             ] + [
                 argument
                 for name, value in boundary_options.items()
@@ -112,6 +115,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
                 seed_count=1,
                 runs_dir=tmp_path / "runs",
                 allow_dirty=True,
+                **{f"{all_outcomes_side}_after_state_evaluate_all_children": True},
                 **boundary_options,
             )
 
@@ -134,6 +138,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
         assert not (run_path / "comparison.json").exists()
         return
     assert manifest["status"] == "completed"
+    assert f"--{all_outcomes_side}-after-state-evaluate-all-children" in manifest["invocation"]
     assert "--no-control-merge-symmetric-actions" in manifest["invocation"]
     assert "--variant-merge-symmetric-actions" in manifest["invocation"]
     report = json.loads((run_path / "comparison.json").read_text())
@@ -145,6 +150,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
         assert game["boundary_value_checkpoints"] == boundary_identities
     for side, identity in boundary_identities.items():
         search = report["search_by_player"][side]
+        assert search["mcts_after_state_evaluate_all_children"] == (side == all_outcomes_side)
         assert search["mcts_merge_symmetric_actions"] == (side == "variant")
         assert report["settings"][f"{side}_merge_symmetric_actions"] == (side == "variant")
         assert search["mcts_boundary_samples"] == (10 if side == boundary_side else 1)
@@ -320,3 +326,10 @@ def test_model_player_forwards_action_grouping(monkeypatch, merge):
 def test_action_grouping_requires_boolean(side):
     with pytest.raises(ValueError, match="boolean"):
         evaluation.EvaluationConfig(**{f"{side}_merge_symmetric_actions": 1})
+
+
+def test_policy_only_rejects_afterstate_evaluation():
+    with pytest.raises(ValueError, match="cannot evaluate afterstate"):
+        evaluation.EvaluationConfig(
+            variant_policy_only=True, variant_after_state_evaluate_all_children=True,
+        )

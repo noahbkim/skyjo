@@ -553,6 +553,23 @@ same checkpoint weights; boundary evaluator settings are invalid for a
 policy-only player. Reports identify each side in `play_mode_by_player` and set
 its `search_by_player` entry to null when search is disabled.
 
+Compare sampled chance outcomes against evaluating every immediate card outcome:
+
+```bash
+uv run python run_checkpoint_comparison.py \
+  --control /path/to/checkpoint.pth --iterations 32 \
+  --variant-after-state-evaluate-all-children \
+  --no-control-merge-symmetric-actions --no-variant-merge-symmetric-actions \
+  --seed-count 32 --seed 9900 --workers 8 --threads 1 --runs-dir .runs
+```
+
+`--control-after-state-evaluate-all-children` and its variant counterpart default
+to false. Enabling one evaluates all immediate card outcomes when expanding an
+ordinary chance node and averages their values using card probabilities. Later
+search still samples paths through those outcomes. This does not enumerate all
+round-ending reveals or next-round deals, and cannot be used with policy-only
+play. Equal search iterations require more network evaluations with this enabled.
+
 Compare the full sampled boundary evaluator with the original evaluator using
 the same frozen gameplay checkpoint:
 

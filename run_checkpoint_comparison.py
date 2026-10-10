@@ -77,6 +77,20 @@ def compare(
             help="Share search statistics for equivalent variant actions when safe.",
         ),
     ] = True,
+    control_after_state_evaluate_all_children: Annotated[
+        bool,
+        typer.Option(
+            "--control-after-state-evaluate-all-children",
+            help="Evaluate every immediate card outcome at control chance nodes.",
+        ),
+    ] = False,
+    variant_after_state_evaluate_all_children: Annotated[
+        bool,
+        typer.Option(
+            "--variant-after-state-evaluate-all-children",
+            help="Evaluate every immediate card outcome at variant chance nodes.",
+        ),
+    ] = False,
 ) -> Path:
     """Evaluate without training; positive score margins favor the variant."""
     control = control.resolve()
@@ -108,6 +122,8 @@ def compare(
         variant_policy_only=variant_policy_only,
         control_merge_symmetric_actions=control_merge_symmetric_actions,
         variant_merge_symmetric_actions=variant_merge_symmetric_actions,
+        control_after_state_evaluate_all_children=control_after_state_evaluate_all_children,
+        variant_after_state_evaluate_all_children=variant_after_state_evaluate_all_children,
     )
     configuration = {
         "name": "checkpoint-comparison",
@@ -162,6 +178,11 @@ def compare(
             for name in ("control", "variant")
         ]
         + (["--control-policy-only"] if control_policy_only else [])
+        + [
+            f"--{name}-after-state-evaluate-all-children"
+            for name in ("control", "variant")
+            if getattr(settings, f"{name}_after_state_evaluate_all_children")
+        ]
         + (["--variant-policy-only"] if variant_policy_only else [])
         + (["--allow-dirty"] if allow_dirty else []),
         allow_dirty=allow_dirty,

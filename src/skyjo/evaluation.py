@@ -31,6 +31,8 @@ class EvaluationConfig:
     variant_policy_only: bool = False
     control_merge_symmetric_actions: bool = True
     variant_merge_symmetric_actions: bool = True
+    control_after_state_evaluate_all_children: bool = False
+    variant_after_state_evaluate_all_children: bool = False
 
     def __post_init__(self):
         for name in (
@@ -45,12 +47,19 @@ class EvaluationConfig:
         if type(self.seed) is not int or not 0 <= self.seed <= 2**32 - 1:
             raise ValueError("evaluation.seed must fit a uint32")
         for side in ("control", "variant"):
+            chance_name = f"{side}_after_state_evaluate_all_children"
+            if type(getattr(self, chance_name)) is not bool:
+                raise ValueError(f"evaluation.{chance_name} must be a boolean")
             merge_name = f"{side}_merge_symmetric_actions"
             if type(getattr(self, merge_name)) is not bool:
                 raise ValueError(f"evaluation.{merge_name} must be a boolean")
             policy_only = getattr(self, f"{side}_policy_only")
             if type(policy_only) is not bool:
                 raise ValueError(f"evaluation.{side}_policy_only must be a boolean")
+            if policy_only and getattr(self, chance_name):
+                raise ValueError(
+                    f"evaluation.{side}_policy_only cannot evaluate afterstate outcomes"
+                )
             name = f"{side}_boundary_value_checkpoint"
             value = getattr(self, name)
             if policy_only and (
@@ -77,12 +86,13 @@ class EvaluationConfig:
         boundary_samples: int = 1,
         boundary_value_checkpoint: str | None = None,
         merge_symmetric_actions: bool = True,
+        after_state_evaluate_all_children: bool = False,
     ):
         return player.ModelPlayerConfig(
             action_softmax_temperature=0.0,
             mcts_iterations=self.iterations if iterations is None else iterations,
             mcts_dirichlet_epsilon=0.0,
-            mcts_after_state_evaluate_all_children=False,
+            mcts_after_state_evaluate_all_children=after_state_evaluate_all_children,
             mcts_c_puct=1.0,
             mcts_fpu_reduction=0.0,
             mcts_boundary_samples=boundary_samples,
@@ -211,6 +221,9 @@ def evaluate_checkpoints(
                 if getattr(settings, f"{name}_policy_only")
                 else settings.search(
                     iterations=getattr(settings, f"{name}_iterations"),
+                    after_state_evaluate_all_children=getattr(
+                        settings, f"{name}_after_state_evaluate_all_children"
+                    ),
                     merge_symmetric_actions=getattr(
                         settings, f"{name}_merge_symmetric_actions"
                     ),
