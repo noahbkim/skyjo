@@ -8,8 +8,12 @@ from pathlib import Path
 import pytest
 import torch
 
-from skyjo import buffer, checkpoint, experiment_config, selfplay_training, skynet
-from skyjo.boundary_value import BoundaryValueModel
+from skyjo.learning import replay_io
+from skyjo.learning import checkpoint
+from skyjo.experiments import experiment_config
+from skyjo.experiments import selfplay_training
+from skyjo.learning import skynet
+from skyjo.learning.boundary_value import BoundaryValueModel
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 
@@ -75,7 +79,7 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         assert manifest["final_progress"]["optimizer_steps"] > 0
         assert manifest["final_progress"]["generated_games"] == 2
         assert (run_path / "logs/train.log").stat().st_size > 0
-        assert "Not suitable" in (run_path / "notes.md").read_text()
+        assert not (run_path / "notes.md").exists()
         trace = events(run_path / "trajectory.jsonl")
         assert any(
             e["kind"] == "training" and "loss/outcome_value_loss" in e["metrics"]
@@ -117,7 +121,7 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         assert log.count("[GAMES]") == 1
         assert "p90=" not in log and "Action rates:" not in log
         assert "Phase timings" not in log and "Mean losses" not in log
-        replay = buffer.ReplayBuffer.load(run_path / data_record["path"])
+        replay = replay_io.load(run_path / data_record["path"])
         assert replay.dataset_id == data_record["metadata"]["dataset_id"]
         assert replay.game_count == 2
         assert set(replay.target_names) == {"value", "policy"}
@@ -197,12 +201,13 @@ def test_continuous_training_records_exact_snapshots(
         return losses
 
     monkeypatch.setattr(selfplay_training.train, "train_steps", capture_training)
-    path = selfplay_training.launch(
+    result = selfplay_training.launch(
         source,
         tmp_path / "runs",
         allow_dirty=True,
         repository=REPOSITORY,
     )
+    path = result.path
     artifacts = events(path / "artifacts.jsonl")
     boundaries = sorted({*range(interval, iterations + 1, interval), iterations})
     checkpoints = [e for e in artifacts if e.get("artifact_kind") == "checkpoint"]
@@ -262,7 +267,6 @@ def test_continuous_training_records_exact_snapshots(
         {"search": {"action_softmax_temperature": -1}},
         {"search": {"action_softmax_temperature": float("nan")}},
         {"search": {"boundary_samples": 0}},
-        {"search": {"boundary_samples": 10}},
         {"search": {"merge_symmetric_actions": 1}},
     ],
 )
@@ -301,7 +305,7 @@ def test_boundary_model_inheritance_and_frozen_launch_input(tmp_path, monkeypatc
     original = source.read_bytes()
     (parent / "base.toml").write_text(
         '[search]\nboundary_samples = 10\nboundary_value_checkpoint = "boundary.pth"\n'
-        'merge_symmetric_actions = false\n'
+        "merge_symmetric_actions = false\n"
     )
     child = tmp_path / "child.toml"
     child.write_text('extends = "parent/base.toml"\n')
@@ -309,23 +313,31 @@ def test_boundary_model_inheritance_and_frozen_launch_input(tmp_path, monkeypatc
     assert resolved["search"]["boundary_value_checkpoint"] == str(source)
     runtime = {}
 
-    def capture_launch(**kwargs):
-        runtime["player"] = kwargs["model_player_config"]
+    def capture_launch(settings, **kwargs):
+        runtime["player"] = settings.contestant
         # Changing the original input after launch cannot affect worker loads.
         source.write_bytes(b"changed")
+        from skyjo.experiments.state import TrainingRunResult, Snapshot
+
+        run_path = kwargs["recorder"].path
+        return TrainingRunResult(
+            "test", run_path, Snapshot(run_path / "model.pth", None), {}, {}
+        )
 
     monkeypatch.setattr(selfplay_training, "train_self_play", capture_launch)
-    path = selfplay_training.launch(
+    result = selfplay_training.launch(
         child, tmp_path / "runs", repository=REPOSITORY, allow_dirty=True
     )
+    path = result.path
     player = runtime["player"]
-    snapshot = Path(player.mcts_boundary_value_checkpoint)
+    snapshot = Path(player.boundary_checkpoint)
     assert snapshot.is_relative_to(path)
     assert snapshot.read_bytes() == original
-    assert player.mcts_boundary_samples == 10
-    assert player.mcts_merge_symmetric_actions is False
+    assert player.search.boundary_samples == 10
+    assert player.search.merge_symmetric_actions is False
     artifact = next(
-        row for row in events(path / "artifacts.jsonl")
+        row
+        for row in events(path / "artifacts.jsonl")
         if row.get("artifact_kind") == "boundary_value_checkpoint"
     )
     assert artifact["sha256"] == hashlib.sha256(original).hexdigest()

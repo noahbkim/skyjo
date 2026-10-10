@@ -5,7 +5,7 @@ from typing import Annotated
 
 import typer
 
-from skyjo.experiments import launch_suite
+from skyjo.experiments.suites import launch_suite
 
 
 def compare(

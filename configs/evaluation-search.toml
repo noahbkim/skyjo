@@ -1,0 +1,10 @@
+# Use with run_checkpoint_comparison.py --control-settings or --variant-settings.
+mode = "search"
+iterations = 32
+temperature = 0.0
+
+[search]
+c_puct = 1.0
+dirichlet_epsilon = 0.0
+fpu_reduction = 0.0
+merge_symmetric_actions = true

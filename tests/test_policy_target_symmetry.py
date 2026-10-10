@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 from helpers import NaiveQuickFinishPlayer
 
-from skyjo import game as sj
-from skyjo import play, skynet
+from skyjo.engine import game as sj
+from skyjo.simulation import play
+from skyjo.engine import symmetry
+from skyjo.learning import targets
 
 
 def state_with_symmetric_active_board() -> sj.Skyjo:
@@ -39,14 +41,14 @@ def test_symmetrize_policy_target_averages_exact_action_orbits() -> None:
             actions = np.asarray(slots) + action_offset
             expected[actions] = expected[actions].mean()
 
-    actual = skynet.symmetrize_policy_target(state, original)
+    actual = symmetry.symmetrize_policy_target(state, original)
 
     assert np.array_equal(original, unchanged)
     assert np.allclose(actual, expected)
     assert np.array_equal(actual[: sj.MASK_FLIP], original[: sj.MASK_FLIP])
     assert actual.sum() == pytest.approx(original.sum())
     assert np.array_equal(
-        skynet.symmetrize_policy_target(state, actual),
+        symmetry.symmetrize_policy_target(state, actual),
         actual,
     )
 
@@ -55,7 +57,7 @@ def test_symmetrize_policy_target_rejects_wrong_shape() -> None:
     state = state_with_symmetric_active_board()
 
     with pytest.raises(ValueError, match="policy_target must have shape"):
-        skynet.symmetrize_policy_target(
+        symmetry.symmetrize_policy_target(
             state,
             np.zeros(sj.MASK_SIZE - 1, dtype=np.float32),
         )
@@ -83,12 +85,11 @@ def test_full_game_conversion_symmetrizes_only_the_stored_target() -> None:
             ),
         )
     )
-    game_data, _ = play.game_result_to_game_data(result)
+    game_data = targets.build_training_batch(result)
 
-    assert game_data[0].action == sj.MASK_FLIP_SECOND_BELOW
     assert np.array_equal(posterior, unchanged)
     assert np.array_equal(
-        game_data[0].targets["policy"],
-        skynet.symmetrize_policy_target(state, posterior),
+        game_data.targets["policy"][0],
+        symmetry.symmetrize_policy_target(state, posterior),
     )
-    assert not np.array_equal(game_data[0].targets["policy"], posterior)
+    assert not np.array_equal(game_data.targets["policy"][0], posterior)

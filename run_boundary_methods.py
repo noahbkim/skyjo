@@ -21,11 +21,17 @@ def compare(
     allow_dirty: Annotated[bool, typer.Option("--allow-dirty")] = False,
 ) -> Path:
     """Evaluate settled score states using score values or 1/10/100 next deals."""
-    from skyjo.boundary_methods import launch_comparison
+    from skyjo.experiments.boundary_methods import launch_comparison
 
     result = launch_comparison(
-        round_log, checkpoint, boundary_run, runs_dir, repeats=repeats, seed=seed,
-        batch_size=batch_size, allow_dirty=allow_dirty,
+        round_log,
+        checkpoint,
+        boundary_run,
+        runs_dir,
+        repeats=repeats,
+        seed=seed,
+        batch_size=batch_size,
+        allow_dirty=allow_dirty,
     )
     typer.echo(f"Comparison: {result}")
     return result

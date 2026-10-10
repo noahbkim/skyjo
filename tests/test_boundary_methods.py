@@ -8,10 +8,16 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo import game as sj
-from skyjo import observations, skynet
-from skyjo.boundary_data import load_boundaries
-from skyjo.boundary_methods import next_deal, next_deal_predictions, validate_holdout
+from skyjo.engine import game as sj
+from skyjo.learning import observations
+from skyjo.search.evaluator import Prediction
+from skyjo.learning import checkpoint as checkpoint_io
+from skyjo.learning.boundary_data import load_boundaries
+from skyjo.experiments.boundary_methods import (
+    next_deal,
+    next_deal_predictions,
+    validate_holdout,
+)
 
 
 @pytest.mark.parametrize("players,starter", [(2, 0), (2, 1), (3, 2)])
@@ -53,7 +59,7 @@ class RecordingPredictor:
         self.states = []
         self.values = []
 
-    def predict_many(self, states):
+    def evaluate(self, states):
         predictions = []
         for state in states:
             # Every fresh player has one visible card. Unequal seat weights make
@@ -64,10 +70,12 @@ class RecordingPredictor:
             value = (weights / weights.sum()).astype(np.float32)
             self.states.append(state)
             self.values.append(value)
-            predictions.append(skynet.SkyNetPrediction(
-                value_output=value,
-                policy_output=np.zeros(sj.MASK_SIZE, dtype=np.float32),
-            ))
+            predictions.append(
+                Prediction(
+                    value=np.roll(value, sj.get_player(state)),
+                    policy=np.zeros(sj.MASK_SIZE, dtype=np.float32),
+                )
+            )
         return predictions
 
 
@@ -79,8 +87,13 @@ def test_deal_means_use_nested_samples_and_preserve_starter_perspective():
     for count in (1, 3):
         inference = RecordingPredictor()
         actual, _ = next_deal_predictions(
-            scores, starters, inference,
-            sample_counts=(count,), repeats=repeats, seed=91, batch_size=2,
+            scores,
+            starters,
+            inference,
+            sample_counts=(count,),
+            repeats=repeats,
+            seed=91,
+            batch_size=2,
         )
         estimates = actual[f"next_deal_{count}"]
         assert estimates.shape == (repeats, len(scores), 3)
@@ -97,7 +110,10 @@ def test_deal_means_use_nested_samples_and_preserve_starter_perspective():
                 repeats, count, 3
             )
             np.testing.assert_allclose(
-                estimates[:, row], scalar_values.mean(axis=1), atol=1e-7, rtol=0,
+                estimates[:, row],
+                scalar_values.mean(axis=1),
+                atol=1e-7,
+                rtol=0,
             )
             hashes = np.array([sj.hash_skyjo(state) for state, _ in selected])
             samples[count].append(hashes.reshape(repeats, count))
@@ -106,36 +122,60 @@ def test_deal_means_use_nested_samples_and_preserve_starter_perspective():
         np.testing.assert_array_equal(samples[1][row][:, 0], samples[3][row][:, 0])
     # Sampling does not depend on inference chunking, and seeds are reproducible.
     repeated, _ = next_deal_predictions(
-        scores, starters, RecordingPredictor(),
-        sample_counts=(3,), repeats=repeats, seed=91, batch_size=7,
+        scores,
+        starters,
+        RecordingPredictor(),
+        sample_counts=(3,),
+        repeats=repeats,
+        seed=91,
+        batch_size=7,
     )
     np.testing.assert_array_equal(repeated["next_deal_3"], estimates)
 
 
 @pytest.mark.parametrize(
-    "violation", [None, "model_saw_game", "wrong_generator", "score_overlap", "changed_log"]
+    "violation",
+    [None, "model_saw_game", "wrong_generator", "score_overlap", "changed_log"],
 )
-def test_holdout_requires_unseen_games_and_matching_unchanged_provenance(tmp_path, violation):
+def test_holdout_requires_unseen_games_and_matching_unchanged_provenance(
+    tmp_path, violation
+):
     checkpoint = tmp_path / "model.pth"
-    torch.save({"progress": {"generated_games": 10, "iteration": 3}}, checkpoint)
+    checkpoint_io.save_checkpoint(
+        checkpoint,
+        model=torch.nn.Linear(1, 1),
+        optimizer=None,
+        configuration={},
+        progress=checkpoint_io.TrainingProgress(generated_games=10, iteration=3),
+    )
     game_index = 9 if violation == "model_saw_game" else 10
     generator = tmp_path / "other.pth" if violation == "wrong_generator" else checkpoint
     records = []
     for number, (scores, cumulative) in enumerate(
         [([22, 40], [22, 40]), ([79, 40], [101, 80])], start=1
     ):
-        records.append({
-            "run_id": "evaluation", "game_index": game_index, "iteration": 4,
-            "play_seed": 5, "round_number": number, "scores": scores,
-            "cumulative_scores": cumulative, "ending_player": 1,
-            "checkpoint_path": str(generator), "partial_start": False,
-        })
+        records.append(
+            {
+                "run_id": "evaluation",
+                "game_index": game_index,
+                "iteration": 4,
+                "play_seed": 5,
+                "round_number": number,
+                "scores": scores,
+                "cumulative_scores": cumulative,
+                "ending_player": 1,
+                "checkpoint_path": str(generator),
+                "partial_start": False,
+            }
+        )
     source = tmp_path / "rounds.jsonl"
     source.write_text("".join(json.dumps(row) + "\n" for row in records))
     dataset = load_boundaries([source])
     boundary_run = tmp_path / "boundary"
     (boundary_run / "data").mkdir(parents=True)
-    training_ids = dataset.game_ids if violation == "score_overlap" else np.array(['["old",0]'])
+    training_ids = (
+        dataset.game_ids if violation == "score_overlap" else np.array(['["old",0]'])
+    )
     np.savez(boundary_run / "data/boundaries.npz", game_ids=training_ids)
     if violation == "changed_log":
         source.write_text(source.read_text() + "\n")

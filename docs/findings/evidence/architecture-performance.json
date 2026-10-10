@@ -1,0 +1,189 @@
+{
+  "topic": "architecture-performance",
+  "verified_at": "2026-10-10",
+  "question": "Does the architecture cleanup introduce material CPU runtime regressions on fixed workloads?",
+  "baseline_revision": "0ebb5f89bdf238975ca2a4aff7676e24c2d001cf",
+  "after_revision": {
+    "base": "0ebb5f89bdf238975ca2a4aff7676e24c2d001cf",
+    "branch": "codex/architecture-cleanup",
+    "dirty": true,
+    "measured_source_commit": "352f529d79cc92014a6b2c38f72196a7ea761155"
+  },
+  "measurement": {
+    "device": "CPU",
+    "torch_threads": 1,
+    "players": 2,
+    "model_seed": 0,
+    "model": {
+      "embedding_dimensions": 16,
+      "global_state_embedding_dimensions": 32,
+      "num_heads": 2
+    },
+    "state_stream": "random.Random(120); 1000 sequential states; legal action at index modulo legal-action count",
+    "search": "10 fixed starting states, 32 iterations each; fresh roots; default SearchConfig",
+    "inference": "20 batches of 64 states; maximum inference batch size 64",
+    "optimization": "20 Adam updates of 64 positions, learning rate 0.001; weights retained between repetitions",
+    "repetitions": 3,
+    "warmups_per_workload": 1,
+    "aggregate": "median elapsed seconds",
+    "order": [
+      "transitions_1000",
+      "inference_1280",
+      "search_10x32",
+      "optimizer_20x64"
+    ]
+  },
+  "baseline": {
+    "artifact": "skyjo-architecture-bench-before.json",
+    "sha256": "03ba81651fe9c9b0d627371a703bf450caabae0bcad26dac1bd4188a2b54ff39",
+    "results": {
+      "transitions_1000": {
+        "median_seconds": 0.2307965410873294,
+        "seconds": [
+          0.23262645886279643,
+          0.2307965410873294,
+          0.20636612502858043
+        ]
+      },
+      "inference_1280": {
+        "median_seconds": 0.12025870895013213,
+        "seconds": [
+          0.13127558305859566,
+          0.12025870895013213,
+          0.10321258287876844
+        ]
+      },
+      "search_10x32": {
+        "median_seconds": 0.49122745799832046,
+        "seconds": [
+          0.49361754092387855,
+          0.4898568750359118,
+          0.49122745799832046
+        ]
+      },
+      "optimizer_20x64": {
+        "median_seconds": 0.22657754202373326,
+        "seconds": [
+          0.2280381249729544,
+          0.22657754202373326,
+          0.19829137506894767
+        ]
+      }
+    }
+  },
+  "after": {
+    "artifact": "skyjo-architecture-bench-after.json",
+    "sha256": "ab3c082e5815a289d17af1d25ad83042c92293bd025681ba3b842466a7904e7d",
+    "results": {
+      "transitions_1000": {
+        "median_seconds": 0.03667429182678461,
+        "seconds": [
+          0.03724479186348617,
+          0.03124787495471537,
+          0.03667429182678461
+        ]
+      },
+      "inference_1280": {
+        "median_seconds": 0.10857933294028044,
+        "seconds": [
+          0.10857933294028044,
+          0.10627129208296537,
+          0.11648120800964534
+        ]
+      },
+      "search_10x32": {
+        "median_seconds": 0.22495345794595778,
+        "seconds": [
+          0.21174162486568093,
+          0.22495345794595778,
+          0.23722500004805624
+        ]
+      },
+      "optimizer_20x64": {
+        "median_seconds": 0.1920954999513924,
+        "seconds": [
+          0.17938658315688372,
+          0.19936545798555017,
+          0.1920954999513924
+        ]
+      }
+    }
+  },
+  "ratios_before_over_after": {
+    "transitions_1000": 6.293142405513882,
+    "inference_1280": 1.1075653689664446,
+    "search_10x32": 2.1836848496738006,
+    "optimizer_20x64": 1.1795046842901897
+  },
+  "reproduction": {
+    "baseline_script_sha256": "26fc4f10ef9e2443e43a29c2f005fdb7a4b7f665020763c24cab5245365a3ded",
+    "baseline_script_source": "import json, random, time, statistics\nimport numpy as np\nimport torch\nfrom skyjo import game, models, predictor, mcts, batches, train, objectives\n\ntorch.set_num_threads(1)\ntorch.manual_seed(0)\nmodel=models.build({'embedding_dimensions':16,'global_state_embedding_dimensions':32,'num_heads':2},players=2,device='cpu')\ninference=predictor.LocalPredictor(model,64)\nrng=random.Random(120)\nstate=game.start_round(game.new(players=2,rng=rng),rng=rng)\nstates=[]\nfor i in range(1000):\n    if game.get_round_over(state): state=game.start_round(game.new(players=2,rng=rng),rng=rng)\n    states.append(state)\n    state=game.apply_action(state,int(np.flatnonzero(game.actions(state))[i%int(game.actions(state).sum())]),rng=rng)\ninputs=batches.states_to_batch(states[:64])\ninputs=batches.TrainingBatch(inputs.spatial_inputs,inputs.non_spatial_inputs,inputs.action_masks,{'value':np.full((64,2),.5,dtype=np.float32),'policy':inputs.action_masks/inputs.action_masks.sum(axis=1,keepdims=True)})\noptimizer=torch.optim.Adam(model.parameters(),lr=.001)\ndef engine():\n    for i,s in enumerate(states): game.apply_action(s,int(np.flatnonzero(game.actions(s))[i%int(game.actions(s).sum())]),rng=random.Random(i))\ndef infer():\n    for _ in range(20): inference.predict_many(states[:64])\ndef search():\n    for i in range(10):\n        random.seed(i); np.random.seed(i)\n        mcts.run_mcts(states[50+i],inference,32)\ndef optimize():\n    for _ in range(20): train.train_step(model,inputs,objectives.configured_loss,optimizer)\nresults={}\nfor name,fn in [('transitions_1000',engine),('inference_1280',infer),('search_10x32',search),('optimizer_20x64',optimize)]:\n    fn(); timings=[]\n    for _ in range(3):\n        started=time.perf_counter(); fn(); timings.append(time.perf_counter()-started)\n    results[name]={'median_seconds':statistics.median(timings),'seconds':timings}\nprint(json.dumps(results,indent=2))\n",
+    "after_script_sha256": "a94e0672b971346d12a1f95ea829b263f8531b06da1d9197f03e64e768ae5529",
+    "after_api_adaptations": [
+      "Use engine/game, learning model/inference/batch/train/loss modules, and search/mcts imports.",
+      "Replace inference.predict_many with inference.evaluate.",
+      "Pass np.random.default_rng(i) to run_mcts; keep original process reseeding calls in measured adapter.",
+      "Replace objectives.configured_loss with losses.configured_loss."
+    ],
+    "maintained_runner": "run_layer_benchmark.py",
+    "runner_note": "Same fixed work; omits now-unused process-global reseeding in search. Measured results above use the API-only adapter, not a later runner invocation.",
+    "after_source_sha256": {
+      "src/skyjo/engine/game.py": "5724a0c3f11e69ff940cf499d8c2cde941c2fa9cb4d5e41b834da35c5cbafdf1",
+      "src/skyjo/engine/symmetry.py": "39ac384b80939d9d22d2a77dd5d62e6023fa4173b511f2a78d10003a9103d663",
+      "src/skyjo/engine/values.py": "5ef33ac01aa384da457493a8b3c82ff2e79cd5f550d86eda8ba3c9322b12cb5b",
+      "src/skyjo/search/mcts.py": "c8e59bf781c928f53aecc940d83e3c929c56705827e94b5d8d503b8b2682ed70",
+      "src/skyjo/search/evaluator.py": "bc36c17f9ec4cf0291322674f126a221960487aee80a2adc5fda121df0735d33",
+      "src/skyjo/search/symmetry.py": "19abfcdc4bdb58e257b86a14eeeebd516ed94b91ce930c44ca59ab65db43e1eb",
+      "src/skyjo/learning/skynet.py": "ccaa28b2ee7a3f67a522497e759879a00312f49ed8897788a92f708f099c2a95",
+      "src/skyjo/learning/predictor.py": "bb2b3bfb82786a1b5af32c2c0e149652177f675946ee4dcd6442d1d5ff3f6ce7",
+      "src/skyjo/learning/models.py": "d9ed270fccff61124a8e72ab82b62153cbd6fc8e6d360d638d9831c121f63838",
+      "src/skyjo/learning/batches.py": "40159f553968dec9a5722de37e3f93479aac45e3588ef9d8a3882b2e2b63eac7",
+      "src/skyjo/learning/observations.py": "4ce53b87eb21e238f5ec1baebf1e61db8fff67e8fe11cbd502a649dea1ad0f58",
+      "src/skyjo/learning/auxiliary_heads.py": "5155da6667214b98798eb5013e85bab2b75edf7222fe21101b6cfa8b73258375",
+      "src/skyjo/learning/objectives.py": "05b510075ea625bee6c40e492aeda72edfc9b0b4b8f56f1a5497ccbc84ee30bc",
+      "src/skyjo/learning/losses.py": "3263bef9399c3b069329afe742b4f5aa01c45de2ece1e46b7f06bb954452692b",
+      "src/skyjo/learning/train.py": "9065550283cbbb1c3dd331f937c159cff0b9e0d52bbc71351cf5a3a3a64d8314"
+    }
+  },
+  "limitations": [
+    "Same local host and Python environment, measured sequentially rather than in randomized alternating runs.",
+    "Only three timed samples per workload; no confidence interval or cross-environment claim.",
+    "State-generation algorithm and search budgets match, but owned search RNG changes traversal trajectories.",
+    "Transition speedup coincides with removal of automatic deep invariant validation; explicit validation remains available and tested.",
+    "Small inference and optimizer timing differences are not attributed to an implementation improvement.",
+    "No training convergence, playing strength, GPU/MPS, or multiprocessing throughput was measured.",
+    "After measurement preceded the review commits; per-file digests match the measured_source_commit for all listed source files."
+  ],
+  "environment_recorded_after": {
+    "system": "macOS-15.7.9-arm64-arm-64bit",
+    "python": "3.12.7",
+    "torch": "2.5.1",
+    "numpy": "2.1.3"
+  },
+  "suite_validation": {
+    "command": "PYTHONPATH=src python -m pytest -q",
+    "environment": "macOS, Python 3.12; outside restricted sandbox to support OpenMP shared memory and spawned workers",
+    "baseline": {
+      "passed": 315,
+      "failed": 0,
+      "errors": 0,
+      "seconds": 79.86,
+      "log_sha256": "b32882773ba25fe9c340dd4deaf525acd31a068a4b2fa00932eba8cbdff86654"
+    },
+    "cleanup": {
+      "passed": 299,
+      "failed": 0,
+      "errors": 0,
+      "seconds": 82.05,
+      "log_sha256": "44940c211547de1b04c25893945aa36e89d52994d667104f1c85cb8277a28efe"
+    },
+    "test_change": "Retired interface/compatibility assertions were removed or replaced; behavioral tests cover new model-free layers, safe tree reuse, owned RNG, replay, continuation, and real workflows.",
+    "additional_checks": [
+      "Ruff F checks",
+      "git diff --check",
+      "documentation links",
+      "CLI help and portable example configurations"
+    ],
+    "scope_limit": "CPU validation on this host; GPU, MPS, other operating systems and training-strength equivalence were not measured."
+  }
+}

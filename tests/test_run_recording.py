@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo import runs
+from skyjo.experiments import runs
 
 
 def read_events(path):

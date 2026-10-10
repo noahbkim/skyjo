@@ -1,82 +1,41 @@
-from __future__ import annotations
+"""Game identity, worker scheduling, and replay ingestion stay deterministic."""
+
+import dataclasses
+import multiprocessing
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
-from skyjo import batches, buffer, observations, play, selfplay_training
-from skyjo import game as sj
+from skyjo.engine import game as sj
+from skyjo.experiments import generation, selfplay_training
+from skyjo.experiments.training_setup import initialize_training_data_buffer
+from skyjo.experiments.contestants import ContestantConfig
+from skyjo.learning import batches, buffer, models, observations, replay_io
+from skyjo.search.mcts import SearchConfig
+from skyjo.simulation import play
+from skyjo.simulation.jobs import GeneratedGame, derive_game_seed
+from test_full_game import completed_round
 
 
-def test_torch_worker_uses_bounded_cpu_parallelism(monkeypatch):
-    configured_threads = []
-    configured_interop_threads = []
-    monkeypatch.setattr(torch, "set_num_threads", configured_threads.append)
-    monkeypatch.setattr(
-        torch,
-        "set_num_interop_threads",
-        configured_interop_threads.append,
-    )
-
-    selfplay_training.configure_torch_worker(1)
-
-    assert configured_threads == [1]
-    assert configured_interop_threads == [1]
+def test_game_seeds_are_stable_and_separate_games_and_streams():
+    seed = derive_game_seed(7, 12)
+    assert seed == derive_game_seed(7, 12)
+    assert 0 <= seed <= np.iinfo(np.uint32).max
+    assert len({seed, derive_game_seed(7, 13), derive_game_seed(7, 12, 1)}) == 3
 
 
-def test_game_seeds_are_stable_and_distinct():
-    seed_a = selfplay_training.derive_game_seed(
-        7, 12, selfplay_training.PLAY_SEED_STREAM
-    )
-    seed_b = selfplay_training.derive_game_seed(
-        7, 12, selfplay_training.PLAY_SEED_STREAM
-    )
-    target_seed = selfplay_training.derive_game_seed(
-        7, 13, selfplay_training.PLAY_SEED_STREAM
-    )
-
-    assert seed_a == seed_b
-    assert 0 <= seed_a <= np.iinfo(np.uint32).max
-    assert seed_a != target_seed
+def _worker_thread_counts():
+    return torch.get_num_threads(), torch.get_num_interop_threads()
 
 
-def test_real_games_are_independent_of_task_batching():
-    torch.manual_seed(1)
-    model_settings = {
-        "embedding_dimensions": 8,
-        "global_state_embedding_dimensions": 16,
-        "num_heads": 1,
-    }
-    model = selfplay_training.models.build(model_settings, players=2, device="cpu")
-    player_config = selfplay_training.player.ModelPlayerConfig(
-        action_softmax_temperature=1.0,
-        mcts_iterations=1,
-        mcts_dirichlet_epsilon=0.25,
-        mcts_after_state_evaluate_all_children=False,
-    )
-    common = {
-        "model_settings": model_settings,
-        "model_state_dict": model.state_dict(),
-        "model_player_config": player_config,
-        "players": 2,
-        "run_seed": 31,
-    }
-    one_task = selfplay_training.play_games_locally(
-        **common,
-        number_of_games=2,
-        first_game_index=20,
-    )
-    multiple_tasks = [
-        *selfplay_training.play_games_locally(
-            **common, number_of_games=1, first_game_index=20
-        ),
-        *selfplay_training.play_games_locally(
-            **common, number_of_games=1, first_game_index=21
-        ),
-    ]
-    for left, right in zip(one_task, multiple_tasks, strict=True):
-        assert left.global_game_index == right.global_game_index
-        assert left.play_seed == right.play_seed
-        assert len(left.result.rounds) == len(right.result.rounds)
+def _assert_same_games(expected, actual):
+    for left, right in zip(expected, actual, strict=True):
+        assert (left.global_game_index, left.play_seed) == (
+            right.global_game_index,
+            right.play_seed,
+        )
         for left_round, right_round in zip(
             left.result.rounds, right.result.rounds, strict=True
         ):
@@ -89,7 +48,51 @@ def test_real_games_are_independent_of_task_batching():
                 )
 
 
-def make_buffer() -> buffer.ReplayBuffer:
+def test_real_games_are_independent_of_task_grouping_and_worker_count():
+    torch.set_num_threads(1)
+    torch.manual_seed(1)
+    model_settings = {
+        "embedding_dimensions": 4,
+        "global_state_embedding_dimensions": 8,
+        "num_heads": 1,
+    }
+    model = models.build(model_settings, players=2, device="cpu")
+    common = {
+        "model_settings": model_settings,
+        "model_state_dict": model.state_dict(),
+        "model_player_config": ContestantConfig(
+            iterations=1, temperature=1, search=SearchConfig(dirichlet_epsilon=0.25)
+        ),
+        "players": 2,
+        "run_seed": 31,
+    }
+    expected = generation.play_games_locally(
+        **common, number_of_games=2, first_game_index=20
+    )
+    split = [
+        game
+        for index in (20, 21)
+        for game in generation.play_games_locally(
+            **common, number_of_games=1, first_game_index=index
+        )
+    ]
+    _assert_same_games(expected, split)
+    for workers in (1, 2):
+        with multiprocessing.get_context("spawn").Pool(
+            workers, initializer=generation.configure_torch_worker, initargs=(1,)
+        ) as pool:
+            assert pool.apply(_worker_thread_counts) == (1, 1)
+            actual = generation.generate_iteration(
+                pool,
+                total_games=2,
+                games_per_task=1,
+                first_game_index=20,
+                worker_kwargs=common,
+            )
+        _assert_same_games(expected, actual)
+
+
+def make_buffer():
     return buffer.ReplayBuffer(
         max_size=8,
         spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
@@ -98,96 +101,77 @@ def make_buffer() -> buffer.ReplayBuffer:
     )
 
 
-def test_fresh_run_can_seed_buffer_without_overwriting_source(tmp_path):
-    source_path = tmp_path / "source" / "dataset"
-    source = make_buffer()
+def test_fresh_replay_import_does_not_overwrite_its_source(tmp_path):
     state = sj.new(players=2, top=0)
-    action_mask = sj.actions(state).astype(np.float32)
-    source.add(
-        state,
-        {
-            batches.VALUE_TARGET_NAME: np.array([1.0, 0.0], dtype=np.float32),
-            batches.POLICY_TARGET_NAME: action_mask / action_mask.sum(),
+    inputs = batches.states_to_batch([state])
+    batch = dataclasses.replace(
+        inputs,
+        targets={
+            "value": np.array([[1.0, 0.0]], dtype=np.float32),
+            "policy": inputs.action_masks.astype(np.float32)
+            / inputs.action_masks.sum(axis=1, keepdims=True),
         },
-        game_index=12,
     )
-    source.save(source_path)
-    destination_path = tmp_path / "destination" / "dataset"
+    source = make_buffer()
+    source.append(batch, buffer.GameProvenance(12))
+    source_path = replay_io.save(source, tmp_path / "source")
+    original = {
+        path.name: path.read_bytes() for path in source_path.iterdir() if path.is_file()
+    }
     config = buffer.Config(
-        max_size=8,
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
-        action_mask_shape=(sj.MASK_SIZE,),
-        path=destination_path,
+        8,
+        inputs.spatial_inputs.shape[1:],
+        inputs.non_spatial_inputs.shape[1:],
+        inputs.action_masks.shape[1:],
     )
-
-    seeded = selfplay_training.initialize_training_data_buffer(config, source_path)
-
+    seeded = initialize_training_data_buffer(config, source_path)
     assert seeded.game_indices == (12,)
-    assert seeded.path == destination_path
-    assert not destination_path.exists()
-    assert source_path.exists()
+    seeded.append(batch, buffer.GameProvenance(13))
+    destination = replay_io.save(seeded, tmp_path / "destination")
+    assert replay_io.load(destination).game_indices == (12, 13)
+    assert original == {
+        path.name: path.read_bytes() for path in source_path.iterdir() if path.is_file()
+    }
 
 
-def test_target_generation_is_sorted_and_does_not_need_randomness(monkeypatch):
-    state = sj.new(players=2, top=0)
-    action_mask = sj.actions(state).astype(np.float32)
-    policy = action_mask / action_mask.sum()
-
-    def fake_conversion(result):
-        marker = float(result)
-        data = [
-            play.GameDataPoint(
-                state,
-                None,
-                {
-                    batches.VALUE_TARGET_NAME: np.array(
-                        [marker, -marker], dtype=np.float32
-                    ),
-                    batches.POLICY_TARGET_NAME: policy,
-                },
-            )
-        ]
-        return data, object()
-
-    monkeypatch.setattr(
-        selfplay_training.play,
-        "game_result_to_game_data",
-        fake_conversion,
-    )
-    generated = [
-        selfplay_training.GeneratedGame(
-            global_game_index=index,
-            play_seed=selfplay_training.derive_game_seed(
-                9, index, selfplay_training.PLAY_SEED_STREAM
+def _observed_game(index):
+    completed = completed_round(((1, 2, 3), (4, 5, 6)), (95 + index, 95))
+    state = sj.apply_action(dataclasses.replace(completed, countdown=2), sj.MASK_TAKE)
+    probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    probabilities[sj.MASK_REPLACE] = 1
+    final = sj.apply_action(state, sj.MASK_REPLACE)
+    result = play.GameResult(
+        (
+            play.RoundResult(
+                [
+                    play.RoundHistoryEntry(state, sj.MASK_REPLACE, probabilities),
+                    play.RoundHistoryEntry(final, None, None),
+                ],
+                tuple(sj.get_fixed_perspective_round_scores(final)),
+                tuple(sj.get_fixed_perspective_game_scores(final)),
+                sj.get_player(final),
             ),
-            result=index,
         )
-        for index in range(3)
-    ]
-
-    ordered_buffer = make_buffer()
-    selfplay_training.add_generated_games_to_buffer(
-        generated,
-        ordered_buffer,
     )
-    reversed_buffer = make_buffer()
-    selfplay_training.add_generated_games_to_buffer(
-        reversed(generated),
-        reversed_buffer,
-    )
-
-    assert ordered_buffer.game_indices == (0, 1, 2)
-    assert reversed_buffer.game_indices == (0, 1, 2)
-    assert np.array_equal(
-        ordered_buffer.ordered_batch().targets["value"],
-        reversed_buffer.ordered_batch().targets["value"],
-    )
+    return GeneratedGame(index, derive_game_seed(9, index), result)
 
 
-def test_generation_collects_out_of_order_completions_and_restores_game_order():
-    from types import SimpleNamespace
+def test_target_ingestion_sorts_games_and_uses_observed_results(monkeypatch):
+    generated = [_observed_game(index) for index in range(3)]
 
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Observed labels must not replay game transitions")
+
+    monkeypatch.setattr(sj, "apply_action", forbidden)
+    ordered, reversed_ = make_buffer(), make_buffer()
+    selfplay_training.add_generated_games_to_buffer(generated, ordered)
+    selfplay_training.add_generated_games_to_buffer(reversed(generated), reversed_)
+    assert ordered.game_indices == reversed_.game_indices == (0, 1, 2)
+    for name, expected in ordered.ordered_batch().targets.items():
+        np.testing.assert_array_equal(expected, reversed_.ordered_batch().targets[name])
+
+
+def test_generation_restores_order_after_out_of_order_completions():
     class CompletingPool:
         def __init__(self):
             self.tasks = []
@@ -199,7 +183,7 @@ def test_generation_collects_out_of_order_completions_and_restores_game_order():
                     index = settings["first_game_index"]
                     complete(
                         [
-                            selfplay_training.GeneratedGame(
+                            GeneratedGame(
                                 index,
                                 index,
                                 SimpleNamespace(
@@ -209,7 +193,7 @@ def test_generation_collects_out_of_order_completions_and_restores_game_order():
                         ]
                     )
 
-    result = selfplay_training.generate_iteration(
+    result = generation.generate_iteration(
         CompletingPool(),
         total_games=3,
         games_per_task=1,
@@ -219,9 +203,7 @@ def test_generation_collects_out_of_order_completions_and_restores_game_order():
     assert [game.global_game_index for game in result] == [10, 11, 12]
 
 
-def test_generation_propagates_later_worker_failure_without_waiting_for_first():
-    import pytest
-
+def test_generation_reports_later_worker_failure_without_waiting_for_first():
     class FailingPool:
         def apply_async(self, worker, *, kwds, callback, error_callback):
             if kwds["first_game_index"] == 1:
@@ -229,7 +211,7 @@ def test_generation_propagates_later_worker_failure_without_waiting_for_first():
             # Task zero never completes.
 
     with pytest.raises(RuntimeError, match="worker failed"):
-        selfplay_training.generate_iteration(
+        generation.generate_iteration(
             FailingPool(),
             total_games=2,
             games_per_task=1,

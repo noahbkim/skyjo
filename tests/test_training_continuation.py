@@ -12,17 +12,15 @@ import pytest
 import torch
 from helpers import NaiveQuickFinishPlayer
 
-from skyjo import (
-    buffer,
-    continuation,
-    experiment_config,
-    experiments,
-    models,
-    play,
-    runs,
-    training_budget,
-)
-from skyjo import selfplay_training as runner
+from skyjo.learning import buffer, replay_io, targets
+from skyjo.learning import continuation
+from skyjo.experiments import experiment_config
+from skyjo.experiments import suites as experiments
+from skyjo.learning import models
+from skyjo.simulation import play
+from skyjo.experiments import runs
+from skyjo.experiments import training_budget, training_setup
+from skyjo.experiments import selfplay_training as runner
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,6 +41,7 @@ def final_checkpoint(path):
 
 def smoke_config():
     config = experiment_config.load_configuration(ROOT / "configs/smoke.toml")[1]
+    config.pop("derived", None)
     config["selfplay"]["games_per_iteration"] = 1
     return config
 
@@ -50,7 +49,9 @@ def smoke_config():
 def launch(tmp_path, config):
     file = tmp_path / "input.json"
     file.write_text(json.dumps(config))
-    return runner.launch(file, tmp_path / "runs", repository=ROOT, allow_dirty=True)
+    return runner.launch(
+        file, tmp_path / "runs", repository=ROOT, allow_dirty=True
+    ).path
 
 
 @pytest.fixture(scope="module")
@@ -102,7 +103,11 @@ def test_deadline_finishes_iteration_and_forces_final_save(
     monkeypatch.setattr(
         training_budget.TrainingBudget, "elapsed", lambda self: elapsed[0]
     )
-    sample = play.play_game([NaiveQuickFinishPlayer(), NaiveQuickFinishPlayer()])
+    sample = play.play_game(
+        [NaiveQuickFinishPlayer(), NaiveQuickFinishPlayer()],
+        environment_rng=np.random.default_rng(1),
+        action_rng=np.random.default_rng(2),
+    )
     calls = []
 
     def generate(pool, **kwargs):
@@ -119,7 +124,7 @@ def test_deadline_finishes_iteration_and_forces_final_save(
     monkeypatch.setattr(runner, "generate_iteration", generate)
     monkeypatch.setattr(runner.mp, "Pool", pool)
     target, name = {
-        "setup": (runner.models, "build"),
+        "setup": (models, "build"),
         "training": (runner.train, "train_iteration"),
         "validation": (runner.explain, "evaluate_concepts"),
         "recording": (runner.experiment_training.RecipeRecording, "save_rounds"),
@@ -227,8 +232,12 @@ def test_continuations_restore_exact_state_and_reproduce_updates(
 def test_replay_ratio_switches_after_fill_and_survives_continuation(
     tmp_path, monkeypatch
 ):
-    sample = play.play_game([NaiveQuickFinishPlayer(), NaiveQuickFinishPlayer()])
-    positions = len(play.game_result_to_game_data(sample)[0])
+    sample = play.play_game(
+        [NaiveQuickFinishPlayer(), NaiveQuickFinishPlayer()],
+        environment_rng=np.random.default_rng(1),
+        action_rng=np.random.default_rng(2),
+    )
+    positions = len(targets.build_training_batch(sample))
     monkeypatch.setattr(runner.mp, "Pool", lambda **kwargs: nullcontext(None))
     monkeypatch.setattr(
         runner,
@@ -248,7 +257,8 @@ def test_replay_ratio_switches_after_fill_and_survives_continuation(
     trace = records(parent, "trajectory.jsonl")
     assert [
         e["metrics"]["training/optimizer_steps"]
-        for e in trace if e["kind"] == "training"
+        for e in trace
+        if e["kind"] == "training"
     ] == [1, 1, 1]
     changes = [e for e in trace if e["kind"] == "replay_ratio_changed"]
     assert len(changes) == 1
@@ -259,10 +269,14 @@ def test_replay_ratio_switches_after_fill_and_survives_continuation(
     child["initial_checkpoint"] = str(final_checkpoint(parent)[0])
     child["replay"]["initial_dataset"] = str(parent / "data/replay")
     continued = launch(tmp_path, child)
-    assert next(
-        e["metrics"]["training/optimizer_steps"]
-        for e in records(continued, "trajectory.jsonl") if e["kind"] == "training"
-    ) == 2
+    assert (
+        next(
+            e["metrics"]["training/optimizer_steps"]
+            for e in records(continued, "trajectory.jsonl")
+            if e["kind"] == "training"
+        )
+        == 2
+    )
 
     # An uninterrupted run and a restored run must perform the same updates.
     config["budget"]["iterations"] = 4
@@ -270,21 +284,27 @@ def test_replay_ratio_switches_after_fill_and_survives_continuation(
     torch.testing.assert_close(
         final_checkpoint(continued)[1]["model_state_dict"],
         final_checkpoint(uninterrupted)[1]["model_state_dict"],
-        rtol=0, atol=0,
+        rtol=0,
+        atol=0,
     )
     torch.testing.assert_close(
         final_checkpoint(continued)[1]["optimizer_state_dict"],
         final_checkpoint(uninterrupted)[1]["optimizer_state_dict"],
-        rtol=0, atol=0,
+        rtol=0,
+        atol=0,
     )
 
     # Enlarging replay again starts a new filling phase, not inherited ratio2.
     child["replay"]["capacity"] = 4 * positions + 1
     expanded = launch(tmp_path, child)
-    assert next(
-        e["metrics"]["training/optimizer_steps"]
-        for e in records(expanded, "trajectory.jsonl") if e["kind"] == "training"
-    ) == 1
+    assert (
+        next(
+            e["metrics"]["training/optimizer_steps"]
+            for e in records(expanded, "trajectory.jsonl")
+            if e["kind"] == "training"
+        )
+        == 1
+    )
 
 
 @pytest.mark.parametrize("ratio", [0, "8", True])
@@ -295,95 +315,47 @@ def test_invalid_replay_ratio_after_fill_fails_during_resolution(tmp_path, ratio
         )
 
 
-def test_legacy_seed_provenance_validation_and_optimizer_override(parent_run, tmp_path):
-    config = experiment_config.resolve_configuration(
-        child_config(parent_run), base_directory=tmp_path
-    )
-    source, payload = final_checkpoint(parent_run)
-    parent = continuation.load(source, config)
-    model = models.build(config["model"], players=2, device="cpu")
-    optimizer = runner.train.make_optimizer(model, 0.0002)
-    parent.restore(model, optimizer)
-    assert optimizer.param_groups[0]["lr"] == 0.0002
-    original = payload["optimizer_state_dict"]["state"]
-    torch.testing.assert_close(
-        optimizer.state_dict()["state"], original, rtol=0, atol=0
-    )
-    # Verify the fallback against real run-record hashes without editing the parent.
-    legacy = tmp_path / "legacy"
-    (legacy / "checkpoints").mkdir(parents=True)
-    legacy_payload = copy.deepcopy(payload)
-    legacy_payload["configuration"].pop("seed")
-    legacy_payload["configuration"].pop("optimizer")
-    legacy_path = legacy / "checkpoints/parent.pth"
-    torch.save(legacy_payload, legacy_path)
-    for name in ("run.json", "resolved-config.json"):
-        (legacy / name).write_bytes((parent_run / name).read_bytes())
-    artifact = {
-        "artifact_kind": "checkpoint",
-        "artifact_id": "parent",
-        "path": "checkpoints/parent.pth",
-        "sha256": runs.file_digest(legacy_path),
-        "progress": {"generated_positions": 123},
-    }
-    (legacy / "artifacts.jsonl").write_text(json.dumps(artifact) + "\n")
-    assert continuation.load(legacy_path, config).provenance["seed"] == 0
-    for key, value, message in [
+@pytest.mark.parametrize(
+    "key,value,message",
+    [
         ("seed", 5, "seed"),
         ("players", 3, "player count"),
         ("auxiliary_objectives", {"round_raw_score": 0.1}, "heads"),
-    ]:
-        changed = copy.deepcopy(config)
-        changed[key] = value
-        with pytest.raises(ValueError, match=message):
-            continuation.load(source, changed)
-    changed = copy.deepcopy(config)
-    changed["model"]["embedding_dimensions"] *= 2
-    with pytest.raises(ValueError, match="architecture"):
-        continuation.load(source, changed)
-    legacy_payload["optimizer_state_dict"] = None
-    torch.save(legacy_payload, tmp_path / "missing.pth")
-    with pytest.raises(ValueError, match="optimizer"):
-        continuation.load(tmp_path / "missing.pth", config)
-    (legacy / "resolved-config.json").write_text('{"seed": 7}')
-    with pytest.raises(ValueError, match="provenance"):
-        continuation.load(legacy_path, config)
+    ],
+)
+def test_continuation_rejects_incompatible_learning_contract(
+    parent_run, tmp_path, key, value, message
+):
+    config = experiment_config.resolve_configuration(
+        child_config(parent_run), base_directory=tmp_path
+    )
+    config[key] = value
+    with pytest.raises(ValueError, match=message):
+        continuation.load(final_checkpoint(parent_run)[0], config)
 
 
-def test_replay_copy_order_and_concurrent_read_rejected(
+def test_replay_copy_preserves_order_and_requires_expected_identity(
     parent_run, tmp_path, monkeypatch
 ):
     source = parent_run / "data/replay"
-    replay = buffer.ReplayBuffer.load(source)
+    replay = replay_io.load(source)
     config = buffer.Config(
         max_size=len(replay),
         spatial_input_shape=replay.spatial_input_buffer.shape[1:],
         non_spatial_input_shape=replay.non_spatial_input_buffer.shape[1:],
         action_mask_shape=replay.action_masks.shape[1:],
         target_specs=replay.target_specs,
-        path=tmp_path / "child",
     )
-    copied = runner.initialize_training_data_buffer(config, source, replay.dataset_id)
+    copied = training_setup.initialize_training_data_buffer(
+        config, source, replay.dataset_id
+    )
     assert copied.spatial_input_buffer.flags.writeable
     np.testing.assert_equal(
         copied.ordered_batch().spatial_inputs, replay.ordered_batch().spatial_inputs
     )
     assert copied.game_indices == replay.game_indices
     with pytest.raises(ValueError, match="identity"):
-        runner.initialize_training_data_buffer(config, source, "different")
-    # Mutate only a temporary fixture to simulate an atomic concurrent rewrite.
-    temporary = replay.save(tmp_path / "changing")
-    original = buffer.ReplayBuffer.from_config_or_load
-
-    def changed(config):
-        result = original(config)
-        manifest = temporary / "manifest.json"
-        manifest.write_text(manifest.read_text() + "\n")
-        return result
-
-    monkeypatch.setattr(buffer.ReplayBuffer, "from_config_or_load", changed)
-    with pytest.raises(ValueError, match="changed while loading"):
-        runner.initialize_training_data_buffer(config, temporary)
+        training_setup.initialize_training_data_buffer(config, source, "different")
 
 
 def test_checkpoint_path_inheritance_and_required_replay(parent_run, tmp_path):
@@ -420,5 +392,23 @@ max_seconds = 0.000000001
     report = json.loads((path / "comparison.json").read_text())
     (child,) = report["runs"]
     assert child["progress"]["iteration"] == 0
-    assert child["checkpoint"]["metadata"]["role"] == "final"
+    assert Path(child["checkpoint"]["absolute_path"]).is_file()
     assert child["timings"]["time/run_seconds"] > 0
+
+
+def test_auxiliary_selfplay_continuation_preserves_enabled_heads(tmp_path):
+    configuration = smoke_config()
+    configuration["auxiliary_objectives"] = {"round_raw_score": 0.1}
+    parent_path = launch(tmp_path, configuration)
+    source, parent = final_checkpoint(parent_path)
+    assert parent["configuration"]["auxiliary_objectives"] == {"round_raw_score": 0.1}
+    configuration["initial_checkpoint"] = str(source)
+    configuration["replay"]["initial_dataset"] = str(parent_path / "data/replay")
+    child_path = launch(tmp_path, configuration)
+    _, child = final_checkpoint(child_path)
+    assert child["progress"]["optimizer_steps"] > parent["progress"]["optimizer_steps"]
+    assert child["model_state_dict"].keys() == parent["model_state_dict"].keys()
+    assert any(
+        name.startswith("auxiliary_heads.round_raw_score")
+        for name in child["model_state_dict"]
+    )

@@ -1,25 +1,23 @@
 """Numerical diagnostics, observational evaluation, and bounded progress reporting."""
 
 import copy
+import dataclasses
 import logging
 import random
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
 
-from skyjo import (
-    batches,
-    checkpoint,
-    experiment_training,
-    explain,
-    losses,
-    observations,
-    skynet,
-    train,
-)
-from skyjo import game as sj
+from skyjo.learning import batches, buffer
+from skyjo.learning import checkpoint
+from skyjo.experiments import experiment_training
+from skyjo.analytics import explain
+from skyjo.learning import losses
+from skyjo.learning import observations
+from skyjo.learning import skynet
+from skyjo.learning import train
+from skyjo.engine import game as sj
 
 
 def test_policy_diagnostics_weight_positions_and_ignore_masked_actions():
@@ -76,42 +74,63 @@ def test_observing_training_preserves_updates_rng_and_module_modes():
     assert actual_random[:2] == expected_random[:2]
     torch.testing.assert_close(actual_random[2], expected_random[2], rtol=0, atol=0)
 
-    state = explain.create_almost_clear_position()
-    mask = sj.actions(state).astype(np.float32)
-    batch = batches.game_data_to_training_batch(
-        [
-            explain_game_point(state, mask),
-            explain_game_point(state, mask),
-        ]
+    states = [
+        explain.create_almost_clear_position(),
+        explain.create_negative_clear_position(),
+    ]
+    inputs = batches.states_to_batch(states)
+    mask = inputs.action_masks.astype(np.float32)
+    batch = dataclasses.replace(
+        inputs,
+        targets={
+            "value": np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            "policy": mask / mask.sum(axis=1, keepdims=True),
+        },
     )
-    replay = SimpleNamespace(sample_batch=lambda batch_size: batch)
+    replay = buffer.ReplayBuffer(
+        2,
+        inputs.spatial_inputs.shape[1:],
+        inputs.non_spatial_inputs.shape[1:],
+        inputs.action_masks.shape[1:],
+    )
+    replay.append(batch, buffer.GameProvenance(0))
+    observed_sampling, plain_sampling = (
+        np.random.default_rng(8),
+        np.random.default_rng(8),
+    )
     first_optimizer = train.make_optimizer(model, 0.001)
     second_optimizer = train.make_optimizer(initial, 0.001)
     stats = train.TrainingDiagnostics()
     checkpoint.restore_rng_state(rng)
     observed = train.train_steps(
-        model, replay, 2, 3, first_optimizer, losses.base_loss, diagnostics=stats
+        model,
+        replay,
+        2,
+        3,
+        first_optimizer,
+        losses.base_loss,
+        diagnostics=stats,
+        sampling_rng=observed_sampling,
     )
     observed_rng = torch.get_rng_state()
     checkpoint.restore_rng_state(rng)
-    plain = train.train_steps(initial, replay, 2, 3, second_optimizer, losses.base_loss)
+    plain = train.train_steps(
+        initial,
+        replay,
+        2,
+        3,
+        second_optimizer,
+        losses.base_loss,
+        sampling_rng=plain_sampling,
+    )
     assert observed == plain
+    assert observed_sampling.bit_generator.state == plain_sampling.bit_generator.state
     torch.testing.assert_close(model.state_dict(), initial.state_dict(), rtol=0, atol=0)
     torch.testing.assert_close(
         first_optimizer.state_dict(), second_optimizer.state_dict(), rtol=0, atol=0
     )
     torch.testing.assert_close(observed_rng, torch.get_rng_state(), rtol=0, atol=0)
     assert stats.summary()["policy/all/positions"] == 6
-
-
-def explain_game_point(state, mask):
-    from skyjo.play import GameDataPoint
-
-    return GameDataPoint(
-        state,
-        None,
-        {"value": np.array([1.0, 0.0], dtype=np.float32), "policy": mask / mask.sum()},
-    )
 
 
 def test_progress_is_timed_including_idle_intervals_and_final_completion(

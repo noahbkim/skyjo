@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from skyjo.offline_comparison import launch_comparison
+from skyjo.experiments.offline_comparison import launch_comparison
 
 
 def compare(

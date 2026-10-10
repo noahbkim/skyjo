@@ -3,8 +3,9 @@ import dataclasses
 import numpy as np
 import pytest
 
-from skyjo import game, observations
-from skyjo.terminal_benchmark import (
+from skyjo.engine import game
+from skyjo.learning import observations
+from skyjo.experiments.terminal_benchmark import (
     enumerate_one_hidden,
     guaranteed_terminal,
     random_stream,

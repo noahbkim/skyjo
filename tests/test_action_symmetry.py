@@ -9,8 +9,8 @@ from fractions import Fraction
 import numpy as np
 import pytest
 
-from skyjo import game as sj
-from skyjo import symmetry
+from skyjo.engine import game as sj
+from skyjo.search import symmetry
 
 
 SYMMETRIC_BOARD = (("H", 1, "H", "H"), ("H", "H", "H", 3), (1, "H", 2, 4))
@@ -80,19 +80,27 @@ def test_legal_groups_partition_actions_by_target_and_complete_column_context():
     before = sj.hash_skyjo(state)
     groups = symmetry.ActionGroups.from_state(state)
     assert groups.members == (
-        (4, 8, 9, 13), (6, 10), (7,), (16, 20, 21, 25), (17, 24),
-        (18, 22), (19,), (23,), (26,), (27,),
+        (4, 8, 9, 13),
+        (6, 10),
+        (7,),
+        (16, 20, 21, 25),
+        (17, 24),
+        (18, 22),
+        (19,),
+        (23,),
+        (26,),
+        (27,),
     )
-    assert tuple(groups.representatives) == tuple(members[0] for members in groups.members)
+    assert tuple(groups.representatives) == tuple(
+        members[0] for members in groups.members
+    )
     flattened = [action for members in groups.members for action in members]
     assert sorted(flattened) == list(sj.get_actions(state))
     assert len(flattened) == len(set(flattened))
     assert sj.hash_skyjo(state) == before
 
     # Equal sums cannot identify a column: H/0/6 and H/1/5 remain distinct.
-    collision = board_state(
-        (("H", "H", "X", "X"), (0, 1, "X", "X"), (6, 5, "X", "X"))
-    )
+    collision = board_state((("H", "H", "X", "X"), (0, 1, "X", "X"), (6, 5, "X", "X")))
     assert (sj.MASK_FLIP,) in symmetry.ActionGroups.from_state(collision).members
     assert (sj.MASK_FLIP + 1,) in symmetry.ActionGroups.from_state(collision).members
 
@@ -104,7 +112,9 @@ def test_disabled_merging_and_nonpositional_phases_keep_singleton_actions():
         (board_state(phase=sj.ACTION_DRAW_OR_TAKE), True),
     ):
         groups = symmetry.ActionGroups.from_state(state, merge=merge)
-        assert groups.members == tuple((int(action),) for action in sj.get_actions(state))
+        assert groups.members == tuple(
+            (int(action),) for action in sj.get_actions(state)
+        )
 
 
 def test_group_mass_is_summed_before_temperature_and_split_afterwards():
@@ -152,13 +162,19 @@ def canonical_outcome(state):
         ]
         boards.append(tuple(sorted(columns)))
     return (
-        tuple(boards), state.game.tobytes(), state.deck.tobytes(),
-        state.turn, state.pending_card, state.countdown,
+        tuple(boards),
+        state.game.tobytes(),
+        state.deck.tobytes(),
+        state.turn,
+        state.pending_card,
+        state.countdown,
     )
 
 
 @pytest.mark.parametrize("offset,top", [(sj.MASK_FLIP, 0), (sj.MASK_REPLACE, 1)])
-def test_symmetric_random_transitions_have_identical_distributions_and_clears(offset, top):
+def test_symmetric_random_transitions_have_identical_distributions_and_clears(
+    offset, top
+):
     state = board_state(
         RECYCLING_BOARD, top=top, opponents_cleared=True, deck_counts={1: 3, 2: 2}
     )
@@ -185,6 +201,7 @@ def exact_final_score_distribution(state, action, monkeypatch):
     Intercept only the random-choice seam: clearing, reveal order, recycling,
     score calculation and action execution all remain the real simulator.
     """
+
     class NeedDraw(Exception):
         def __init__(self, deck):
             self.deck = deck.copy()
@@ -213,15 +230,20 @@ def exact_final_score_distribution(state, action, monkeypatch):
                     pending.append((tape + (int(card),), probability * weight))
             else:
                 assert sj.get_round_over(completed)
-                result[tuple(sj.get_fixed_perspective_round_scores(completed))] += probability
+                result[tuple(sj.get_fixed_perspective_round_scores(completed))] += (
+                    probability
+                )
     assert sum(result.values()) == 1
     return result
 
 
 def test_safe_final_reveals_preserve_scores_but_recycling_breaks_symmetry(monkeypatch):
     safe = board_state(
-        RECYCLING_BOARD, phase=sj.ACTION_REPLACE, countdown=1,
-        opponents_cleared=True, deck_counts={0: 1, 1: 3, 2: 1},
+        RECYCLING_BOARD,
+        phase=sj.ACTION_REPLACE,
+        countdown=1,
+        opponents_cleared=True,
+        deck_counts={0: 1, 1: 3, 2: 1},
     )
     assert symmetry.safe_to_merge_actions(safe, 2)
     assert exact_final_score_distribution(
@@ -229,20 +251,33 @@ def test_safe_final_reveals_preserve_scores_but_recycling_breaks_symmetry(monkey
     ) == exact_final_score_distribution(safe, 21, monkeypatch)
 
     unsafe = board_state(
-        RECYCLING_BOARD, phase=sj.ACTION_REPLACE, countdown=1,
-        opponents_cleared=True, deck_counts={1: 2},
+        RECYCLING_BOARD,
+        phase=sj.ACTION_REPLACE,
+        countdown=1,
+        opponents_cleared=True,
+        deck_counts={1: 2},
     )
     assert not symmetry.safe_to_merge_actions(unsafe, 0)
     first = exact_final_score_distribution(unsafe, 16, monkeypatch)
     second = exact_final_score_distribution(unsafe, 21, monkeypatch)
     assert first != second
-    assert sum(scores[0] * weight for scores, weight in first.items()) == Fraction(2147, 141)
-    assert sum(scores[0] * weight for scores, weight in second.items()) == Fraction(110, 9)
+    assert sum(scores[0] * weight for scores, weight in first.items()) == Fraction(
+        2147, 141
+    )
+    assert sum(scores[0] * weight for scores, weight in second.items()) == Fraction(
+        110, 9
+    )
 
 
-@pytest.mark.parametrize("budget,required_slack", [(0, 1), (1, 2), (2, 2), (3, 3), (8, 5)])
-def test_safety_threshold_counts_hidden_cards_across_all_players(budget, required_slack):
+@pytest.mark.parametrize(
+    "budget,required_slack", [(0, 1), (1, 2), (2, 2), (3, 3), (8, 5)]
+)
+def test_safety_threshold_counts_hidden_cards_across_all_players(
+    budget, required_slack
+):
     state = board_state(players=3)
     assert state.table[1:3, :, :, sj.FINGER_HIDDEN].sum() == 14
     assert symmetry.safe_to_merge_actions(with_slack(state, required_slack), budget)
-    assert not symmetry.safe_to_merge_actions(with_slack(state, required_slack - 1), budget)
+    assert not symmetry.safe_to_merge_actions(
+        with_slack(state, required_slack - 1), budget
+    )

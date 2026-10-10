@@ -2,17 +2,24 @@ import numpy as np
 import pytest
 import torch
 
-import skyjo as sj
-from skyjo import losses, observations, skynet
+from skyjo.engine import game as sj
+from skyjo.learning import losses
+from skyjo.learning import observations
+from skyjo.learning import skynet, targets
 
 
 def test_normalize_round_scores_uses_expanded_bounds():
     scores = np.array(
-        [skynet.ROUND_SCORE_MIN, 0.0, 140.0, skynet.ROUND_SCORE_MAX],
+        [
+            targets.ROUND_SCORE_MIN,
+            0.0,
+            140.0,
+            (targets.ROUND_SCORE_MIN + targets.ROUND_SCORE_RANGE),
+        ],
         dtype=np.float32,
     )
 
-    actual = skynet.normalize_round_scores(scores)
+    actual = targets.normalize_round_scores(scores)
 
     assert actual.shape == scores.shape
     assert actual[0] == pytest.approx(0.0)
@@ -35,7 +42,7 @@ def test_equivariant_skynet_value_returns_outcome_probability_simplex():
     batch_size = 4
 
     with torch.no_grad():
-        value_output, policy_logits = model(
+        output = model(
             torch.rand(
                 batch_size,
                 2,
@@ -47,10 +54,10 @@ def test_equivariant_skynet_value_returns_outcome_probability_simplex():
             torch.ones(batch_size, sj.MASK_SIZE),
         )
 
-    assert value_output.shape == (batch_size, 2)
-    assert policy_logits.shape == (batch_size, sj.MASK_SIZE)
-    assert torch.all(value_output >= 0)
-    assert torch.allclose(value_output.sum(dim=1), torch.ones(batch_size), atol=1e-6)
+    assert output.value.shape == (batch_size, 2)
+    assert output.policy_logits.shape == (batch_size, sj.MASK_SIZE)
+    assert torch.all(output.value >= 0)
+    assert torch.allclose(output.value.sum(dim=1), torch.ones(batch_size), atol=1e-6)
 
 
 def test_outcome_probability_tail_still_returns_probability_simplex():
@@ -92,7 +99,7 @@ def test_auxiliary_round_score_model_returns_round_score_output():
 
     assert output.value.shape == (batch_size, 2)
     assert output.policy_logits.shape == (batch_size, sj.MASK_SIZE)
-    assert output.auxiliary_outputs[skynet.ROUND_SCORE_TARGET_NAME].shape == (
+    assert output.auxiliary_outputs["round_score"].shape == (
         batch_size,
         2,
     )
@@ -105,7 +112,7 @@ def test_base_loss_uses_outcome_mse():
     policy_target = torch.tensor([[1.0, 0.0]], dtype=torch.float32)
 
     loss, details = losses.base_loss(
-        skynet.EquivariantOutput(
+        skynet.ModelOutput(
             value_output,
             policy_output,
         ),

@@ -1,259 +1,144 @@
-import pathlib
+import json
 
 import numpy as np
 import pytest
 
-from skyjo import batches, buffer, observations, play, skynet
-from skyjo import game as sj
+from skyjo.learning import batches, buffer, replay_io
 
 
-def make_game_data(length: int, marker: float = 0.0) -> play.GameData:
-    state = sj.new(players=2, top=0)
-    action_mask = sj.actions(state).astype(np.float32)
-    policy = action_mask / action_mask.sum()
-    return [
-        play.GameDataPoint(
-            state,
-            None,
-            {
-                batches.VALUE_TARGET_NAME: np.array(
-                    [marker, 1.0 - marker], dtype=np.float32
-                ),
-                batches.POLICY_TARGET_NAME: policy,
-            },
-        )
-        for _ in range(length)
-    ]
-
-
-def make_replay_buffer(max_size: int = 32) -> buffer.ReplayBuffer:
-    return buffer.ReplayBuffer(
-        max_size=max_size,
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
-        action_mask_shape=(sj.MASK_SIZE,),
+def make_batch(length, marker=0.0):
+    return batches.TrainingBatch(
+        np.full((length, 2, 1), marker, dtype=np.float32),
+        np.zeros((length, 3), dtype=np.float32),
+        np.ones((length, 2), dtype=np.float32),
+        {
+            "value": np.tile([marker, 1 - marker], (length, 1)).astype(np.float32),
+            "policy": np.full((length, 2), 0.5, dtype=np.float32),
+        },
     )
 
 
-def test_replay_buffer_defaults_to_core_target_specs():
-    replay_buffer = buffer.ReplayBuffer(
-        max_size=16,
-        spatial_input_shape=(3, 4, 4, 17),
-        non_spatial_input_shape=(10,),
-        action_mask_shape=(23,),
-    )
-
-    assert replay_buffer.target_names == batches.CORE_TARGET_NAMES
-    assert replay_buffer.target_specs == (
-        buffer.TargetShapeSpec(
-            name=batches.VALUE_TARGET_NAME,
-            shape=(3,),
-        ),
-        buffer.TargetShapeSpec(
-            name=batches.POLICY_TARGET_NAME,
-            shape=(23,),
-        ),
-    )
+def make_replay_buffer(max_size=32):
+    return buffer.ReplayBuffer(max_size, (2, 1), (3,), (2,))
 
 
-def test_replay_buffer_from_config_preserves_path_with_default_target_specs():
-    path = pathlib.Path("data/training_data/test-buffer.pkl")
-    config = buffer.Config(
-        max_size=16,
-        spatial_input_shape=(2, 4, 4, 17),
-        non_spatial_input_shape=(10,),
-        action_mask_shape=(12,),
-        path=path,
-    )
-
-    replay_buffer = buffer.ReplayBuffer.from_config(config)
-
-    assert replay_buffer.path == path
-    assert replay_buffer.target_names == batches.CORE_TARGET_NAMES
-
-
-def test_replay_buffer_accepts_round_score_aux_target_spec():
-    replay_buffer = buffer.ReplayBuffer(
-        max_size=16,
-        spatial_input_shape=(2, 4, 4, 17),
-        non_spatial_input_shape=(10,),
-        action_mask_shape=(23,),
-        target_specs=(
-            buffer.TargetShapeSpec(
-                name=batches.VALUE_TARGET_NAME,
-                shape=(2,),
-            ),
-            buffer.TargetShapeSpec(
-                name=batches.POLICY_TARGET_NAME,
-                shape=(23,),
-            ),
-            buffer.TargetShapeSpec(
-                name=skynet.ROUND_SCORE_TARGET_NAME,
-                shape=(2,),
-            ),
-        ),
-    )
-
-    assert replay_buffer.target_names == (
-        batches.VALUE_TARGET_NAME,
-        batches.POLICY_TARGET_NAME,
-        skynet.ROUND_SCORE_TARGET_NAME,
-    )
-
-
-def test_replay_buffer_evicts_complete_games_and_rejects_oversize_game():
-    replay_buffer = make_replay_buffer(max_size=6)
-    replay_buffer.add_game_data(
-        make_game_data(3, 0.1),
-        game_index=10,
-        play_seed=100,
-        target_seed=101,
-    )
-    replay_buffer.add_game_data(
-        make_game_data(4, 0.2),
-        game_index=11,
-        play_seed=110,
-        target_seed=111,
-    )
-
-    assert len(replay_buffer) == 4
-    assert replay_buffer.game_indices == (11,)
-
-    replay_buffer.add_game_data(
-        make_game_data(2, 0.3),
-        game_index=12,
-        play_seed=120,
-        target_seed=121,
-    )
-    assert len(replay_buffer) == 6
-    assert replay_buffer.game_indices == (11, 12)
-    assert np.allclose(
-        replay_buffer.ordered_batch().targets["value"][:, 0],
-        [0.2, 0.2, 0.2, 0.2, 0.3, 0.3],
+def test_eviction_preserves_complete_games_and_chronological_rows():
+    replay = make_replay_buffer(6)
+    for index, length in ((10, 3), (11, 4), (12, 2)):
+        replay.append(make_batch(length, index / 100), buffer.GameProvenance(index))
+    assert len(replay) == 6
+    assert replay.game_indices == (11, 12)
+    np.testing.assert_allclose(
+        replay.ordered_batch().targets["value"][:, 0], [0.11] * 4 + [0.12] * 2
     )
     with pytest.raises(ValueError, match="exceeding replay capacity"):
-        replay_buffer.add_game_data(make_game_data(7), game_index=13)
+        replay.append(make_batch(7), buffer.GameProvenance(13))
+    assert replay.game_indices == (11, 12)
 
 
-def test_dataset_round_trip_writes_only_populated_rows(tmp_path):
-    replay_buffer = make_replay_buffer(max_size=100)
-    replay_buffer.add_game_data(
-        make_game_data(2, 0.1),
-        game_index=20,
-        play_seed=200,
-        target_seed=201,
-    )
-    replay_buffer.add_game_data(
-        make_game_data(3, 0.2),
-        game_index=21,
-        play_seed=210,
-        target_seed=211,
-    )
-    expected = replay_buffer.ordered_batch()
-    path = tmp_path / "dataset"
-
-    replay_buffer.save(
-        path,
-        generation_metadata={"mcts_iterations": 4},
-        source_checkpoint=pathlib.Path("models/source.pth"),
-    )
-    loaded = buffer.ReplayBuffer.load(path)
-
-    assert loaded.dataset_id == replay_buffer.dataset_id
-    assert len(loaded) == 5
-    assert loaded.max_size == 5
-    assert loaded.game_indices == (20, 21)
-    assert [record.play_seed for record in loaded._games] == [200, 210]
-    assert [record.target_seed for record in loaded._games] == [201, 211]
-    actual = loaded.ordered_batch()
-    assert np.array_equal(actual.spatial_inputs, expected.spatial_inputs)
-    assert np.array_equal(actual.non_spatial_inputs, expected.non_spatial_inputs)
-    assert np.array_equal(actual.action_masks, expected.action_masks)
-    for name in expected.targets:
-        assert np.array_equal(actual.targets[name], expected.targets[name])
-    assert np.load(path / "spatial_inputs.npy", allow_pickle=False).shape[0] == 5
-    assert loaded.dataset_metadata["generation_metadata"] == {"mcts_iterations": 4}
-
-    replay_buffer.add_game_data(
-        make_game_data(1, 0.4),
-        game_index=22,
-        play_seed=220,
-        target_seed=221,
-    )
-    replay_buffer.save(path, generation_metadata={"mcts_iterations": 5})
-    overwritten = buffer.ReplayBuffer.load(path)
-    assert overwritten.game_indices == (20, 21, 22)
-    assert overwritten.dataset_metadata["generation_metadata"] == {"mcts_iterations": 5}
-
-    resumed = buffer.ReplayBuffer.from_config_or_load(
-        buffer.Config(
-            max_size=100,
-            spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-            non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
-            action_mask_shape=(sj.MASK_SIZE,),
-            path=path,
-        )
-    )
-    assert resumed.max_size == 100
-    assert len(resumed) == 6
-    resumed.add_game_data(make_game_data(1, 0.5), game_index=23)
-    assert resumed.game_indices == (20, 21, 22, 23)
-
-
-def test_dataset_subset_and_split_are_deterministic_and_game_disjoint(tmp_path):
-    replay_buffer = make_replay_buffer(max_size=32)
-    for game_index in range(6):
-        replay_buffer.add_game_data(
-            make_game_data(2, game_index / 10),
-            game_index=game_index,
-            play_seed=game_index * 10,
-            target_seed=game_index * 10 + 1,
-        )
-    path = replay_buffer.save(tmp_path / "dataset")
-
-    subset_a = buffer.ReplayBuffer.load(path, max_games=3, subset_seed=7)
-    subset_b = buffer.ReplayBuffer.load(path, max_games=3, subset_seed=7)
-    assert subset_a.game_indices == subset_b.game_indices
-
-    training, validation = replay_buffer.split_by_game(0.34, seed=9)
-    assert set(training.game_indices).isdisjoint(validation.game_indices)
-    assert set(training.game_indices) | set(validation.game_indices) == set(
-        replay_buffer.game_indices
-    )
-
-
-def test_dataset_rejects_empty_and_unsupported_version(tmp_path):
-    replay_buffer = make_replay_buffer()
-    with pytest.raises(ValueError, match="empty"):
-        replay_buffer.save(tmp_path / "empty")
-
-    replay_buffer.add_game_data(make_game_data(1), game_index=0)
-    path = replay_buffer.save(tmp_path / "dataset")
-    manifest_path = path / buffer.MANIFEST_FILE
-    manifest = __import__("json").loads(manifest_path.read_text())
-    manifest["version"] = 999
-    manifest_path.write_text(__import__("json").dumps(manifest))
-    with pytest.raises(buffer.DatasetFormatError, match="unsupported"):
-        buffer.ReplayBuffer.load(path)
-
-
-@pytest.mark.parametrize("invalid", ["missing", "broadcast"])
-def test_rejected_append_preserves_retained_games_and_storage(invalid):
-    replay = make_replay_buffer(max_size=2)
-    replay.add_game_data(make_game_data(2), game_index=3)
+@pytest.mark.parametrize("invalid", ["missing", "shape", "dtype", "duplicate"])
+def test_rejected_append_leaves_retained_rows_unchanged(invalid):
+    replay = make_replay_buffer(2)
+    replay.append(make_batch(2, 0.25), buffer.GameProvenance(3))
     before = replay.ordered_batch()
-    records = tuple(replay._games)
-    counters = (replay.count, replay._next_game_index, replay._write_index)
-    incoming = make_game_data(1)
+    incoming = make_batch(1)
     if invalid == "missing":
-        incoming[0].targets.pop("policy")
-    else:
-        incoming[0].targets["value"] = np.array([1.0])
-    with pytest.raises((KeyError, ValueError)):
-        replay.add_game_data(incoming, game_index=9)
-    assert tuple(replay._games) == records
-    assert (replay.count, replay._next_game_index, replay._write_index) == counters
+        incoming.targets.pop("policy")
+    elif invalid == "shape":
+        incoming.targets["value"] = np.array([1.0])
+    elif invalid == "dtype":
+        incoming.targets["value"] = np.array([["bad", "data"]])
+    with pytest.raises(ValueError):
+        replay.append(
+            incoming, buffer.GameProvenance(3 if invalid == "duplicate" else 9)
+        )
+    assert replay.game_indices == (3,)
+    assert replay.count == 2
     after = replay.ordered_batch()
     np.testing.assert_array_equal(after.spatial_inputs, before.spatial_inputs)
     for name in before.targets:
         np.testing.assert_array_equal(after.targets[name], before.targets[name])
+
+
+def test_dataset_round_trip_subset_and_mutable_reimport(tmp_path):
+    replay = make_replay_buffer(100)
+    for index in range(6):
+        replay.append(
+            make_batch(2, index / 10),
+            buffer.GameProvenance(index, index * 2, index * 2 + 1),
+        )
+    path = replay_io.save(replay, tmp_path / "dataset", provenance={"run_id": "test"})
+    loaded = replay_io.load(path)
+    assert loaded.dataset_id == replay.dataset_id
+    assert loaded.dataset_metadata["provenance"] == {"run_id": "test"}
+    assert len(loaded) == loaded.max_size == 12
+    assert loaded.game_indices == replay.game_indices
+    np.testing.assert_array_equal(
+        loaded.ordered_batch().targets["value"], replay.ordered_batch().targets["value"]
+    )
+    assert np.load(path / "spatial_inputs.npy").shape[0] == 12
+    # A loaded dataset with exactly-full capacity must still accept new games.
+    loaded.append(make_batch(2, 0.9), buffer.GameProvenance(6))
+    assert loaded.game_indices == (1, 2, 3, 4, 5, 6)
+    replay_io.save(loaded, path)
+    assert replay_io.load(path).game_indices == loaded.game_indices
+    subset = replay_io.load(path, max_games=3, subset_seed=7)
+    assert (
+        subset.game_indices
+        == replay_io.load(path, max_games=3, subset_seed=7).game_indices
+    )
+    train, valid = loaded.split_by_game(0.34, seed=9)
+    assert set(train.game_indices).isdisjoint(valid.game_indices)
+    assert set(train.game_indices) | set(valid.game_indices) == set(loaded.game_indices)
+    expanded = replay_io.load_for_config(buffer.Config(100, (2, 1), (3,), (2,)), path)
+    expanded.append(make_batch(2), buffer.GameProvenance(7))
+    assert expanded.max_size == 100 and len(expanded) == 14
+
+
+def test_dataset_rejects_empty_and_unsupported_version(tmp_path):
+    replay = make_replay_buffer()
+    with pytest.raises(replay_io.DatasetFormatError, match="could not read"):
+        replay_io.load_for_config(
+            buffer.Config(100, (2, 1), (3,), (2,)), tmp_path / "missing"
+        )
+    with pytest.raises(ValueError, match="empty"):
+        replay_io.save(replay, tmp_path / "empty")
+    replay.append(make_batch(1), buffer.GameProvenance(0))
+    path = replay_io.save(replay, tmp_path / "dataset")
+    manifest_path = path / replay_io.MANIFEST_FILE
+    manifest = json.loads(manifest_path.read_text())
+    manifest["version"] = 999
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(replay_io.DatasetFormatError, match="unsupported"):
+        replay_io.load(path)
+
+
+def test_sampling_uses_only_supplied_generator():
+    replay = make_replay_buffer()
+    for index in range(6):
+        replay.append(make_batch(1, index / 10), buffer.GameProvenance(index))
+    first = replay.sample_batch(20, rng=np.random.default_rng(7))
+    np.random.seed(999)
+    second = replay.sample_batch(20, rng=np.random.default_rng(7))
+    np.testing.assert_array_equal(first.targets["value"], second.targets["value"])
+
+
+def test_dataset_rejects_a_concurrent_replacement_while_reading(tmp_path, monkeypatch):
+    replay = make_replay_buffer()
+    replay.append(make_batch(1), buffer.GameProvenance(0))
+    path = replay_io.save(replay, tmp_path / "dataset")
+    original = np.load
+    replaced = False
+
+    def replacing_load(*args, **kwargs):
+        nonlocal replaced
+        result = original(*args, **kwargs)
+        if not replaced:
+            replaced = True
+            manifest = path / replay_io.MANIFEST_FILE
+            manifest.write_bytes(manifest.read_bytes() + b"\n")
+        return result
+
+    monkeypatch.setattr(replay_io.np, "load", replacing_load)
+    with pytest.raises(replay_io.DatasetFormatError, match="changed while loading"):
+        replay_io.load(path)

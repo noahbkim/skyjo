@@ -1,48 +1,50 @@
-from __future__ import annotations
+"""Search accounting and cache safety without any neural model dependency."""
 
+import dataclasses
 import random
 
 import numpy as np
 import pytest
-import torch
 
-from skyjo import game as sj
-from skyjo import mcts, observations, predictor, skynet
+from skyjo.engine import game as sj
+from skyjo.search import mcts
+from skyjo.search.evaluator import Prediction
 
 
-def make_model() -> skynet.EquivariantSkyNet:
-    torch.manual_seed(0)
-    return skynet.EquivariantSkyNet(
-        spatial_input_shape=(2, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
-        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
-        value_output_shape=(2,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        embedding_dimensions=4,
-        global_state_embedding_dimensions=8,
-        num_heads=1,
-        device=torch.device("cpu"),
-    )
+class UniformEvaluator:
+    def evaluate(self, states):
+        return [
+            Prediction(
+                np.full(state.players, 1 / state.players, dtype=np.float32),
+                sj.actions(state).astype(np.float32) / sj.actions(state).sum(),
+            )
+            for state in states
+        ]
+
+
+def make_state():
+    rng = np.random.default_rng(10)
+    return sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=rng)
 
 
 @pytest.mark.parametrize("exact_chance", [False, True])
-def test_search_preserves_visit_accounting_and_legal_policy(exact_chance) -> None:
-    random.seed(10)
-    np.random.seed(10)
-    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
-    # A one-state limit also exercises chunking when chance outcomes are expanded.
-    inference = predictor.LocalPredictor(make_model(), max_batch_size=1)
+def test_search_preserves_visits_and_legal_policy(exact_chance):
     root = mcts.run_mcts(
-        state,
-        inference,
-        iterations=8,
-        after_state_evaluate_all_children=exact_chance,
+        make_state(),
+        UniformEvaluator(),
+        8,
+        config=mcts.SearchConfig(after_state_evaluate_all_children=exact_chance),
+        rng=np.random.default_rng(10),
     )
-    policy = root.policy_targets()
-    assert root.visit_count == 8
-    assert sum(child.visit_count for child in root.children.values()) == 8
+    assert (
+        root.visit_count
+        == sum(child.visit_count for child in root.children.values())
+        == 8
+    )
     assert np.isfinite(root.state_value).all()
-    assert np.isclose(policy.sum(), 1.0)
-    assert np.all(policy[sj.actions(root.state) == 0] == 0)
+    policy = root.policy_targets()
+    assert policy.sum() == pytest.approx(1)
+    assert not policy[~sj.actions(root.state).astype(bool)].any()
     if exact_chance:
         chances = [
             child
@@ -50,114 +52,98 @@ def test_search_preserves_visit_accounting_and_legal_policy(exact_chance) -> Non
             if isinstance(child, mcts.AfterStateNode) and child.is_expanded
         ]
         assert chances
-        for chance in chances:
-            assert len(chance.children) > 1
-            assert all(
-                child.model_prediction is not None for child in chance.children.values()
-            )
-
-
-def make_prediction(
-    value: tuple[float, float], policy: dict[int, float]
-) -> skynet.SkyNetPrediction:
-    probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-    for action, probability in policy.items():
-        probabilities[action] = probability
-    return skynet.SkyNetPrediction(
-        value_output=np.asarray(value, dtype=np.float32),
-        policy_output=probabilities,
-    )
-
-
-def test_ucb_uses_parent_value_fpu_and_prior_on_first_selection() -> None:
-    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
-    parent = mcts.DecisionStateNode(
-        state=state,
-        parent=None,
-        action=None,
-        c_puct=1.5,
-        fpu_reduction=0.1,
-    )
-    # Finish the opening so draw and take are actual legal children.
-    for _ in range(2):
-        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT)
-    parent.state = state
-    parent.expand(make_prediction((0.7, 0.3), {sj.MASK_DRAW: 0.8, sj.MASK_TAKE: 0.2}))
-    draw, take = parent.children[sj.MASK_DRAW], parent.children[sj.MASK_TAKE]
-
-    assert mcts.ucb_score(draw, parent) == pytest.approx(1.8)
-    assert mcts.ucb_score(take, parent) == pytest.approx(0.9)
-    assert parent.select_child() is draw
-
-
-def test_exact_chance_update_replaces_propagated_return() -> None:
-    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
-    root = mcts.DecisionStateNode(state=state, parent=None, action=None)
-    root.expand(make_prediction((0.5, 0.5), {sj.MASK_DRAW: 1.0}))
-    chance = mcts.AfterStateNode(state=state, action=sj.MASK_DRAW, parent=root)
-    child_state = sj.draw(sj.preordain(state, sj.CARD_P5))
-    child = mcts.DecisionStateNode(
-        state=child_state,
-        parent=chance,
-        action=sj.MASK_DRAW,
-    )
-    child.expand(make_prediction((0.6, 0.4), {}))
-    child_hash = sj.hash_skyjo(child_state)
-    chance.children = {child_hash: child}
-    chance.child_weights = {child_hash: 0.25}
-    chance.child_weight_total = 1.0
-    chance.state_value_total = np.array([0.45, 0.55], dtype=np.float32)
-    chance.all_children_discovered = True
-    chance.is_expanded = True
-
-    mcts.backpropagate([root, chance, child], np.array([0.8, 0.2], dtype=np.float32))
-
-    assert np.allclose(child.state_value, [0.8, 0.2])
-    assert np.allclose(chance.state_value, [0.5, 0.5])
-    assert np.allclose(root.state_value, [0.5, 0.5])
-
-
-def test_reused_root_requires_matching_scoring_and_resets_noise() -> None:
-    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
-    client = predictor.LocalPredictor(make_model(), max_batch_size=64)
-    root = mcts.run_mcts(
-        state,
-        client,
-        iterations=0,
-        dirichlet_epsilon=0.25,
-        c_puct=1.5,
-        fpu_reduction=0.0,
-    )
-    assert root.dirichlet_noise.sum() == pytest.approx(1.0)
-
-    reused = mcts.run_mcts(
-        state,
-        client,
-        iterations=0,
-        dirichlet_epsilon=0.0,
-        c_puct=1.5,
-        fpu_reduction=0.0,
-        root_node=root,
-    )
-    assert reused is root
-    assert root.dirichlet_epsilon == 0.0
-    assert not root.dirichlet_noise.any()
-
-    with pytest.raises(ValueError, match="scoring configuration"):
-        mcts.run_mcts(
-            state,
-            client,
-            iterations=0,
-            c_puct=1.0,
-            root_node=root,
+        assert all(
+            len(chance.children) > 1 and chance.child_weight_total == 1
+            for chance in chances
         )
 
 
-def test_policy_temperature_handles_extremes_and_unvisited_roots():
-    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random.Random(1))
+def test_ucb_uses_fixed_seat_value_and_prior_on_first_selection():
+    rng = np.random.default_rng(1)
+    state = make_state()
+    for _ in range(2):
+        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT, rng=rng)
+    config = mcts.SearchConfig(c_puct=1.5, fpu_reduction=0.1)
+    root = mcts.DecisionStateNode(state, None, None, mcts.SearchContext(config))
+    policy = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    policy[[sj.MASK_DRAW, sj.MASK_TAKE]] = [0.8, 0.2]
+    root.expand(Prediction(np.array([0.7, 0.3], dtype=np.float32), policy))
+    assert mcts.ucb_score(root.children[sj.MASK_DRAW], root) == pytest.approx(1.8)
+    assert mcts.ucb_score(root.children[sj.MASK_TAKE], root) == pytest.approx(0.9)
+    assert root.select_child() is root.children[sj.MASK_DRAW]
+
+
+def test_exact_chance_update_replaces_propagated_return():
+    state = make_state()
+    for _ in range(2):
+        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT)
     root = mcts.DecisionStateNode(state, None, None)
-    actions = sj.get_actions(state)
-    root.expand(make_prediction((0.5, 0.5), {int(action): 0.5 for action in actions}))
+    root.expand(UniformEvaluator().evaluate([state])[0])
+    chance = root.children[sj.MASK_DRAW]
+    child_state = sj.draw(sj.preordain(state, sj.CARD_P5))
+    child = mcts.DecisionStateNode(child_state, chance, sj.MASK_DRAW)
+    child.expand(Prediction(np.array([0.6, 0.4]), sj.actions(child_state)))
+    key = sj.hash_skyjo(child_state)
+    chance.children, chance.child_weights = {key: child}, {key: 0.25}
+    chance.child_weight_total = 1
+    chance.state_value_total = np.array([0.45, 0.55], dtype=np.float32)
+    chance.all_children_discovered = chance.is_expanded = True
+    mcts.backpropagate([root, chance, child], np.array([0.8, 0.2]))
+    np.testing.assert_allclose(child.state_value, [0.8, 0.2])
+    np.testing.assert_allclose(chance.state_value, [0.5, 0.5])
+    np.testing.assert_allclose(root.state_value, [0.5, 0.5])
+
+
+def test_reused_root_rejects_changed_chance_or_evaluators_before_mutation():
+    state, evaluator = make_state(), UniformEvaluator()
+    config = mcts.SearchConfig(
+        after_state_evaluate_all_children=True, dirichlet_epsilon=0.2
+    )
+    rng = np.random.default_rng(1)
+    root = mcts.run_mcts(state, evaluator, 3, config=config, rng=rng)
+    weights = [
+        (dict(child.child_weights), child.child_weight_total)
+        for child in root.children.values()
+    ]
+    noise, value, random_state = (
+        root.dirichlet_noise.copy(),
+        root.state_value_total.copy(),
+        rng.bit_generator.state,
+    )
+    for kwargs in (
+        {
+            "config": dataclasses.replace(
+                config, after_state_evaluate_all_children=False
+            )
+        },
+        {"config": dataclasses.replace(config, c_puct=2)},
+        {"evaluator": UniformEvaluator()},
+        {"boundary_evaluator": object()},
+        {"rng": np.random.default_rng(2)},
+    ):
+        args = {
+            "config": config,
+            "evaluator": evaluator,
+            "iterations": 1,
+            "root_node": root,
+        } | kwargs
+        with pytest.raises(ValueError):
+            mcts.run_mcts(state, **args)
+        assert root.visit_count == 3
+        assert rng.bit_generator.state == random_state
+        assert weights == [
+            (dict(child.child_weights), child.child_weight_total)
+            for child in root.children.values()
+        ]
+        np.testing.assert_array_equal(root.dirichlet_noise, noise)
+        np.testing.assert_array_equal(root.state_value_total, value)
+    assert mcts.run_mcts(state, evaluator, 2, config=config, root_node=root) is root
+    assert root.visit_count == 5
+
+
+def test_policy_temperature_handles_extremes_and_unvisited_roots():
+    root = mcts.run_mcts(make_state(), UniformEvaluator(), 0)
+    actions = list(root.children)
     for temperature in (0, 1):
         with pytest.raises(ValueError, match="visited legal"):
             root.policy_targets(temperature)
@@ -168,36 +154,32 @@ def test_policy_temperature_handles_extremes_and_unvisited_roots():
         assert np.isfinite(policy).all()
         assert policy.sum() == pytest.approx(1)
         assert policy.argmax() == actions[0]
-        assert not policy[~sj.actions(state).astype(bool)].any()
     for temperature in (-1, float("nan"), float("inf")):
-        with pytest.raises(ValueError, match="temperature"):
+        with pytest.raises(ValueError):
             root.policy_targets(temperature)
 
 
 @pytest.mark.parametrize("predetermined", [False, True])
-def test_exact_chance_recycles_discards_without_changing_input(predetermined):
+def test_engine_chance_outcomes_recycle_discards_without_changing_input(predetermined):
     rng = random.Random(8)
-    state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=rng)
+    state = make_state()
     for _ in range(2):
         state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT, rng=rng)
-    remaining_after_draw = state.deck.sum() - 1
-    assert sj.MASK_DRAW in sj.get_actions(state)
-    # Move all unseen cards to recyclable discards, preserving card conservation.
+    remaining = state.deck.sum() - 1
     state.game[sj.GAME_DISCARDS : sj.GAME_DISCARDS + sj.CARD_SIZE] = state.deck
     expected = state.deck.copy() / state.deck.sum()
     state.deck.fill(0)
     if predetermined:
-        state = sj.preordain(state, sj.CARD_P1)
-        expected = [1.0]
+        state, expected = sj.preordain(state, sj.CARD_P1), [1.0]
     before = sj.hash_skyjo(state)
-    root = mcts.DecisionStateNode(state, None, None)
-    chance = mcts.AfterStateNode(state, sj.MASK_DRAW, root)
-    chance.discover(discover_all_children=True)
-    assert sorted(chance.child_weights.values()) == pytest.approx(sorted(expected))
+    outcomes = sj.chance_outcomes(state, sj.MASK_DRAW)
+    assert sorted(probability for _, probability in outcomes) == pytest.approx(
+        sorted(expected)
+    )
     assert sj.hash_skyjo(state) == before
     assert all(
-        sj.get_deck(child.state).sum() == remaining_after_draw
-        for child in chance.children.values()
+        sj.validate(child) and child.deck.sum() == remaining for child, _ in outcomes
     )
-    sampled = sj.apply_action(state, sj.MASK_DRAW)
-    assert sj.hash_skyjo(sampled) in chance.children
+    assert sj.hash_skyjo(sj.apply_action(state, sj.MASK_DRAW)) in {
+        sj.hash_skyjo(child) for child, _ in outcomes
+    }

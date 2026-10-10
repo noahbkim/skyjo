@@ -3,7 +3,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-import skyjo as sj
+from skyjo.engine import game as sj
 
 
 @pytest.mark.parametrize("players", [2, 3, 4, 5, 6, 7, 8])
