@@ -63,6 +63,20 @@ def compare(
     variant_policy_only: Annotated[
         bool, typer.Option("--variant-policy-only", help="Variant plays its highest-scored legal policy action without search.")
     ] = False,
+    control_merge_symmetric_actions: Annotated[
+        bool,
+        typer.Option(
+            "--control-merge-symmetric-actions/--no-control-merge-symmetric-actions",
+            help="Share search statistics for equivalent control actions when safe.",
+        ),
+    ] = True,
+    variant_merge_symmetric_actions: Annotated[
+        bool,
+        typer.Option(
+            "--variant-merge-symmetric-actions/--no-variant-merge-symmetric-actions",
+            help="Share search statistics for equivalent variant actions when safe.",
+        ),
+    ] = True,
 ) -> Path:
     """Evaluate without training; positive score margins favor the variant."""
     control = control.resolve()
@@ -92,6 +106,8 @@ def compare(
         ),
         control_policy_only=control_policy_only,
         variant_policy_only=variant_policy_only,
+        control_merge_symmetric_actions=control_merge_symmetric_actions,
+        variant_merge_symmetric_actions=variant_merge_symmetric_actions,
     )
     configuration = {
         "name": "checkpoint-comparison",
@@ -138,6 +154,12 @@ def compare(
             for name in ("control", "variant")
             if (path := getattr(settings, f"{name}_boundary_value_checkpoint")) is not None
             for argument in (f"--{name}-boundary-value-checkpoint", path)
+        ]
+        + [
+            (f"--{name}-merge-symmetric-actions"
+             if getattr(settings, f"{name}_merge_symmetric_actions")
+             else f"--no-{name}-merge-symmetric-actions")
+            for name in ("control", "variant")
         ]
         + (["--control-policy-only"] if control_policy_only else [])
         + (["--variant-policy-only"] if variant_policy_only else [])

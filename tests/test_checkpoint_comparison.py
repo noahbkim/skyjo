@@ -13,7 +13,7 @@ import typer
 from typer.testing import CliRunner
 
 import run_checkpoint_comparison as cli
-from skyjo import checkpoint, evaluation, models
+from skyjo import checkpoint, evaluation, models, player
 from skyjo.boundary_value import BoundaryValueModel
 
 
@@ -62,6 +62,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
         seats = ("control", "variant") if calls % 2 else ("variant", "control")
         for side, agent in zip(seats, agents, strict=True):
             assert agent.mcts_iterations == (1 if side == "control" else 2)
+            assert agent.mcts_merge_symmetric_actions == (side == "variant")
             assert agent.mcts_boundary_samples == (10 if side == boundary_side else 1)
             identity = boundary_identities[side]
             assert agent.mcts_boundary_value_checkpoint == (
@@ -90,6 +91,8 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
                 "--runs-dir",
                 str(tmp_path / "runs"),
                 "--allow-dirty",
+                "--no-control-merge-symmetric-actions",
+                "--variant-merge-symmetric-actions",
             ] + [
                 argument
                 for name, value in boundary_options.items()
@@ -104,6 +107,7 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
             return cli.compare(
                 source,
                 control_iterations=1,
+                control_merge_symmetric_actions=False,
                 variant_iterations=2,
                 seed_count=1,
                 runs_dir=tmp_path / "runs",
@@ -130,6 +134,8 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
         assert not (run_path / "comparison.json").exists()
         return
     assert manifest["status"] == "completed"
+    assert "--no-control-merge-symmetric-actions" in manifest["invocation"]
+    assert "--variant-merge-symmetric-actions" in manifest["invocation"]
     report = json.loads((run_path / "comparison.json").read_text())
     assert report["checkpoints"]["control"] == report["checkpoints"]["variant"]
     assert report["search_by_player"]["control"]["mcts_iterations"] == 1
@@ -139,6 +145,8 @@ def test_recorded_comparison(tmp_path, monkeypatch, mode, boundary_side):
         assert game["boundary_value_checkpoints"] == boundary_identities
     for side, identity in boundary_identities.items():
         search = report["search_by_player"][side]
+        assert search["mcts_merge_symmetric_actions"] == (side == "variant")
+        assert report["settings"][f"{side}_merge_symmetric_actions"] == (side == "variant")
         assert search["mcts_boundary_samples"] == (10 if side == boundary_side else 1)
         assert search["mcts_boundary_value_checkpoint"] == (
             None if identity is None else identity["path"]
@@ -192,6 +200,7 @@ def test_parallel_cli_matches_serial_games_and_restores_runtime(tmp_path, policy
         seed_count=3, seed=97, control_iterations=1, variant_iterations=2,
         variant_boundary_samples=2, variant_boundary_value_checkpoint=str(boundary),
         control_policy_only=policy_only,
+        control_merge_symmetric_actions=False,
     )
     serial = evaluation.evaluate_checkpoints(source, source, evaluation_settings)
     previous_threads = torch.get_num_threads()
@@ -206,6 +215,7 @@ def test_parallel_cli_matches_serial_games_and_restores_runtime(tmp_path, policy
             "--variant-boundary-value-checkpoint", str(boundary),
             "--seed-count", "3", "--seed", "97", "--workers", "2",
             "--threads", "1", "--runs-dir", str(tmp_path / "runs"), "--allow-dirty",
+            "--no-control-merge-symmetric-actions",
         ] + (["--control-policy-only"] if policy_only else []),
     )
     assert result.exit_code == 0, result.output
@@ -285,3 +295,28 @@ def test_abrupt_parallel_worker_exit_fails_recorded_run(tmp_path):
     (run_path,) = (tmp_path / "runs").iterdir()
     assert json.loads((run_path / "run.json").read_text())["status"] == "failed"
     assert not (run_path / "comparison.json").exists()
+
+
+@pytest.mark.parametrize("merge", [False, True])
+def test_model_player_forwards_action_grouping(monkeypatch, merge):
+    requested = {}
+    result = object()
+
+    def search(state, inference, iterations, **kwargs):
+        requested.update(kwargs)
+        return result
+
+    monkeypatch.setattr(player.mcts, "run_mcts", search)
+    agent = player.ModelPlayer(
+        None, action_softmax_temperature=1.0, mcts_iterations=8,
+        mcts_dirichlet_epsilon=0.0, mcts_after_state_evaluate_all_children=False,
+        mcts_merge_symmetric_actions=merge,
+    )
+    assert agent.run_mcts(None) is result
+    assert requested["merge_symmetric_actions"] is merge
+
+
+@pytest.mark.parametrize("side", ["control", "variant"])
+def test_action_grouping_requires_boolean(side):
+    with pytest.raises(ValueError, match="boolean"):
+        evaluation.EvaluationConfig(**{f"{side}_merge_symmetric_actions": 1})

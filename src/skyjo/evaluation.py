@@ -29,6 +29,8 @@ class EvaluationConfig:
     variant_boundary_value_checkpoint: str | None = None
     control_policy_only: bool = False
     variant_policy_only: bool = False
+    control_merge_symmetric_actions: bool = True
+    variant_merge_symmetric_actions: bool = True
 
     def __post_init__(self):
         for name in (
@@ -43,6 +45,9 @@ class EvaluationConfig:
         if type(self.seed) is not int or not 0 <= self.seed <= 2**32 - 1:
             raise ValueError("evaluation.seed must fit a uint32")
         for side in ("control", "variant"):
+            merge_name = f"{side}_merge_symmetric_actions"
+            if type(getattr(self, merge_name)) is not bool:
+                raise ValueError(f"evaluation.{merge_name} must be a boolean")
             policy_only = getattr(self, f"{side}_policy_only")
             if type(policy_only) is not bool:
                 raise ValueError(f"evaluation.{side}_policy_only must be a boolean")
@@ -71,6 +76,7 @@ class EvaluationConfig:
         iterations: int | None = None,
         boundary_samples: int = 1,
         boundary_value_checkpoint: str | None = None,
+        merge_symmetric_actions: bool = True,
     ):
         return player.ModelPlayerConfig(
             action_softmax_temperature=0.0,
@@ -81,6 +87,7 @@ class EvaluationConfig:
             mcts_fpu_reduction=0.0,
             mcts_boundary_samples=boundary_samples,
             mcts_boundary_value_checkpoint=boundary_value_checkpoint,
+            mcts_merge_symmetric_actions=merge_symmetric_actions,
         )
 
 
@@ -204,6 +211,9 @@ def evaluate_checkpoints(
                 if getattr(settings, f"{name}_policy_only")
                 else settings.search(
                     iterations=getattr(settings, f"{name}_iterations"),
+                    merge_symmetric_actions=getattr(
+                        settings, f"{name}_merge_symmetric_actions"
+                    ),
                     boundary_samples=getattr(settings, f"{name}_boundary_samples"),
                     boundary_value_checkpoint=getattr(
                         settings, f"{name}_boundary_value_checkpoint"

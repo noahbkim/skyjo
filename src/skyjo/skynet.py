@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from . import batches
+from . import batches, symmetry
 from . import game as sj
 
 """
@@ -104,24 +104,9 @@ def symmetrize_policy_target(
         )
 
     symmetrized = np.array(policy_target, dtype=np.float32, copy=True)
-    active_board = sj.get_table(state)[0]
-    finger_states = np.argmax(active_board, axis=-1)
-    column_signatures = [
-        tuple(sorted(int(finger) for finger in finger_states[:, column]))
-        for column in range(sj.COLUMN_COUNT)
-    ]
-    slot_orbits: dict[tuple[int, tuple[int, ...]], list[int]] = {}
-    for row in range(sj.ROW_COUNT):
-        for column in range(sj.COLUMN_COUNT):
-            slot = row * sj.COLUMN_COUNT + column
-            orbit_key = (
-                int(finger_states[row, column]),
-                column_signatures[column],
-            )
-            slot_orbits.setdefault(orbit_key, []).append(slot)
-
+    slot_orbits = symmetry.slot_orbits(state)
     for action_offset in (sj.MASK_FLIP, sj.MASK_REPLACE):
-        for slots in slot_orbits.values():
+        for slots in slot_orbits:
             action_indices = np.asarray(slots, dtype=np.intp) + action_offset
             symmetrized[action_indices] = symmetrized[action_indices].mean()
     return symmetrized

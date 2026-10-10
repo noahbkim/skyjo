@@ -28,6 +28,7 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
         assert experiment_config.load_configuration(saved)[1] == config
     assert config["selfplay"]["games_per_iteration"] == 256
     assert config["budget"]["iterations"] == 100
+    assert config["search"]["merge_symmetric_actions"] is True
     assert config["replay"]["capacity"] == 524288
     assert config["logging"]["progress_interval_seconds"] == 0
     assert config["validation"]["concept_interval"] == 5
@@ -262,6 +263,7 @@ def test_continuous_training_records_exact_snapshots(
         {"search": {"action_softmax_temperature": float("nan")}},
         {"search": {"boundary_samples": 0}},
         {"search": {"boundary_samples": 10}},
+        {"search": {"merge_symmetric_actions": 1}},
     ],
 )
 def test_invalid_domain_config_fails_before_creating_artifacts(tmp_path, settings):
@@ -299,6 +301,7 @@ def test_boundary_model_inheritance_and_frozen_launch_input(tmp_path, monkeypatc
     original = source.read_bytes()
     (parent / "base.toml").write_text(
         '[search]\nboundary_samples = 10\nboundary_value_checkpoint = "boundary.pth"\n'
+        'merge_symmetric_actions = false\n'
     )
     child = tmp_path / "child.toml"
     child.write_text('extends = "parent/base.toml"\n')
@@ -320,6 +323,7 @@ def test_boundary_model_inheritance_and_frozen_launch_input(tmp_path, monkeypatc
     assert snapshot.is_relative_to(path)
     assert snapshot.read_bytes() == original
     assert player.mcts_boundary_samples == 10
+    assert player.mcts_merge_symmetric_actions is False
     artifact = next(
         row for row in events(path / "artifacts.jsonl")
         if row.get("artifact_kind") == "boundary_value_checkpoint"

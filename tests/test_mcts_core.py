@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import types
 
 import numpy as np
 import pytest
@@ -79,21 +78,12 @@ def test_ucb_uses_parent_value_fpu_and_prior_on_first_selection() -> None:
         c_puct=1.5,
         fpu_reduction=0.1,
     )
-    parent.model_prediction = make_prediction(
-        (0.7, 0.3), {sj.MASK_DRAW: 0.8, sj.MASK_TAKE: 0.2}
-    )
-    parent.is_expanded = True
-    draw = types.SimpleNamespace(
-        action=sj.MASK_DRAW,
-        has_value_estimate=False,
-        visit_count=0,
-    )
-    take = types.SimpleNamespace(
-        action=sj.MASK_TAKE,
-        has_value_estimate=False,
-        visit_count=0,
-    )
-    parent.children = {sj.MASK_DRAW: draw, sj.MASK_TAKE: take}
+    # Finish the opening so draw and take are actual legal children.
+    for _ in range(2):
+        state = sj.apply_action(state, sj.MASK_FLIP_SECOND_RIGHT)
+    parent.state = state
+    parent.expand(make_prediction((0.7, 0.3), {sj.MASK_DRAW: 0.8, sj.MASK_TAKE: 0.2}))
+    draw, take = parent.children[sj.MASK_DRAW], parent.children[sj.MASK_TAKE]
 
     assert mcts.ucb_score(draw, parent) == pytest.approx(1.8)
     assert mcts.ucb_score(take, parent) == pytest.approx(0.9)
@@ -103,7 +93,7 @@ def test_ucb_uses_parent_value_fpu_and_prior_on_first_selection() -> None:
 def test_exact_chance_update_replaces_propagated_return() -> None:
     state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random)
     root = mcts.DecisionStateNode(state=state, parent=None, action=None)
-    root.model_prediction = make_prediction((0.5, 0.5), {sj.MASK_DRAW: 1.0})
+    root.expand(make_prediction((0.5, 0.5), {sj.MASK_DRAW: 1.0}))
     chance = mcts.AfterStateNode(state=state, action=sj.MASK_DRAW, parent=root)
     child_state = sj.draw(sj.preordain(state, sj.CARD_P5))
     child = mcts.DecisionStateNode(
@@ -111,8 +101,7 @@ def test_exact_chance_update_replaces_propagated_return() -> None:
         parent=chance,
         action=sj.MASK_DRAW,
     )
-    child.model_prediction = make_prediction((0.6, 0.4), {})
-    child.is_expanded = True
+    child.expand(make_prediction((0.6, 0.4), {}))
     child_hash = sj.hash_skyjo(child_state)
     chance.children = {child_hash: child}
     chance.child_weights = {child_hash: 0.25}
@@ -168,7 +157,7 @@ def test_policy_temperature_handles_extremes_and_unvisited_roots():
     state = sj.start_round(sj.new(players=2, top=sj.CARD_0), rng=random.Random(1))
     root = mcts.DecisionStateNode(state, None, None)
     actions = sj.get_actions(state)
-    root.children = {action: types.SimpleNamespace(visit_count=0) for action in actions}
+    root.expand(make_prediction((0.5, 0.5), {int(action): 0.5 for action in actions}))
     for temperature in (0, 1):
         with pytest.raises(ValueError, match="visited legal"):
             root.policy_targets(temperature)

@@ -78,6 +78,7 @@ class ModelPlayerConfig(config.Config):
     mcts_fpu_reduction: float = 0.0
     mcts_boundary_samples: int = 1
     mcts_boundary_value_checkpoint: str | None = None
+    mcts_merge_symmetric_actions: bool = True
 
 
 class ModelPlayer(AbstractPlayer):
@@ -94,6 +95,7 @@ class ModelPlayer(AbstractPlayer):
         mcts_fpu_reduction: float = 0.0,
         mcts_boundary_samples: int = 1,
         mcts_boundary_value_checkpoint: str | None = None,
+        mcts_merge_symmetric_actions: bool = True,
     ):
         self.inference = inference
         self.action_softmax_temperature = action_softmax_temperature
@@ -106,6 +108,7 @@ class ModelPlayer(AbstractPlayer):
         self.mcts_fpu_reduction = mcts_fpu_reduction
         self.mcts_boundary_samples = mcts_boundary_samples
         self.mcts_boundary_value_checkpoint = mcts_boundary_value_checkpoint
+        self.mcts_merge_symmetric_actions = mcts_merge_symmetric_actions
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -128,6 +131,7 @@ class ModelPlayer(AbstractPlayer):
             fpu_reduction=self.mcts_fpu_reduction,
             boundary_samples=self.mcts_boundary_samples,
             boundary_value_checkpoint=self.mcts_boundary_value_checkpoint,
+            merge_symmetric_actions=self.mcts_merge_symmetric_actions,
             root_node=root_node,
         )
 

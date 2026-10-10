@@ -7,7 +7,7 @@ import typing
 
 import numpy as np
 
-from . import boundary_inference, config, predictor, skynet
+from . import boundary_inference, config, predictor, skynet, symmetry
 from . import game as sj
 
 # MARK: Config
@@ -22,6 +22,7 @@ class MCTSConfig(config.Config):
     fpu_reduction: float = 0.0
     boundary_samples: int = 1
     boundary_value_checkpoint: str | None = None
+    merge_symmetric_actions: bool = True
 
 
 # MARK: NODE SCORING
@@ -69,6 +70,11 @@ class DecisionStateNode:
     fpu_reduction: float = 0.0
     boundary_samples: int = 1
     boundary_value_checkpoint: str | None = None
+    merge_symmetric_actions: bool = True
+    effective_merge_symmetric_actions: bool = False
+    action_groups: symmetry.ActionGroups | None = None
+    model_action_priors: np.ndarray | None = None
+    action_priors: np.ndarray | None = None
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -126,8 +132,15 @@ class DecisionStateNode:
         assert not self.is_expanded, "Node already expanded"
         assert self.model_prediction is None, "Model prediction already set"
         self.model_prediction = model_prediction
+        self.action_groups = symmetry.ActionGroups.from_state(
+            self.state, merge=self.effective_merge_symmetric_actions
+        )
+        self.model_action_priors = self.action_groups.aggregate(
+            model_prediction.policy_output
+        )
+        self.action_priors = self.model_action_priors
         self.is_expanded = True
-        for action in sj.get_actions(self.state):
+        for action in self.action_groups.representatives:
             self.children[action] = self.create_child_node(action)
 
     def select_child(self, **kwargs) -> MCTSNode:
@@ -158,38 +171,54 @@ class DecisionStateNode:
             fpu_reduction=self.fpu_reduction,
             boundary_samples=self.boundary_samples,
             boundary_value_checkpoint=self.boundary_value_checkpoint,
+            merge_symmetric_actions=self.merge_symmetric_actions,
+            effective_merge_symmetric_actions=self.effective_merge_symmetric_actions,
         )
 
     def policy_targets(
         self, temperature: float = 1.0
     ) -> np.ndarray[tuple[int], np.float32]:
-        if not np.isfinite(temperature) or temperature < 0:
-            raise ValueError("temperature must be finite and nonnegative")
-        visit_counts = np.zeros(sj.MASK_SIZE, dtype=np.float64)
-        for action, child in self.children.items():
-            visit_counts[action] = child.visit_count
-        visited = (visit_counts > 0) & sj.actions(self.state).astype(bool)
-        if not visited.any():
-            raise ValueError("policy requires at least one visited legal action")
-        probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-        if temperature == 0:
-            probabilities[np.where(visited, visit_counts, -1).argmax()] = 1
-        else:
-            logs = np.log(visit_counts[visited])
-            with np.errstate(over="ignore"):
-                weights = np.exp((logs - logs.max()) / temperature)
-            probabilities[visited] = weights / weights.sum()
-        return probabilities
+        assert self.action_groups is not None, "expected an expanded decision node"
+        return self.action_groups.policy_from_visits(
+            {action: child.visit_count for action, child in self.children.items()},
+            temperature,
+        )
 
     def action_probability(self, action) -> float:
-        assert self.model_prediction is not None, (
-            "Model prediction must be set before calling"
-        )
-        return (
-            self.model_prediction.policy_output[action].item()
-            * (1 - self.dirichlet_epsilon)
-            + self.dirichlet_epsilon * self.dirichlet_noise[action]
-        )
+        assert self.action_priors is not None, "expected an expanded decision node"
+        return float(self.action_priors[action])
+
+    def refresh_root_noise(self, epsilon: float) -> None:
+        """Refresh per-action noise and cache its mass on the existing groups."""
+        assert self.action_groups is not None, "expected an expanded decision node"
+        self.dirichlet_noise.fill(0)
+        self.dirichlet_epsilon = epsilon
+        self.action_priors = self.model_action_priors
+        if epsilon > 0:
+            actions = np.flatnonzero(sj.actions(self.state))
+            self.dirichlet_noise[actions] = np.random.dirichlet(
+                np.ones(len(actions)) * 10 / len(actions)
+            )
+            self.action_priors = (
+                (1 - epsilon) * self.model_action_priors
+                + epsilon * self.action_groups.aggregate(self.dirichlet_noise)
+            )
+
+    def validate_search_extension(
+        self, state: sj.Skyjo, iterations: int, merge_symmetric_actions: bool
+    ) -> None:
+        """Validate reuse before root noise or any tree statistics are changed."""
+        if state is not self.state and any(
+            not np.array_equal(getattr(state, field.name), getattr(self.state, field.name))
+            for field in dataclasses.fields(sj.Skyjo)
+        ):
+            raise ValueError("reused root state does not match")
+        if self.merge_symmetric_actions != merge_symmetric_actions:
+            raise ValueError("reused root symmetry configuration does not match")
+        if self.effective_merge_symmetric_actions and not symmetry.safe_to_merge_actions(
+            self.state, self.visit_count + iterations
+        ):
+            raise ValueError("reused pooled root exceeds its safe search budget")
 
 
 @dataclasses.dataclass(slots=True)
@@ -255,6 +284,8 @@ class AfterStateNode:
             fpu_reduction=self.parent.fpu_reduction,
             boundary_samples=self.parent.boundary_samples,
             boundary_value_checkpoint=self.parent.boundary_value_checkpoint,
+            merge_symmetric_actions=self.parent.merge_symmetric_actions,
+            effective_merge_symmetric_actions=self.parent.effective_merge_symmetric_actions,
         )
 
     def _realize_outcome(self) -> sj.Skyjo:
@@ -464,6 +495,7 @@ def run_mcts(
     fpu_reduction: float = 0.0,
     boundary_samples: int = 1,
     boundary_value_checkpoint: str | None = None,
+    merge_symmetric_actions: bool = True,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
     """Search within a round, caching a game-value estimate at its boundary.
@@ -472,6 +504,10 @@ def run_mcts(
     A boundary checkpoint instead values sampled completed rounds from scores.
     Ordinary in-round chance nodes retain their existing sampling behavior.
     """
+    if type(iterations) is not int or iterations < 0:
+        raise ValueError("iterations must be a nonnegative integer")
+    if type(merge_symmetric_actions) is not bool:
+        raise ValueError("merge_symmetric_actions must be a boolean")
     if not np.isfinite(c_puct) or c_puct <= 0:
         raise ValueError("c_puct must be finite and positive")
     if fpu_reduction < 0:
@@ -496,12 +532,18 @@ def run_mcts(
             fpu_reduction=fpu_reduction,
             boundary_samples=boundary_samples,
             boundary_value_checkpoint=boundary_value_checkpoint,
+            merge_symmetric_actions=merge_symmetric_actions,
+            effective_merge_symmetric_actions=(
+                merge_symmetric_actions
+                and symmetry.safe_to_merge_actions(game_state, iterations)
+            ),
         )
         root_node.expand(model_prediction=prediction)
 
     else:
         if not isinstance(root_node, DecisionStateNode):
             raise TypeError("root_node must be a DecisionStateNode")
+        root_node.validate_search_extension(game_state, iterations, merge_symmetric_actions)
         if root_node.c_puct != c_puct or root_node.fpu_reduction != fpu_reduction:
             raise ValueError("reused root scoring configuration does not match")
         if (
@@ -510,15 +552,7 @@ def run_mcts(
         ):
             raise ValueError("reused root boundary configuration does not match")
 
-    # Root noise is local to this search invocation.
-    root_node.dirichlet_noise.fill(0)
-    root_node.dirichlet_epsilon = dirichlet_epsilon
-    if dirichlet_epsilon > 0:
-        valid_action_count = sj.actions(root_node.state).sum().item()
-        dirichlet_noise = np.random.dirichlet(
-            np.ones(valid_action_count) * 10 / valid_action_count,
-        )
-        root_node.dirichlet_noise[sj.get_actions(root_node.state)] = dirichlet_noise
+    root_node.refresh_root_noise(dirichlet_epsilon)
 
     for _ in range(iterations):
         search_path = find_leaf(

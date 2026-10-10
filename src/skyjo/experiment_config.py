@@ -51,6 +51,7 @@ DEFAULTS = {
         "action_softmax_temperature": 1.0,
         "boundary_samples": 1,
         "boundary_value_checkpoint": None,
+        "merge_symmetric_actions": True,
     },
     "replay": {
         "capacity": 2_000_000,

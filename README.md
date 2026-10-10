@@ -225,6 +225,22 @@ single-sample baseline approximation: observed full-game value targets are never
 resampled. Ordinary chance-node sampling during a round is unchanged.
 Search utility is game-win probability alone.
 
+Symmetric legal actions share one MCTS child by default. The exact action key
+combines flip/replace, the target card state, and its column's card multiset.
+Group priors are summed; positive-temperature policies distribute each group's
+visit probability equally among its actions. At temperature zero, the lowest
+index in the most-visited group is selected. Opening and draw/take choices stay
+separate. A conservative search-budget check falls back to ordinary search when
+deck recycling could break symmetry during final reveals. The simulator and
+stored replay format are unchanged.
+
+To disable sharing, set `merge_symmetric_actions = false` under `[search]`, or
+pass `merge_symmetric_actions=False` to `mcts.run_mcts`. The comparison command
+accepts independent `--no-control-merge-symmetric-actions` and
+`--no-variant-merge-symmetric-actions` switches (and their positive forms).
+Reusing a pooled root requires matching settings and a safe cumulative budget;
+an unsafe extension raises before changing the tree.
+
 To replace the boundary approximation with sampled endings and a frozen score
 evaluator, set these options in an ordinary training TOML:
 
