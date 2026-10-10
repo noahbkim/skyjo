@@ -106,7 +106,8 @@ Each recorded run saves `report.md`, `results.json`, per-epoch training/validati
 curves, selected model weights, test predictions, a compact boundary dataset,
 source-log hashes, split identities, and an experiment source-code snapshot.
 These boundary checkpoints are separate score evaluators, not replacements for
-the ordinary policy/value gameplay checkpoint.
+the ordinary policy/value gameplay checkpoint. They can now be used explicitly
+by the optional search configuration described below.
 The random holdout measures the recorded mixture of self-play policies;
 generalization to future policies and any improvement in play require later
 experiments. The 1/10/100 ending-sample comparison is also a separate experiment.
@@ -216,13 +217,39 @@ game receive its observed final winner label, with ties shared equally. Cumulati
 scores are already part of the model observation. Auxiliary objectives are
 disabled in the baseline.
 
-MCTS searches within the current round. On first reaching a round boundary, it
+MCTS searches within the current round. By default, on first reaching a round boundary, it
 applies the final action once. A finished game supplies its exact outcome;
 otherwise it deals the next round once and uses the model's prediction there.
 That value is cached for subsequent visits to the same boundary node. This is a
 single-sample baseline approximation: observed full-game value targets are never
 resampled. Ordinary chance-node sampling during a round is unchanged.
 Search utility is game-win probability alone.
+
+To replace the boundary approximation with sampled endings and a frozen score
+evaluator, set these options in an ordinary training TOML:
+
+```toml
+[search]
+boundary_samples = 10
+boundary_value_checkpoint = "path/to/boundary-run/checkpoints/mlp-0.pth"
+```
+
+The path is relative to the declaring config file. Each visited final-action
+edge samples the action and hidden reveals independently, computes charged
+cumulative totals, and evaluates each result before averaging. Completed games
+use exact shared winner credit; continuing games use the score evaluator before
+any new deal. The mean is cached per edge. Fully visible deterministic endings
+need only one outcome. The default remains one ending plus one next-round deal;
+multiple samples require a score evaluator. This setting is independent of the
+MCTS iteration budget and the number of training iterations.
+
+Training validates the score model's player count and saves a frozen copy at
+`data/boundary_value.pth` in each run, recording its source hash. Workers and
+saved player settings reference that copy. The score model is not updated by
+ordinary training; the main policy/value network continues to train normally
+from observed complete-game results and search targets. The checkpoint comparison
+runner uses the same legacy boundary evaluator for both sides by default, so it
+can compare learned weights without granting only one side the new evaluator.
 
 Every generated/replayed game count refers to a complete game, not a round.
 Replay retains and evicts complete games, and dataset splits keep all rounds of

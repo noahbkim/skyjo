@@ -61,6 +61,8 @@ class ModelPlayerConfig(config.Config):
     mcts_after_state_evaluate_all_children: bool
     mcts_c_puct: float = 1.5
     mcts_fpu_reduction: float = 0.0
+    mcts_boundary_samples: int = 1
+    mcts_boundary_value_checkpoint: str | None = None
 
 
 class ModelPlayer(AbstractPlayer):
@@ -75,6 +77,8 @@ class ModelPlayer(AbstractPlayer):
         mcts_after_state_evaluate_all_children: bool,
         mcts_c_puct: float = 1.5,
         mcts_fpu_reduction: float = 0.0,
+        mcts_boundary_samples: int = 1,
+        mcts_boundary_value_checkpoint: str | None = None,
     ):
         self.inference = inference
         self.action_softmax_temperature = action_softmax_temperature
@@ -85,6 +89,8 @@ class ModelPlayer(AbstractPlayer):
         )
         self.mcts_c_puct = mcts_c_puct
         self.mcts_fpu_reduction = mcts_fpu_reduction
+        self.mcts_boundary_samples = mcts_boundary_samples
+        self.mcts_boundary_value_checkpoint = mcts_boundary_value_checkpoint
 
     def get_action_probabilities(
         self, game_state: sj.Skyjo
@@ -105,6 +111,8 @@ class ModelPlayer(AbstractPlayer):
             after_state_evaluate_all_children=self.mcts_after_state_evaluate_all_children,
             c_puct=self.mcts_c_puct,
             fpu_reduction=self.mcts_fpu_reduction,
+            boundary_samples=self.mcts_boundary_samples,
+            boundary_value_checkpoint=self.mcts_boundary_value_checkpoint,
             root_node=root_node,
         )
 

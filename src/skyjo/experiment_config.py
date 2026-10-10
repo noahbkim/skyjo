@@ -49,6 +49,8 @@ DEFAULTS = {
         "c_puct": 1.0,
         "fpu_reduction": 0.25,
         "action_softmax_temperature": 1.0,
+        "boundary_samples": 1,
+        "boundary_value_checkpoint": None,
     },
     "replay": {
         "capacity": 2_000_000,
@@ -115,6 +117,14 @@ def resolve_paths(config: dict, directory: pathlib.Path) -> dict:
         replay["initial_dataset"] = str(
             (directory / replay["initial_dataset"]).resolve()
         )
+    search = config.get("search", {})
+    if isinstance(search, dict) and search.get("boundary_value_checkpoint") is not None:
+        checkpoint = search["boundary_value_checkpoint"]
+        if not isinstance(checkpoint, str) or not checkpoint:
+            raise ValueError(
+                "search.boundary_value_checkpoint must be a nonempty path string"
+            )
+        search["boundary_value_checkpoint"] = str((directory / checkpoint).resolve())
     return config
 
 
@@ -201,7 +211,7 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
             "learn_rate",
         ),
         "selfplay": ("games_per_iteration", "games_per_task"),
-        "search": ("iterations",),
+        "search": ("iterations", "boundary_samples"),
         "replay": ("capacity",),
         "budget": ("checkpoint_interval",),
         "execution": ("workers", "threads_per_worker"),
@@ -236,6 +246,11 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         if training[key] < 0:
             raise ValueError(f"training.{key} cannot be negative")
     search = config["search"]
+    if search["boundary_value_checkpoint"] is not None:
+        if not pathlib.Path(search["boundary_value_checkpoint"]).is_file():
+            raise FileNotFoundError(search["boundary_value_checkpoint"])
+    elif search["boundary_samples"] != 1:
+        raise ValueError("search.boundary_samples > 1 requires boundary_value_checkpoint")
     if not 0 <= search["dirichlet_epsilon"] <= 1:
         raise ValueError("search.dirichlet_epsilon must be between zero and one")
     if search["c_puct"] <= 0:

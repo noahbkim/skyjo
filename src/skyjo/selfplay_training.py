@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import functools
+import hashlib
 import json
 import logging
 import math
@@ -19,6 +20,7 @@ import torch
 import torch.multiprocessing as mp
 
 from . import (
+    boundary_inference,
     buffer,
     checkpoint,
     continuation,
@@ -728,6 +730,14 @@ def launch(
     resolved = experiment_config.resolve_configuration(
         supplied, base_directory=config.parent
     )
+    boundary_source = resolved["search"]["boundary_value_checkpoint"]
+    boundary_bytes = None
+    if boundary_source:
+        boundary_path = pathlib.Path(boundary_source)
+        boundary_bytes = boundary_path.read_bytes()
+        boundary_inference.load_boundary_model(boundary_source, resolved["players"])
+        if boundary_path.read_bytes() != boundary_bytes:
+            raise ValueError("Boundary value checkpoint changed while loading")
     budget = training_budget.TrainingBudget(
         resolved["budget"]["iterations"],
         resolved["budget"]["max_seconds"],
@@ -765,6 +775,21 @@ def launch(
     logger.addHandler(handler)
     try:
         with recorder:
+            runtime_search = dict(resolved["search"])
+            if boundary_bytes is not None:
+                boundary_snapshot = recorder.path / "data" / "boundary_value.pth"
+                boundary_snapshot.write_bytes(boundary_bytes)
+                recorder.register_artifact(
+                    boundary_snapshot,
+                    kind="boundary_value_checkpoint",
+                    progress={},
+                    metadata={
+                        "source_path": boundary_source,
+                        "source_sha256": hashlib.sha256(boundary_bytes).hexdigest(),
+                        "frozen": True,
+                    },
+                )
+                runtime_search["boundary_value_checkpoint"] = str(boundary_snapshot)
             sources_path = recorder.path / "input-sources.json"
             sources_path.write_text(json.dumps(configuration_sources, indent=2) + "\n")
             recorder.register_artifact(
@@ -804,7 +829,7 @@ def launch(
                 checkpoint_interval=resolved["budget"]["checkpoint_interval"],
                 max_seconds=resolved["budget"]["max_seconds"],
             )
-            search = dict(resolved["search"])
+            search = runtime_search
             temperature = search.pop("action_softmax_temperature")
             player_config = player.ModelPlayerConfig(
                 action_softmax_temperature=temperature,

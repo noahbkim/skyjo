@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import pytest
 import torch
 
 from skyjo import buffer, checkpoint, experiment_config, selfplay_training, skynet
+from skyjo.boundary_value import BoundaryValueModel
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 
@@ -258,12 +260,85 @@ def test_continuous_training_records_exact_snapshots(
         {"search": {"c_puct": float("inf")}},
         {"search": {"action_softmax_temperature": -1}},
         {"search": {"action_softmax_temperature": float("nan")}},
+        {"search": {"boundary_samples": 0}},
+        {"search": {"boundary_samples": 10}},
     ],
 )
 def test_invalid_domain_config_fails_before_creating_artifacts(tmp_path, settings):
     config = tmp_path / "invalid.json"
     config.write_text(json.dumps(settings))
     with pytest.raises(ValueError):
+        selfplay_training.launch(
+            config, tmp_path / "runs", repository=REPOSITORY, allow_dirty=True
+        )
+    assert not (tmp_path / "runs").exists()
+
+
+def save_boundary_model(path, players=2):
+    model = BoundaryValueModel("logistic", players)
+    torch.save(
+        {
+            "format": "skyjo.boundary-value",
+            "version": 1,
+            "kind": "logistic",
+            "players": players,
+            "hidden_width": 32,
+            "score_scale": 100.0,
+            "input_order": "next starter first, then cyclic seat order",
+            "model_state_dict": model.state_dict(),
+        },
+        path,
+    )
+
+
+def test_boundary_model_inheritance_and_frozen_launch_input(tmp_path, monkeypatch):
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    source = parent / "boundary.pth"
+    save_boundary_model(source)
+    original = source.read_bytes()
+    (parent / "base.toml").write_text(
+        '[search]\nboundary_samples = 10\nboundary_value_checkpoint = "boundary.pth"\n'
+    )
+    child = tmp_path / "child.toml"
+    child.write_text('extends = "parent/base.toml"\n')
+    resolved = experiment_config.load_configuration(child)[1]
+    assert resolved["search"]["boundary_value_checkpoint"] == str(source)
+    runtime = {}
+
+    def capture_launch(**kwargs):
+        runtime["player"] = kwargs["model_player_config"]
+        # Changing the original input after launch cannot affect worker loads.
+        source.write_bytes(b"changed")
+
+    monkeypatch.setattr(selfplay_training, "train_self_play", capture_launch)
+    path = selfplay_training.launch(
+        child, tmp_path / "runs", repository=REPOSITORY, allow_dirty=True
+    )
+    player = runtime["player"]
+    snapshot = Path(player.mcts_boundary_value_checkpoint)
+    assert snapshot.is_relative_to(path)
+    assert snapshot.read_bytes() == original
+    assert player.mcts_boundary_samples == 10
+    artifact = next(
+        row for row in events(path / "artifacts.jsonl")
+        if row.get("artifact_kind") == "boundary_value_checkpoint"
+    )
+    assert artifact["sha256"] == hashlib.sha256(original).hexdigest()
+    assert artifact["metadata"]["source_sha256"] == artifact["sha256"]
+    assert artifact["metadata"]["source_path"] == str(source)
+    recorded = json.loads((path / "resolved-config.json").read_text())
+    assert recorded["search"]["boundary_value_checkpoint"] == str(source)
+
+
+def test_boundary_model_player_mismatch_fails_before_creating_run(tmp_path):
+    source = tmp_path / "boundary.pth"
+    save_boundary_model(source, players=3)
+    config = tmp_path / "invalid.toml"
+    config.write_text(
+        '[search]\nboundary_samples = 10\nboundary_value_checkpoint = "boundary.pth"\n'
+    )
+    with pytest.raises(ValueError, match="player"):
         selfplay_training.launch(
             config, tmp_path / "runs", repository=REPOSITORY, allow_dirty=True
         )

@@ -7,7 +7,7 @@ import typing
 
 import numpy as np
 
-from . import config, predictor, skynet
+from . import boundary_inference, config, predictor, skynet
 from . import game as sj
 
 # MARK: Config
@@ -20,6 +20,8 @@ class MCTSConfig(config.Config):
     after_state_evaluate_all_children: bool
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
+    boundary_samples: int = 1
+    boundary_value_checkpoint: str | None = None
 
 
 # MARK: NODE SCORING
@@ -65,6 +67,8 @@ class DecisionStateNode:
     dirichlet_epsilon: float = 0.0
     c_puct: float = 1.5
     fpu_reduction: float = 0.0
+    boundary_samples: int = 1
+    boundary_value_checkpoint: str | None = None
 
     def __post_init__(self):
         # need to initialize here because we don't know the player count until after we have the state
@@ -138,6 +142,8 @@ class DecisionStateNode:
                 pre_terminal_state=self.state,
                 parent=self,
                 action=action,
+                boundary_samples=self.boundary_samples,
+                boundary_value_checkpoint=self.boundary_value_checkpoint,
             )
 
         if sj.is_action_random(action, self.state):
@@ -150,6 +156,8 @@ class DecisionStateNode:
             action=action,
             c_puct=self.c_puct,
             fpu_reduction=self.fpu_reduction,
+            boundary_samples=self.boundary_samples,
+            boundary_value_checkpoint=self.boundary_value_checkpoint,
         )
 
     def policy_targets(
@@ -245,6 +253,8 @@ class AfterStateNode:
             action=self.action,
             c_puct=self.parent.c_puct,
             fpu_reduction=self.parent.fpu_reduction,
+            boundary_samples=self.parent.boundary_samples,
+            boundary_value_checkpoint=self.parent.boundary_value_checkpoint,
         )
 
     def _realize_outcome(self) -> sj.Skyjo:
@@ -342,7 +352,7 @@ class AfterStateNode:
 
 @dataclasses.dataclass(slots=True)
 class RoundBoundaryNode:
-    """A round boundary with one cached sample; never expanded into another round."""
+    """A cached boundary estimate; never expanded into another round."""
 
     pre_terminal_state: sj.Skyjo
     parent: AfterStateNode | DecisionStateNode
@@ -351,6 +361,8 @@ class RoundBoundaryNode:
     is_expanded: bool = False
     next_round_state: sj.Skyjo | None = None
     value: skynet.StateValue | None = None
+    boundary_samples: int = 1
+    boundary_value_checkpoint: str | None = None
 
     @property
     def has_value_estimate(self) -> bool:
@@ -367,8 +379,27 @@ class RoundBoundaryNode:
         return self.value
 
     def prepare(self) -> sj.Skyjo | None:
-        """Sample the boundary once, returning a playable state if inference is needed."""
+        """Cache the boundary estimate, returning a next deal only in legacy mode."""
         if self.value is not None:
+            return None
+        if self.boundary_value_checkpoint is not None:
+            hidden = self.state.table[:, :, :, sj.FINGER_HIDDEN].any()
+            deterministic = not hidden and not sj.is_action_random(
+                self.action, self.state
+            )
+            samples = 1 if deterministic else self.boundary_samples
+            completed = [
+                sj.apply_action(self.state, self.action) for _ in range(samples)
+            ]
+            model = (
+                None
+                if all(sj.get_game_over(state) for state in completed)
+                else boundary_inference.load_boundary_model(
+                    self.boundary_value_checkpoint, sj.get_player_count(self.state)
+                )
+            )
+            values = boundary_inference.predict_completed_rounds(model, completed)
+            self.value = values.mean(axis=0, dtype=np.float32)
             return None
         if self.next_round_state is None:
             completed = sj.apply_action(self.state, self.action)
@@ -431,17 +462,28 @@ def run_mcts(
     after_state_evaluate_all_children: bool = False,
     c_puct: float = 1.5,
     fpu_reduction: float = 0.0,
+    boundary_samples: int = 1,
+    boundary_value_checkpoint: str | None = None,
     root_node: MCTSNode | None = None,
 ) -> MCTSNode:
-    """Search within a round, using one cached game-value sample at its boundary.
+    """Search within a round, caching a game-value estimate at its boundary.
 
-    A continuing round bootstraps from the model's value of the next deal.
+    By default, a continuing round bootstraps from one sampled next deal.
+    A boundary checkpoint instead values sampled completed rounds from scores.
     Ordinary in-round chance nodes retain their existing sampling behavior.
     """
     if not np.isfinite(c_puct) or c_puct <= 0:
         raise ValueError("c_puct must be finite and positive")
     if fpu_reduction < 0:
         raise ValueError("fpu_reduction cannot be negative")
+    if (
+        not isinstance(boundary_samples, int)
+        or isinstance(boundary_samples, bool)
+        or boundary_samples < 1
+    ):
+        raise ValueError("boundary_samples must be a positive integer")
+    if boundary_samples != 1 and boundary_value_checkpoint is None:
+        raise ValueError("boundary_samples requires boundary_value_checkpoint")
 
     # Get model prediction for root state
     if root_node is None:
@@ -452,6 +494,8 @@ def run_mcts(
             action=None,
             c_puct=c_puct,
             fpu_reduction=fpu_reduction,
+            boundary_samples=boundary_samples,
+            boundary_value_checkpoint=boundary_value_checkpoint,
         )
         root_node.expand(model_prediction=prediction)
 
@@ -460,6 +504,11 @@ def run_mcts(
             raise TypeError("root_node must be a DecisionStateNode")
         if root_node.c_puct != c_puct or root_node.fpu_reduction != fpu_reduction:
             raise ValueError("reused root scoring configuration does not match")
+        if (
+            root_node.boundary_samples != boundary_samples
+            or root_node.boundary_value_checkpoint != boundary_value_checkpoint
+        ):
+            raise ValueError("reused root boundary configuration does not match")
 
     # Root noise is local to this search invocation.
     root_node.dirichlet_noise.fill(0)
