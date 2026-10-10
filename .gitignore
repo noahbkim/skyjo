@@ -1,6 +1,7 @@
 ## experiments
 /experiments/
 .runs/
+/configs/local/
 
 ## data
 data/

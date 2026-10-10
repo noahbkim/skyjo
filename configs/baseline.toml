@@ -42,7 +42,7 @@ checkpoint_interval = 1
 
 [execution]
 device = "cpu"
-workers = 8
+workers = 1
 threads_per_worker = 1
 debug = false
 

@@ -1,4 +1,4 @@
-# Copy this template and replace both artifact paths before launching.
+# Extend this template from configs/local/, overriding both artifact paths.
 # Match the parent's seed, player count, model dimensions and enabled heads.
 extends = "baseline.toml"
 name = "continuation"
