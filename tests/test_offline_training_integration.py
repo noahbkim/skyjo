@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-
 import numpy as np
 import pytest
 import torch
 import typer
 from typer.testing import CliRunner
 
-import run_train_epoch  # noqa: E402
-from skyjo.learning import replay_io, learner
-from skyjo.learning import batches
-from skyjo.learning import buffer
-from skyjo.learning import checkpoint
-from skyjo.learning import observations
-from skyjo.learning import skynet
+import run_train_epoch
 from skyjo.engine import game as sj
+from skyjo.learning import (
+    batches,
+    buffer,
+    checkpoint,
+    learner,
+    observations,
+    replay_io,
+    skynet,
+)
 
 
 def make_dataset(path, extra_targets=None):

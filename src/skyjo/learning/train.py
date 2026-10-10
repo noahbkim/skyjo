@@ -11,13 +11,15 @@ import time
 import numpy as np
 import torch
 
-from skyjo.learning import batches
-from skyjo.learning import buffer
-from skyjo.learning import checkpoint
-from skyjo.learning import gradient_diagnostic
-from skyjo.learning import losses
-from skyjo.learning import skynet
 from skyjo.engine import game as sj
+from skyjo.learning import (
+    batches,
+    buffer,
+    checkpoint,
+    gradient_diagnostic,
+    losses,
+    skynet,
+)
 
 
 @dataclasses.dataclass

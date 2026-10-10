@@ -6,7 +6,8 @@ from typing import Protocol
 
 import numpy as np
 
-from skyjo.engine import game as sj, values
+from skyjo.engine import game as sj
+from skyjo.engine import values
 
 
 @dataclass(frozen=True, slots=True)

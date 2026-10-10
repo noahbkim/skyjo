@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import multiprocessing as mp
 import pathlib
 import time
@@ -12,12 +13,14 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 import numpy as np
 import torch
 
+from skyjo.analytics.comparisons import summarize_match
+from skyjo.experiments import contestants, runs
+from skyjo.experiments.contestants import ContestantConfig
 from skyjo.learning import checkpoint
 from skyjo.simulation import play
-from skyjo.experiments import runs, contestants
-from skyjo.experiments.contestants import ContestantConfig
-from skyjo.analytics.comparisons import summarize_match
 from skyjo.simulation.jobs import GameRandomStreams, derive_game_seed
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -214,7 +217,6 @@ def launch_comparison(
 ):
     """Record a complete comparison, preserving completed games on failure."""
     import json
-    import logging
 
     config = dataclasses.asdict(settings)
     recorder = runs.RunRecorder.create(
@@ -237,7 +239,7 @@ def launch_comparison(
             progress={"evaluated_games": completed},
             context=record,
         )
-        logging.info(
+        logger.info(
             "Evaluation game %s/%s: %s",
             completed,
             settings.seed_count * 2,

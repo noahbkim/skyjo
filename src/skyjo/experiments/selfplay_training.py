@@ -16,29 +16,34 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-from skyjo.learning import boundary_inference
-from skyjo.learning import buffer
-from skyjo.learning import checkpoint
-from skyjo.learning import continuation
-from skyjo.experiments import experiment_config
-from skyjo.experiments import experiment_training
-from skyjo.analytics import explain
-from skyjo.learning import objectives, targets
-from skyjo.analytics import game_stats
-from skyjo.experiments.state import TrainingRunResult
-from skyjo.experiments.artifacts import RunArtifacts
-from skyjo.experiments.settings import SelfPlayRunConfig
-from skyjo.experiments.training_setup import prepare_training
-from skyjo.simulation.jobs import GeneratedGame, derive_game_seed
-from skyjo.experiments import runs
-from skyjo.learning import train
-from skyjo.experiments import training_budget
+from skyjo.analytics import explain, game_stats
 from skyjo.engine import game as sj
-
+from skyjo.experiments import (
+    experiment_config,
+    experiment_training,
+    runs,
+    training_budget,
+)
+from skyjo.experiments.artifacts import RunArtifacts
 from skyjo.experiments.generation import (
     configure_torch_worker,
     generate_iteration,
 )
+from skyjo.experiments.settings import SelfPlayRunConfig
+from skyjo.experiments.state import TrainingRunResult
+from skyjo.experiments.training_setup import prepare_training
+from skyjo.learning import (
+    boundary_inference,
+    buffer,
+    checkpoint,
+    continuation,
+    objectives,
+    targets,
+    train,
+)
+from skyjo.simulation.jobs import GeneratedGame, derive_game_seed
+
+logger = logging.getLogger(__name__)
 
 
 def add_generated_games_to_buffer(
@@ -90,7 +95,7 @@ def add_generated_games_to_buffer(
             or completed_games == len(ordered_games)
         ):
             elapsed_seconds = time.perf_counter() - started_at
-            logging.debug(
+            logger.debug(
                 "[TARGETS] Converted %s/%s games and %s positions in %.1fs "
                 "(%.1f positions/s)",
                 completed_games,
@@ -153,7 +158,7 @@ def train_self_play(
     )
     observations = observations or experiment_training.ObservationConfig()
     if players != 2 and observations.concept_interval:
-        logging.info(
+        logger.info(
             "[CONCEPTS] Skipped: handcrafted concepts require a two-player model"
         )
         observations = dataclasses.replace(observations, concept_interval=0)
@@ -252,7 +257,7 @@ def train_self_play(
             iteration = state.progress.iteration + 1
             iteration_started = time.perf_counter()
             timings = {}
-            logging.info(
+            logger.info(
                 "[LEARN] Starting iteration %s | additional %s/%s | elapsed %.1fs / %ss",
                 iteration,
                 iteration - initial_iteration,
@@ -354,7 +359,7 @@ def train_self_play(
                         "applies_from_iteration": iteration + 1,
                     },
                 )
-                logging.info(
+                logger.info(
                     "[TRAIN] Replay filled; replay ratio %.2f -> %.2f from iteration %s",
                     before_fill,
                     after_fill,
@@ -428,7 +433,7 @@ def train_self_play(
     recording.event(
         "budget_completed", state, metrics=metrics, context={"stop_reason": reason}
     )
-    logging.info(
+    logger.info(
         "[LEARN] Stopped: %s | %s additional iterations | elapsed %.1fs | overshoot %.1fs",
         reason,
         state.progress.iteration - initial_iteration,
@@ -510,15 +515,17 @@ def launch(
         ],
         allow_dirty=allow_dirty,
     )
-    logging.info("Run directory: %s", recorder.path)
+    logger.info("Run directory: %s", recorder.path)
     handler = logging.FileHandler(
         recorder.path / "logs" / "train.log", encoding="utf-8"
     )
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger = logging.getLogger()
-    previous_level = logger.level
-    logger.setLevel(logging.DEBUG if resolved["execution"]["debug"] else logging.INFO)
-    logger.addHandler(handler)
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    root_logger.setLevel(
+        logging.DEBUG if resolved["execution"]["debug"] else logging.INFO
+    )
+    root_logger.addHandler(handler)
     try:
         with recorder:
             runtime_search = dict(resolved["search"])
@@ -562,7 +569,7 @@ def launch(
                 result_path, kind="training_result", progress=result.progress
             )
     finally:
-        logger.removeHandler(handler)
+        root_logger.removeHandler(handler)
         handler.close()
-        logger.setLevel(previous_level)
+        root_logger.setLevel(previous_level)
     return result

@@ -9,9 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from skyjo.learning import checkpoint
-from skyjo.learning import models
-from skyjo.learning import objectives
+from skyjo.learning import checkpoint, models, objectives
 
 
 def configuration_changes(parent: dict, child: dict, prefix: str = "") -> list[dict]:

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from skyjo.learning import checkpoint, replay_io
+
 from .state import Snapshot, TrainingState
 
 

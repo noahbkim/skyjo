@@ -9,9 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from skyjo.experiments import evaluation, experiment_config, runs, selfplay_training
-from skyjo.experiments import suites
-from skyjo.experiments import training_setup
+from skyjo.experiments import (
+    evaluation,
+    experiment_config,
+    runs,
+    selfplay_training,
+    suites,
+    training_setup,
+)
 from skyjo.experiments.settings import SelfPlayRunConfig
 from skyjo.experiments.state import Snapshot, TrainingRunResult
 from skyjo.learning import checkpoint, continuation
@@ -283,6 +288,7 @@ else:
         [sys.executable, "-c", script, str(config), str(ROOT)],
         cwd=tmp_path,
         env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        check=False,
         capture_output=True,
         text=True,
     )

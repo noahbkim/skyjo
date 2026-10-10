@@ -7,16 +7,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from test_full_game import completed_round
 
 from skyjo.engine import game as sj
 from skyjo.experiments import generation, selfplay_training
-from skyjo.experiments.training_setup import initialize_training_data_buffer
 from skyjo.experiments.contestants import ContestantConfig
+from skyjo.experiments.training_setup import initialize_training_data_buffer
 from skyjo.learning import batches, buffer, models, observations, replay_io
 from skyjo.search.mcts import SearchConfig
 from skyjo.simulation import play
 from skyjo.simulation.jobs import GeneratedGame, derive_game_seed
-from test_full_game import completed_round
 
 
 def test_game_seeds_are_stable_and_separate_games_and_streams():

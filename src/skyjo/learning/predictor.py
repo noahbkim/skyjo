@@ -7,6 +7,7 @@ import torch
 
 from skyjo.engine import game as sj
 from skyjo.search.evaluator import Evaluator, Prediction
+
 from . import batches, skynet
 
 

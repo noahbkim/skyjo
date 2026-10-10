@@ -9,15 +9,15 @@ import pytest
 import torch
 
 from skyjo.engine import game as sj
-from skyjo.learning import observations
-from skyjo.search.evaluator import Prediction
-from skyjo.learning import checkpoint as checkpoint_io
-from skyjo.learning.boundary_data import load_boundaries
 from skyjo.experiments.boundary_methods import (
     next_deal,
     next_deal_predictions,
     validate_holdout,
 )
+from skyjo.learning import checkpoint as checkpoint_io
+from skyjo.learning import observations
+from skyjo.learning.boundary_data import load_boundaries
+from skyjo.search.evaluator import Prediction
 
 
 @pytest.mark.parametrize("players,starter", [(2, 0), (2, 1), (3, 2)])

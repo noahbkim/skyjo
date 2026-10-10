@@ -4,12 +4,10 @@ import json
 
 import numpy as np
 
-from skyjo.learning import buffer, batches, replay_io
-from skyjo.experiments.artifacts import RunArtifacts
-from skyjo.learning import checkpoint
-from skyjo.experiments import experiment_training
 from skyjo.engine import game
-from skyjo.learning import observations
+from skyjo.experiments import experiment_training
+from skyjo.experiments.artifacts import RunArtifacts
+from skyjo.learning import batches, buffer, checkpoint, observations, replay_io
 
 
 def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separate(

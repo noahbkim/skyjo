@@ -1,6 +1,7 @@
 """Outcome values in fixed seat order and explicit perspective conversions."""
 
 import numpy as np
+
 from . import game as sj
 
 StateValue = np.ndarray

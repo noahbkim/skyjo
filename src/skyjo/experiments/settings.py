@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from skyjo.learning import buffer, objectives, train
+
 from .contestants import ContestantConfig
 from .experiment_training import ObservationConfig
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from skyjo.analytics.reports import boundary_methods_report
-
 import dataclasses
 import hashlib
 import json
@@ -15,14 +13,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from skyjo.learning import boundary_data
-from skyjo.learning import boundary_value
-from skyjo.experiments.contestants import load_model
-from skyjo.learning.checkpoint import decode_checkpoint
-from skyjo.learning import predictor
-from skyjo.experiments import runs
+from skyjo.analytics.reports import boundary_methods_report
 from skyjo.engine import game as sj
+from skyjo.experiments import runs
 from skyjo.experiments.boundary_experiment import paired_game_interval
+from skyjo.experiments.contestants import load_model
+from skyjo.learning import boundary_data, boundary_value, predictor
+from skyjo.learning.checkpoint import decode_checkpoint
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 

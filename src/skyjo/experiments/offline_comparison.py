@@ -9,13 +9,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from skyjo.learning import checkpoint
-from skyjo.experiments import experiment_config
+from skyjo.analytics.comparisons import summarize
+from skyjo.experiments import experiment_config, runs
+from skyjo.learning import checkpoint, replay_io
 from skyjo.learning import randomness as offline
 from skyjo.learning.learner import Learner
-from skyjo.learning import replay_io
-from skyjo.experiments import runs
-from skyjo.analytics.comparisons import summarize
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 

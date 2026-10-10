@@ -241,6 +241,7 @@ def test_abrupt_parallel_worker_exit_fails_recorded_run(tmp_path, model_checkpoi
     completed = subprocess.run(
         [sys.executable, str(driver), str(model_checkpoint), str(tmp_path / "runs")],
         env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        check=False,
         capture_output=True,
         text=True,
         timeout=45,

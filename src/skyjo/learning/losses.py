@@ -6,13 +6,11 @@ import typing
 
 import torch
 
-from skyjo.learning import batches
-from skyjo.learning import skynet
+from skyjo.learning import batches, skynet
+
 from . import objectives
 
-LossDetails: typing.TypeAlias = dict[
-    str, float
-]  # loss component name: loss component value
+type LossDetails = dict[str, float]
 
 
 class LossFunction(typing.Protocol):

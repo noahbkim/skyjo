@@ -1,8 +1,10 @@
 """Execution state and explicit results shared by experiment recipes."""
 
 from __future__ import annotations
+
 import dataclasses
 import pathlib
+
 from skyjo.learning import checkpoint
 
 

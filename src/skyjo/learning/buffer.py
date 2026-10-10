@@ -15,8 +15,8 @@ class TargetShapeSpec:
     shape: tuple[int, ...]
 
 
-TargetSpecs: typing.TypeAlias = tuple[TargetShapeSpec, ...]
-TargetSpecInput: typing.TypeAlias = typing.Sequence[TargetShapeSpec] | None
+type TargetSpecs = tuple[TargetShapeSpec, ...]
+type TargetSpecInput = typing.Sequence[TargetShapeSpec] | None
 
 
 def core_target_specs(

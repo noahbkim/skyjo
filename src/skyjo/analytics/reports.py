@@ -9,9 +9,11 @@ def boundary_value_report(report: dict) -> str:
     lines = [
         "# Round-boundary value experiment",
         "",
-        "Logistic and two-layer MLP models predict eventual win credit from "
-        "cumulative scores / 100 in next-starter order. Games stay within one "
-        "split; validation MSE selects checkpoints. Results average seed metrics.",
+        (
+            "Logistic and two-layer MLP models predict eventual win credit from "
+            "cumulative scores / 100 in next-starter order. Games stay within one "
+            "split; validation MSE selects checkpoints. Results average seed metrics."
+        ),
         "",
         "| Split | Games with boundaries | Boundaries |",
         "| --- | ---: | ---: |",
@@ -39,17 +41,23 @@ def boundary_value_report(report: dict) -> str:
     )
     lines += [
         "",
-        f"MLP minus logistic MSE: **{comparison['mean']:+.6f}**, paired "
-        f"game-bootstrap 95% interval **[{low:+.6f}, {high:+.6f}]**. {conclusion}",
+        (
+            f"MLP minus logistic MSE: **{comparison['mean']:+.6f}**, paired "
+            f"game-bootstrap 95% interval **[{low:+.6f}, {high:+.6f}]**. {conclusion}"
+        ),
         "",
-        "MSE averages over players; Brier sums over players. Calibration alone "
-        "does not measure usefulness. The interval conditions on fitted models "
-        "and this split of the recorded policy mixture; it does not establish "
-        "future-policy generalization or playing strength.",
+        (
+            "MSE averages over players; Brier sums over players. Calibration alone "
+            "does not measure usefulness. The interval conditions on fitted models "
+            "and this split of the recorded policy mixture; it does not establish "
+            "future-policy generalization or playing strength."
+        ),
         "",
-        "Artifacts: [full results](results.json), [curves](curves.jsonl), "
-        "[test predictions](predictions.npz), [data](data/boundaries.npz), "
-        "[split](split.json), [sources](sources.json), and `source/`.",
+        (
+            "Artifacts: [full results](results.json), [curves](curves.jsonl), "
+            "[test predictions](predictions.npz), [data](data/boundaries.npz), "
+            "[split](split.json), [sources](sources.json), and `source/`."
+        ),
         "",
     ]
     return "\n".join(lines)
@@ -60,11 +68,13 @@ def boundary_methods_report(report: dict) -> str:
     lines = [
         "# Held-out round-boundary valuation",
         "",
-        f"{dataset['boundaries']} nonterminal boundaries from "
-        f"{dataset['games_with_boundaries']} games generated after the gameplay "
-        "checkpoint's training and absent from the score-model dataset. The "
-        "gameplay checkpoint generated these games. Next-deal budgets share "
-        "sample prefixes; errors average replicate/seed metrics, not ensembles.",
+        (
+            f"{dataset['boundaries']} nonterminal boundaries from "
+            f"{dataset['games_with_boundaries']} games generated after the gameplay "
+            "checkpoint's training and absent from the score-model dataset. The "
+            "gameplay checkpoint generated these games. Next-deal budgets share "
+            "sample prefixes; errors average replicate/seed metrics, not ensembles."
+        ),
         "",
         "| Method | Value MSE | Brier | ECE | ms / boundary |",
         "| --- | ---: | ---: | ---: | ---: |",
@@ -87,15 +97,19 @@ def boundary_methods_report(report: dict) -> str:
         )
     lines += [
         "",
-        "Scores are held fixed: this does not resample final actions/reveals. "
-        "Observed winners are noisy labels. Intervals condition on fitted models "
-        "and deals; model families have different training histories. Lower error "
-        "does not establish better training or play. Cost includes dealing and "
-        "batched CPU inference, excludes loading, and is not search-node latency.",
+        (
+            "Scores are held fixed: this does not resample final actions/reveals. "
+            "Observed winners are noisy labels. Intervals condition on fitted models "
+            "and deals; model families have different training histories. Lower error "
+            "does not establish better training or play. Cost includes dealing and "
+            "batched CPU inference, excludes loading, and is not search-node latency."
+        ),
         "",
-        "Artifacts: [full results](results.json), [sources](sources.json), "
-        "`data/`, `checkpoints/`, and `source/` retain predictions, labels, "
-        "replicate calibration, inputs and code/model snapshots.",
+        (
+            "Artifacts: [full results](results.json), [sources](sources.json), "
+            "`data/`, `checkpoints/`, and `source/` retain predictions, labels, "
+            "replicate calibration, inputs and code/model snapshots."
+        ),
         "",
     ]
     return "\n".join(lines)
@@ -105,8 +119,10 @@ def terminal_sampling_report(report: dict) -> str:
     lines = [
         "# Final-action boundary sampling",
         "",
-        "Sampled action estimates are compared with exact or independent "
-        "simulation references. This measures estimator accuracy, not full-game play.",
+        (
+            "Sampled action estimates are compared with exact or independent "
+            "simulation references. This measures estimator accuracy, not full-game play."
+        ),
         "",
         "| Cohort | Cases | Actions | K | Mean case MSE | Mean action regret | Regret cases |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -124,9 +140,11 @@ def terminal_sampling_report(report: dict) -> str:
         "",
         *[f"- {limit}" for limit in report["limitations"]],
         "",
-        "Artifacts: [full report](report.json), [outcomes](data/outcomes.npz), "
-        "[sources](sources.json), and `source/`. These retain selection "
-        "counts, per-action probabilities/bounds, states, references and estimates.",
+        (
+            "Artifacts: [full report](report.json), [outcomes](data/outcomes.npz), "
+            "[sources](sources.json), and `source/`. These retain selection "
+            "counts, per-action probabilities/bounds, states, references and estimates."
+        ),
         "",
     ]
     return "\n".join(lines)
@@ -136,8 +154,10 @@ def symmetry_benchmark_report(report: dict) -> str:
     lines = [
         "# Symmetric-action MCTS speed benchmark",
         "",
-        "Throughput ratios above one favor grouping; fixed simulation counts "
-        "measure speed rather than playing strength. Cohorts remain separate.",
+        (
+            "Throughput ratios above one favor grouping; fixed simulation counts "
+            "measure speed rather than playing strength. Cohorts remain separate."
+        ),
         "",
         "| Cohort | Evaluator | Visits | Off total s | On total s | Throughput on/off | Off p95 ms | On p95 ms |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -156,9 +176,11 @@ def symmetry_benchmark_report(report: dict) -> str:
         "",
         *[f"- {limit}" for limit in report["limitations"]],
         "",
-        "Artifacts: [full report](report.json), [sources](sources.json), "
-        "and registered raw timings/diagnostics retain phase summaries, "
-        "node and inference counts, selected positions and input hashes.",
+        (
+            "Artifacts: [full report](report.json), [sources](sources.json), "
+            "and registered raw timings/diagnostics retain phase summaries, "
+            "node and inference counts, selected positions and input hashes."
+        ),
         "",
     ]
     return "\n".join(lines)

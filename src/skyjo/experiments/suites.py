@@ -10,9 +10,7 @@ import tomllib
 
 import numpy as np
 
-from skyjo.experiments import evaluation, contestants
-from skyjo.experiments import experiment_config
-from skyjo.experiments import runs
+from skyjo.experiments import contestants, evaluation, experiment_config, runs
 
 overlay = experiment_config.overlay
 
@@ -51,7 +49,7 @@ def load_suite(path: pathlib.Path) -> dict:
         raise ValueError("Control variant is missing")
     evaluation_settings = supplied.get("evaluation", {})
     if not isinstance(evaluation_settings, dict):
-        raise ValueError("Suite evaluation settings must be a table")
+        raise ValueError("Suite evaluation settings must be a table")  # noqa: TRY004 - malformed configuration data
     unknown = evaluation_settings.keys() - {"seed_count", "seed", "iterations"}
     if unknown:
         raise ValueError(f"Unknown suite evaluation settings: {sorted(unknown)}")
@@ -71,7 +69,7 @@ def load_suite(path: pathlib.Path) -> dict:
     for seed in seeds:
         for variant, overrides in variants.items():
             if not isinstance(overrides, dict):
-                raise ValueError(f"Variant {variant!r} overrides must be a table")
+                raise ValueError(f"Variant {variant!r} overrides must be a table")  # noqa: TRY004 - malformed configuration data
             config = overlay(
                 baseline, experiment_config.resolve_paths(overrides, path.parent)
             )

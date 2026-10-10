@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from skyjo.analytics.reports import terminal_sampling_report
-
 import dataclasses
 import json
 import math
@@ -14,9 +12,10 @@ from pathlib import Path
 
 import numpy as np
 
+from skyjo.analytics.reports import terminal_sampling_report
 from skyjo.engine import game
-from skyjo.learning import observations
 from skyjo.experiments import runs
+from skyjo.learning import observations
 
 
 @dataclasses.dataclass(frozen=True)

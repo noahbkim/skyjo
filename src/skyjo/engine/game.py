@@ -3,7 +3,8 @@ from __future__ import annotations
 import dataclasses
 import math
 import random
-from typing import Iterable, Protocol, TypeAlias
+from collections.abc import Iterable
+from typing import Protocol
 
 import numpy as np
 
@@ -69,13 +70,13 @@ assert GAME_ACTION == 30
 assert GAME_SCORES == 34
 assert GAME_SIZE == 50
 
-Game: TypeAlias = np.ndarray[tuple[int], np.int16]
+type Game = np.ndarray[tuple[int], np.int16]
 """Top discard/drawn card, count of discards, player scores, and last revealed turns."""
 
-Table: TypeAlias = np.ndarray[tuple[int, int, int, int], np.int16]
+type Table = np.ndarray[tuple[int, int, int, int], np.int16]
 """A tensor representing (player, row, column, card) tuples."""
 
-Deck: TypeAlias = np.ndarray[tuple[int], np.int16]
+type Deck = np.ndarray[tuple[int], np.int16]
 """Cards remaining in the deck in lieu of a random seed."""
 
 
@@ -97,7 +98,7 @@ class Skyjo:
     countdown: int | None = None
 
 
-SkyjoAction: TypeAlias = int
+type SkyjoAction = int
 """Integer representing an action in the Skyjo game."""
 
 

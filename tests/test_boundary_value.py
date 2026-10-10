@@ -60,7 +60,7 @@ def test_fitting_is_reproducible_and_restores_best_validation_epoch(kind):
     targets = np.array([[1, 0]] * 8 + [[0, 1]] * 4, dtype=np.float32)
     train_indices = np.arange(8)
     validation_indices = np.arange(8, 12)
-    options = dict(kind=kind, seed=5, batch_size=4, learn_rate=0.05)
+    options = {"kind": kind, "seed": 5, "batch_size": 4, "learn_rate": 0.05}
     random_state = torch.random.get_rng_state().clone()
 
     fit = fit_model(

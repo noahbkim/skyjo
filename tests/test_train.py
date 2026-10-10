@@ -2,11 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo.learning import batches
-from skyjo.learning import checkpoint
-from skyjo.learning import losses
-from skyjo.learning import skynet
-from skyjo.learning import train
+from skyjo.learning import batches, checkpoint, losses, skynet, train
 
 
 class ToyModel(torch.nn.Module):

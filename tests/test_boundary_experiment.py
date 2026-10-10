@@ -5,8 +5,8 @@ import json
 import numpy as np
 import pytest
 import torch
-from typer.testing import CliRunner
 import typer
+from typer.testing import CliRunner
 
 from run_boundary_value_experiment import experiment
 from skyjo.experiments.boundary_experiment import paired_game_interval

@@ -8,11 +8,8 @@ from pathlib import Path
 import pytest
 import torch
 
-from skyjo.learning import replay_io
-from skyjo.learning import checkpoint
-from skyjo.experiments import experiment_config
-from skyjo.experiments import selfplay_training
-from skyjo.learning import skynet
+from skyjo.experiments import experiment_config, selfplay_training
+from skyjo.learning import checkpoint, replay_io, skynet
 from skyjo.learning.boundary_value import BoundaryValueModel
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -317,7 +314,7 @@ def test_boundary_model_inheritance_and_frozen_launch_input(tmp_path, monkeypatc
         runtime["player"] = settings.contestant
         # Changing the original input after launch cannot affect worker loads.
         source.write_bytes(b"changed")
-        from skyjo.experiments.state import TrainingRunResult, Snapshot
+        from skyjo.experiments.state import Snapshot, TrainingRunResult
 
         run_path = kwargs["recorder"].path
         return TrainingRunResult(

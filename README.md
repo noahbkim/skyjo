@@ -10,6 +10,8 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync --group dev
+uv run ruff check .
+uv run ruff format --check .
 uv run pytest
 uv run python distributed_main.py --config configs/smoke.toml --allow-dirty
 ```

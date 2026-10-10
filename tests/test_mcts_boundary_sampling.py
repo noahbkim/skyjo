@@ -4,12 +4,12 @@ import dataclasses
 
 import numpy as np
 import pytest
+from test_full_game import completed_round
 
 from skyjo.engine import game as sj
 from skyjo.learning.boundary_inference import ScoreBoundaryEvaluator
 from skyjo.search import mcts
 from skyjo.search.evaluator import Prediction
-from test_full_game import completed_round
 
 
 class RootOnlyEvaluator:

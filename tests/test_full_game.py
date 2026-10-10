@@ -2,17 +2,16 @@ import dataclasses
 import random
 from itertools import cycle
 from types import SimpleNamespace
-from skyjo.learning import targets, replay_io
-from skyjo.analytics import game_stats
-from skyjo.engine import values
-from skyjo.search.evaluator import Prediction
 
 import numpy as np
 import pytest
 from helpers import NaiveQuickFinishPlayer
 
+from skyjo.analytics import game_stats
 from skyjo.engine import game as sj
-from skyjo.learning import observations
+from skyjo.engine import values
+from skyjo.learning import observations, replay_io, targets
+from skyjo.search.evaluator import Prediction
 from skyjo.simulation import play
 
 

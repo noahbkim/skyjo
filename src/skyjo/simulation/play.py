@@ -8,13 +8,17 @@ import typing
 
 import numpy as np
 
-from skyjo.engine import game as sj, values
+from skyjo.engine import game as sj
+from skyjo.engine import values
+
 from . import player
+
+logger = logging.getLogger(__name__)
 
 # MARK: Types
 
-FloatArray: typing.TypeAlias = np.ndarray[tuple[int, ...], np.float32]
-ActionProbabilities: typing.TypeAlias = FloatArray
+type FloatArray = np.ndarray[tuple[int, ...], np.float32]
+type ActionProbabilities = FloatArray
 
 
 class RoundHistoryEntry(typing.NamedTuple):
@@ -28,7 +32,7 @@ class RoundHistoryEntry(typing.NamedTuple):
     action_probabilities: ActionProbabilities | None
 
 
-RoundHistory: typing.TypeAlias = list[RoundHistoryEntry]
+type RoundHistory = list[RoundHistoryEntry]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -93,7 +97,7 @@ def play_round(
     game_history = []
 
     if debug:
-        logging.info(f"{sj.visualize_state(game_state)}")
+        logger.info(f"{sj.visualize_state(game_state)}")
     while not sj.get_round_over(game_state):
         action_probabilities = players[
             sj.get_player(game_state)
@@ -104,18 +108,18 @@ def play_round(
         game_state = sj.apply_action(game_state, action, rng=environment_rng)
         if debug:
             print(sj.get_action_name(action))
-            logging.info(f"ACTION PROBABILITIES\n{action_probabilities}")
-            logging.info(f"ACTION: {sj.get_action_name(action)}")
-            logging.info(f"{sj.visualize_state(game_state)}")
+            logger.info(f"ACTION PROBABILITIES\n{action_probabilities}")
+            logger.info(f"ACTION: {sj.get_action_name(action)}")
+            logger.info(f"{sj.visualize_state(game_state)}")
 
     game_history.append(RoundHistoryEntry(game_state, None, None))
     if debug:
         outcome = values.skyjo_to_state_value(game_state)
         fixed_perspective_score = sj.get_fixed_perspective_round_scores(game_state)
-        logging.info("ROUND OVER")
-        logging.info(f"OUTCOME: {outcome}")
-        logging.info(f"SCORES: {fixed_perspective_score}")
-        logging.info(f"TOTAL TURNS: {sj.get_turn(game_state)}")
+        logger.info("ROUND OVER")
+        logger.info(f"OUTCOME: {outcome}")
+        logger.info(f"SCORES: {fixed_perspective_score}")
+        logger.info(f"TOTAL TURNS: {sj.get_turn(game_state)}")
     return game_history
 
 
@@ -169,8 +173,8 @@ def play_game(
         if sj.get_game_over(state):
             result = GameResult(rounds=tuple(rounds))
             if debug:
-                logging.info("GAME OVER")
-                logging.info(f"SCORES: {result.final_scores}")
-                logging.info(f"WINNERS: {result.winners}")
+                logger.info("GAME OVER")
+                logger.info(f"SCORES: {result.final_scores}")
+                logger.info(f"WINNERS: {result.winners}")
             return result
         state = sj.start_next_round(state, rng=environment_rng)

@@ -28,14 +28,14 @@ def test_timing_summary_uses_total_work_and_separates_fixture_and_phase():
     ):
         for merge, seconds in ((False, off), (True, on)):
             rows.append(
-                dict(
-                    cohort=cohort,
-                    phase=phase,
-                    evaluator="next_deal",
-                    iterations=32,
-                    merge_symmetric_actions=merge,
-                    seconds=seconds,
-                )
+                {
+                    "cohort": cohort,
+                    "phase": phase,
+                    "evaluator": "next_deal",
+                    "iterations": 32,
+                    "merge_symmetric_actions": merge,
+                    "seconds": seconds,
+                }
             )
     summaries = summarize_timings(rows)
     replay = next(

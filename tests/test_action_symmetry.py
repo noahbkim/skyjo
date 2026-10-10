@@ -12,7 +12,6 @@ import pytest
 from skyjo.engine import game as sj
 from skyjo.search import symmetry
 
-
 SYMMETRIC_BOARD = (("H", 1, "H", "H"), ("H", "H", "H", 3), (1, "H", 2, 4))
 RECYCLING_BOARD = (("H", 1, "H", "X"), (1, "H", 2, "X"), (1, 1, 3, "X"))
 
@@ -213,7 +212,7 @@ def exact_final_score_distribution(state, action, monkeypatch):
             tape, probability = pending.pop()
             choices = iter(tape)
 
-            def choose(deck, rng):
+            def choose(deck, rng, choices=choices):
                 try:
                     card = next(choices)
                 except StopIteration:

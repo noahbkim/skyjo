@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from skyjo.analytics.reports import boundary_value_report
-
 import dataclasses
 import json
 import math
@@ -14,9 +12,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from skyjo.learning import boundary_data
-from skyjo.learning import boundary_value
+from skyjo.analytics.reports import boundary_value_report
 from skyjo.experiments import runs
+from skyjo.learning import boundary_data, boundary_value
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 KINDS = ("logistic", "mlp")

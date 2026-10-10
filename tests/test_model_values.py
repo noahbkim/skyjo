@@ -3,9 +3,7 @@ import pytest
 import torch
 
 from skyjo.engine import game as sj
-from skyjo.learning import losses
-from skyjo.learning import observations
-from skyjo.learning import skynet, targets
+from skyjo.learning import losses, observations, skynet, targets
 
 
 def test_normalize_round_scores_uses_expanded_bounds():

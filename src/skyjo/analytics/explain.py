@@ -11,10 +11,10 @@ import logging
 import numpy as np
 import torch
 
-from skyjo.learning import checkpoint
-from skyjo.learning import losses
-from skyjo.learning import skynet, batches
 from skyjo.engine import game as sj
+from skyjo.learning import batches, checkpoint, losses, skynet
+
+logger = logging.getLogger(__name__)
 
 # MARK: Game state creation
 
@@ -531,10 +531,10 @@ def validate_model_on_validation_examples(
         "policy_loss": policy_loss_scale * summary["policy_loss"],
         "example_count": summary["example_count"],
     }
-    logging.info(
+    logger.info(
         "[VALIDATION] Heuristic concept checks (not calibrated full-game validation): %s",
         metrics,
     )
     for example in report.examples:
-        logging.info("[VALIDATION] %s", example)
+        logger.info("[VALIDATION] %s", example)
     return metrics

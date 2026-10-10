@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import numpy as np
 
 from skyjo.engine import game as sj

@@ -7,15 +7,11 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo.learning import buffer
-from skyjo.learning import checkpoint
-from skyjo.experiments import experiment_config
 from skyjo.engine import game
-from skyjo.learning import observations
-from skyjo.learning.learner import Learner
-from skyjo.learning import batches, replay_io
+from skyjo.experiments import experiment_config, offline_comparison
 from skyjo.experiments.contestants import load_model
-from skyjo.experiments import offline_comparison
+from skyjo.learning import batches, buffer, checkpoint, observations, replay_io
+from skyjo.learning.learner import Learner
 
 
 def dataset_at(path):

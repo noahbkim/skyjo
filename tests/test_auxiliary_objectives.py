@@ -12,8 +12,18 @@ import torch
 from helpers import NaiveQuickFinishPlayer
 
 from skyjo.engine import game as sj
-from skyjo.learning import buffer, checkpoint, losses, objectives, observations
-from skyjo.learning import predictor, replay_io, skynet, targets, train
+from skyjo.learning import (
+    buffer,
+    checkpoint,
+    losses,
+    objectives,
+    observations,
+    predictor,
+    replay_io,
+    skynet,
+    targets,
+    train,
+)
 from skyjo.simulation import play
 
 ALL = {name: 0.1 for name in objectives.OBJECTIVE_NAMES}

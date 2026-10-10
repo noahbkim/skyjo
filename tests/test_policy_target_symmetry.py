@@ -7,9 +7,9 @@ import pytest
 from helpers import NaiveQuickFinishPlayer
 
 from skyjo.engine import game as sj
-from skyjo.simulation import play
 from skyjo.engine import symmetry
 from skyjo.learning import targets
+from skyjo.simulation import play
 
 
 def state_with_symmetric_active_board() -> sj.Skyjo:

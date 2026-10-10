@@ -6,6 +6,7 @@ from pathlib import Path
 
 from skyjo.learning import buffer, checkpoint, continuation
 from skyjo.learning.learner import Learner
+
 from . import experiment_config
 from .settings import SelfPlayRunConfig
 from .state import TrainingState

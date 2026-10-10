@@ -180,7 +180,7 @@ def restore_checkpoint(
             raise CheckpointFormatError(f"Checkpoint is missing required {name}")
     try:
         if not isinstance(payload["model_state_dict"], dict):
-            raise ValueError("model state must be a mapping")
+            raise TypeError("model state must be a mapping")
         expected_model = model.state_dict()
         saved_model = payload["model_state_dict"]
         if saved_model.keys() != expected_model.keys() or any(
@@ -202,7 +202,7 @@ def restore_checkpoint(
                 if not isinstance(actual, dict) or not isinstance(
                     actual.get("params"), list
                 ):
-                    raise ValueError("invalid optimizer parameter group")
+                    raise TypeError("invalid optimizer parameter group")
                 if len(actual["params"]) != len(expected["params"]):
                     raise ValueError("optimizer parameter counts do not match")
                 if isinstance(optimizer, torch.optim.Adam):

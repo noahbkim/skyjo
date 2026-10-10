@@ -2,8 +2,7 @@
 
 import torch
 
-from skyjo.learning import observations
-from skyjo.learning import skynet
+from skyjo.learning import observations, skynet
 
 
 def _equivariant_settings(settings):

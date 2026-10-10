@@ -1,11 +1,14 @@
 """Single-dataset training and exact resume using the shared learner."""
 
 from __future__ import annotations
+
 import dataclasses
 import pathlib
 import time
+
 import torch
-from skyjo.learning import buffer, replay_io, checkpoint, objectives
+
+from skyjo.learning import buffer, checkpoint, objectives, replay_io
 from skyjo.learning.learner import Learner
 
 

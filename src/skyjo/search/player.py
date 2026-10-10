@@ -3,7 +3,7 @@
 import numpy as np
 
 from .evaluator import BoundaryEvaluator, Evaluator
-from .mcts import DecisionStateNode, SearchConfig, run_mcts
+from .mcts import DEFAULT_SEARCH_CONFIG, DecisionStateNode, SearchConfig, run_mcts
 
 
 class SearchPlayer:
@@ -12,7 +12,7 @@ class SearchPlayer:
         evaluator: Evaluator,
         iterations: int,
         *,
-        config: SearchConfig = SearchConfig(),
+        config: SearchConfig = DEFAULT_SEARCH_CONFIG,
         temperature: float = 1.0,
         boundary_evaluator: BoundaryEvaluator | None = None,
         rng: np.random.Generator | None = None,

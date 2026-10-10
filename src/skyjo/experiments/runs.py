@@ -17,7 +17,7 @@ from typing import Any, Self
 
 
 def utc_now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return datetime.datetime.now(datetime.UTC).isoformat()
 
 
 def file_digest(path: pathlib.Path) -> str:
@@ -80,9 +80,7 @@ class RunRecorder:
         json.dumps(configuration, allow_nan=False)
         name = configuration.get("name", "experiment")
         slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", name).strip("-")[:60] or "run"
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y%m%dT%H%M%SZ"
-        )
+        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
         run_id = f"{timestamp}-{slug}-{uuid.uuid4().hex[:10]}"
         path = root.resolve() / run_id
         manifest = {

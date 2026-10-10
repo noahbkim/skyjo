@@ -3,11 +3,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from skyjo.learning import batches
-from skyjo.learning import models
-from skyjo.learning import observations
-from skyjo.learning import skynet
 from skyjo.engine import game as sj
+from skyjo.learning import batches, models, observations, skynet
 
 
 def make_model(players: int = 2) -> skynet.EquivariantSkyNet:

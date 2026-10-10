@@ -1,17 +1,22 @@
 """CPU game-generation workers for evolving self-play model snapshots."""
 
 from __future__ import annotations
+
 import logging
 import queue
 import typing
+
 import numpy as np
 import torch
-from skyjo.learning import models
+
 from skyjo.engine import game as sj
-from skyjo.simulation import play
-from skyjo.simulation.jobs import GeneratedGame, GameRandomStreams, derive_game_seed
-from skyjo.experiments import experiment_training, contestants
+from skyjo.experiments import contestants, experiment_training
 from skyjo.experiments.contestants import ContestantConfig
+from skyjo.learning import models
+from skyjo.simulation import play
+from skyjo.simulation.jobs import GameRandomStreams, GeneratedGame, derive_game_seed
+
+logger = logging.getLogger(__name__)
 
 StartStateGenerator = typing.Callable[[np.random.Generator], sj.Skyjo]
 
@@ -110,6 +115,6 @@ def generate_iteration(
         progress.decisions += sum(
             len(r.history) - 1 for g in result for r in g.result.rounds
         )
-        logging.debug("[SELF-PLAY] Completed %s/%s tasks", tasks, len(sizes))
+        logger.debug("[SELF-PLAY] Completed %s/%s tasks", tasks, len(sizes))
         progress.report(final=tasks == len(sizes))
     return sorted(generated, key=lambda game: game.global_game_index)

@@ -6,7 +6,9 @@ Promote when: Reusable work belongs in skyjo.experiments.offline_training.
 import json
 import pathlib
 from typing import Annotated
+
 import typer
+
 from skyjo.experiments import offline_training
 
 DEFAULT_SEED = 0

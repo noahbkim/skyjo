@@ -30,6 +30,7 @@ def benchmark() -> dict:
     """
     import numpy as np
     import torch
+
     from skyjo.engine import game
     from skyjo.learning import batches, checkpoint, losses, models, predictor, train
     from skyjo.search import mcts

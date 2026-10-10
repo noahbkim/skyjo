@@ -4,8 +4,7 @@ import time
 
 import torch
 
-from skyjo.learning import losses
-from skyjo.learning import objectives
+from skyjo.learning import losses, objectives
 
 
 def measure(

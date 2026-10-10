@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import typing
+from itertools import pairwise
 
 import numpy as np
 
@@ -93,7 +94,7 @@ def analyze_round(result: RoundResult) -> RoundStats:
     slots = np.zeros(sj.MASK_SIZE, dtype=int)
     slot_eligible = np.zeros(sj.MASK_SIZE, dtype=int)
     ending_reason = "unknown"  # A partial history may start after the countdown.
-    for entry, following in zip(history, history[1:]):
+    for entry, following in pairwise(history):
         state, action, _ = entry
         assert action is not None
         mask = sj.actions(state).astype(bool)

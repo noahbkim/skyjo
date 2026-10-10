@@ -4,12 +4,11 @@ import dataclasses
 
 import numpy as np
 import pytest
+from test_action_symmetry import RECYCLING_BOARD, board_state, with_slack
 
 from skyjo.engine import game as sj
-from skyjo.search import symmetry
-from skyjo.search import mcts
+from skyjo.search import mcts, symmetry
 from skyjo.search.evaluator import Prediction
-from test_action_symmetry import RECYCLING_BOARD, board_state, with_slack
 
 
 class FixedEvaluator:

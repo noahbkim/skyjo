@@ -10,11 +10,8 @@ import tomllib
 
 import torch
 
-from skyjo.learning import buffer, replay_io
 from skyjo.engine import game
-from skyjo.learning import models
-from skyjo.learning import objectives
-from skyjo.learning import observations
+from skyjo.learning import buffer, models, objectives, observations, replay_io
 
 DEFAULTS = {
     "name": "full-game-baseline",
@@ -76,7 +73,7 @@ DEFAULTS = {
 
 def _merge(defaults: dict, supplied: dict, prefix: str = "") -> dict:
     if not isinstance(supplied, dict):
-        raise ValueError(f"{prefix or 'configuration'} must be a table")
+        raise ValueError(f"{prefix or 'configuration'} must be a table")  # noqa: TRY004 - malformed configuration data
     unknown = supplied.keys() - defaults.keys()
     if unknown:
         raise ValueError(
@@ -149,7 +146,7 @@ def configuration_sources(path: pathlib.Path) -> tuple[dict, list[dict]]:
         else:
             raise ValueError("Configuration must be .toml or .json")
         if not isinstance(supplied, dict):
-            raise ValueError("Configuration must be an object")
+            raise ValueError("Configuration must be an object")  # noqa: TRY004 - malformed configuration data
         parent = supplied.pop("extends", None)
         base, sources = {}, []
         if parent is not None:
@@ -189,7 +186,7 @@ def load_configuration(path: pathlib.Path) -> tuple[bytes, dict]:
 def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> dict:
     supplied = copy.deepcopy(supplied)
     if not isinstance(supplied, dict):
-        raise ValueError("Configuration must be an object")
+        raise ValueError("Configuration must be an object")  # noqa: TRY004 - malformed configuration data
     prior_derived = supplied.pop("derived", None)
     model_settings = models.resolve(supplied.pop("model", {}))
     config = resolve_paths(_merge(DEFAULTS, supplied), base_directory)
@@ -251,9 +248,11 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         if training[key] < 0:
             raise ValueError(f"training.{key} cannot be negative")
     search = config["search"]
-    if search["boundary_value_checkpoint"] is not None:
-        if not pathlib.Path(search["boundary_value_checkpoint"]).is_file():
-            raise FileNotFoundError(search["boundary_value_checkpoint"])
+    if (
+        search["boundary_value_checkpoint"] is not None
+        and not pathlib.Path(search["boundary_value_checkpoint"]).is_file()
+    ):
+        raise FileNotFoundError(search["boundary_value_checkpoint"])
     if not 0 <= search["dirichlet_epsilon"] <= 1:
         raise ValueError("search.dirichlet_epsilon must be between zero and one")
     if search["c_puct"] <= 0:
@@ -352,6 +351,7 @@ def target_specs(players, configuration=None):
 def resolve_offline_configuration(supplied: dict) -> dict:
     """Resolve only settings that drive fixed-data learning, without online inputs."""
     import dataclasses
+
     from .settings import (
         ExecutionConfig,
         ModelSettings,

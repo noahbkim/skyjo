@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import dataclasses
-import typing
 
 import einops
 import torch
-import torch.nn as nn
-
+from torch import nn
 
 """
 einops and general dimension notation:
@@ -41,7 +39,7 @@ class SimpleOutcomeProbabilityTail(nn.Module):
     """Reusable outcome tail to predict winner probabilities over players."""
 
     def __init__(self, input_dimensions: int, players: int):
-        super(SimpleOutcomeProbabilityTail, self).__init__()
+        super().__init__()
         self.players = players
         self.input_dimensions = input_dimensions
         self.mlp = nn.Sequential(
@@ -84,7 +82,7 @@ class EquivariantPolicyLogitTail(nn.Module):
         rows: int = 3,
         columns: int = 4,
     ):
-        super(EquivariantPolicyLogitTail, self).__init__()
+        super().__init__()
         self.embedding_dimensions = embedding_dimensions
         self.global_state_embedding_dimensions = global_state_embedding_dimensions
         self.non_positional_actions = non_positional_actions
@@ -250,7 +248,7 @@ class EquivariantSkyNet(nn.Module):
         num_heads: int = 4,
         auxiliary_objectives: dict[str, float] | None = None,
     ):
-        super(EquivariantSkyNet, self).__init__()
+        super().__init__()
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
@@ -342,6 +340,7 @@ class EquivariantSkyNet(nn.Module):
             columns=self.columns,
         )
         from skyjo.learning import objectives
+
         from .auxiliary_heads import make_heads
 
         resolved = objectives.resolve(auxiliary_objectives)
@@ -480,4 +479,4 @@ class EquivariantSkyNet(nn.Module):
         )
 
 
-SkyNet: typing.TypeAlias = EquivariantSkyNet
+SkyNet = EquivariantSkyNet

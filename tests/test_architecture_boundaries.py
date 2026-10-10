@@ -5,11 +5,11 @@ import subprocess
 import sys
 
 import numpy as np
+from test_mcts_core import UniformEvaluator
 
 from skyjo.engine import game as sj
 from skyjo.search import mcts
 from skyjo.simulation import play, player
-from test_mcts_core import UniformEvaluator
 
 
 def test_model_free_layers_import_and_play_with_torch_blocked():

@@ -77,7 +77,8 @@ def load_boundaries(paths: Sequence[Path]) -> BoundaryDataset:
             except (ValueError, UnicodeDecodeError) as error:
                 raise ValueError(f"{location}: invalid JSON") from error
             if not isinstance(record, dict):
-                raise ValueError(f"{location}: expected a round record object")
+                # Invalid serialized content is a value error, not a caller type error.
+                raise ValueError(f"{location}: expected a round record object")  # noqa: TRY004
             run_id = record.get("run_id")
             if not isinstance(run_id, str) or not run_id:
                 raise ValueError(f"{location}: run_id must be a nonempty string")
@@ -144,11 +145,10 @@ def load_boundaries(paths: Sequence[Path]) -> BoundaryDataset:
         previous = np.zeros(players, dtype=np.int64)
         for number in numbers:
             row = rounds[number]
-            if number > 1 or not partial:
-                if not np.array_equal(previous + row["charged"], row["cumulative"]):
-                    raise ValueError(
-                        f"{row['location']}: inconsistent cumulative scores"
-                    )
+            if (number > 1 or not partial) and not np.array_equal(
+                previous + row["charged"], row["cumulative"]
+            ):
+                raise ValueError(f"{row['location']}: inconsistent cumulative scores")
             if number < len(numbers) and np.any(row["cumulative"] >= 100):
                 raise ValueError(
                     f"{row['location']}: round recorded after game termination"

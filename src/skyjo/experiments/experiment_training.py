@@ -11,11 +11,12 @@ import time
 import numpy as np
 import pandas as pd
 
-from skyjo.experiments.state import Snapshot, TrainingState
-from skyjo.analytics import explain
-from skyjo.analytics import game_stats
+from skyjo.analytics import explain, game_stats
 from skyjo.experiments import runs
+from skyjo.experiments.state import Snapshot, TrainingState
 from skyjo.learning import train
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,7 +62,7 @@ class GenerationProgress:
         elapsed = max(now - self.started, 1e-9)
         rate = self.games / elapsed
         eta = f"{(self.total_games - self.games) / rate:.1f}s" if rate else "unknown"
-        logging.info(
+        logger.info(
             "[SELF-PLAY] %s/%s games in %.1fs | %.3f games/s | %.1f decisions/s | ETA %s%s",
             self.games,
             self.total_games,
@@ -152,7 +153,7 @@ class RecipeRecording:
                 "replay_artifact_id": replay_artifact,
             },
         )
-        logging.info(
+        logger.info(
             "[TRAIN] %s new positions | %s replay positions | %s updates | %s sampled "
             "| replay ratio %.2f | %.2f replay-equivalent passes | %.0f positions/s "
             "| loss %.4f",
@@ -165,13 +166,13 @@ class RecipeRecording:
             rate,
             mean_losses["total_loss"],
         )
-        logging.debug(
+        logger.debug(
             "[TRAIN] Mean losses: %s",
             {key: round(value, 5) for key, value in mean_losses.items()},
         )
-        logging.debug("[TRAIN] Policy diagnostics: %s", result.diagnostics)
-        if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logging.debug(
+        logger.debug("[TRAIN] Policy diagnostics: %s", result.diagnostics)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
                 "[TRAIN] Detailed losses:\n%s",
                 pd.DataFrame.from_records(losses).describe().T,
             )
@@ -211,27 +212,27 @@ class RecipeRecording:
             },
             context={"game_sample_count": len(games)},
         )
-        logging.info("[GAMES] %s", game_stats.format_summary(round_metrics))
-        if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logging.debug(
+        logger.info("[GAMES] %s", game_stats.format_summary(round_metrics))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
                 "[GAMES] Detailed summaries:\n%s\n%s",
                 game_stats.format_summary(round_metrics, detailed=True),
                 pd.DataFrame.from_records([game.to_record_dict() for game in games])
                 .describe()
                 .T,
             )
-        logging.info(
+        logger.info(
             "[LEARN] Completed iteration %s in %.1fs",
             state.progress.iteration,
             timings["iteration"],
         )
         if budget_metrics is not None:
-            logging.info(
+            logger.info(
                 "[BUDGET] Elapsed %.1fs / %ss",
                 budget_metrics["time/run_seconds"],
                 budget_metrics["budget/max_seconds"] or "unlimited",
             )
-        logging.debug("[LEARN] Phase timings (seconds): %s", timings)
+        logger.debug("[LEARN] Phase timings (seconds): %s", timings)
 
     def save_rounds(
         self, state: TrainingState, prepared: PreparedGames, generation: Snapshot | None
@@ -297,10 +298,10 @@ class RecipeRecording:
                 "interpretation": "heuristic concepts, not calibrated playing strength"
             },
         )
-        logging.info(
+        logger.info(
             "[CONCEPTS] Heuristic checks: %s/%s target actions | mean target probability %.3f",
             summary["target_action_matches"],
             summary["example_count"],
             summary["mean_target_probability"],
         )
-        logging.debug("[CONCEPTS] Examples: %s", report.examples)
+        logger.debug("[CONCEPTS] Examples: %s", report.examples)

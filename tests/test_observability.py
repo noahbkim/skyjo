@@ -9,15 +9,18 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo.learning import batches, buffer
-from skyjo.learning import checkpoint
-from skyjo.experiments import experiment_training
 from skyjo.analytics import explain
-from skyjo.learning import losses
-from skyjo.learning import observations
-from skyjo.learning import skynet
-from skyjo.learning import train
 from skyjo.engine import game as sj
+from skyjo.experiments import experiment_training
+from skyjo.learning import (
+    batches,
+    buffer,
+    checkpoint,
+    losses,
+    observations,
+    skynet,
+    train,
+)
 
 
 def test_policy_diagnostics_weight_positions_and_ignore_masked_actions():

@@ -12,15 +12,11 @@ import pytest
 import torch
 from helpers import NaiveQuickFinishPlayer
 
-from skyjo.learning import buffer, replay_io, targets
-from skyjo.learning import continuation
-from skyjo.experiments import experiment_config
-from skyjo.experiments import suites as experiments
-from skyjo.learning import models
-from skyjo.simulation import play
-from skyjo.experiments import runs
-from skyjo.experiments import training_budget, training_setup
+from skyjo.experiments import experiment_config, runs, training_budget, training_setup
 from skyjo.experiments import selfplay_training as runner
+from skyjo.experiments import suites as experiments
+from skyjo.learning import buffer, continuation, models, replay_io, targets
+from skyjo.simulation import play
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TypeAlias
 
 import numpy as np
 
 from skyjo.engine import game as sj
+
 from . import symmetry
 from .evaluator import BoundaryEvaluator, Evaluator, NextDealEvaluator, Prediction
 
@@ -38,6 +38,9 @@ class SearchConfig:
             or type(self.after_state_evaluate_all_children) is not bool
         ):
             raise ValueError("chance and symmetry options must be boolean")
+
+
+DEFAULT_SEARCH_CONFIG = SearchConfig()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -337,7 +340,7 @@ class RoundBoundaryNode:
         return self.value
 
 
-MCTSNode: TypeAlias = DecisionStateNode | AfterStateNode | RoundBoundaryNode
+MCTSNode = DecisionStateNode | AfterStateNode | RoundBoundaryNode
 
 
 def find_leaf(root: MCTSNode, update_after_state_child_weights=False):
@@ -371,7 +374,7 @@ def run_mcts(
     evaluator: Evaluator,
     iterations: int,
     *,
-    config: SearchConfig = SearchConfig(),
+    config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     boundary_evaluator: BoundaryEvaluator | None = None,
     rng: np.random.Generator | None = None,
     root_node: DecisionStateNode | None = None,
@@ -434,6 +437,6 @@ def run_mcts(
 
 def visualize_children(node: MCTSNode):
     if isinstance(node, RoundBoundaryNode):
-        raise ValueError("Round boundaries have no children")
+        raise TypeError("Round boundaries have no children")
     for action, child in node.children.items():
         print(action, child.visit_count, child.state_value)

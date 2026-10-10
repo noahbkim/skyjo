@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from skyjo.analytics.reports import symmetry_benchmark_report
-
 import dataclasses
 import gc
 import json
@@ -16,17 +14,16 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from skyjo.learning import boundary_inference
-from skyjo.experiments.contestants import load_model
+from skyjo.analytics.reports import symmetry_benchmark_report
 from skyjo.engine import game
-from skyjo.search import mcts
-from skyjo.learning import observations
-from skyjo.learning import predictor
 from skyjo.experiments import runs
-from skyjo.learning import checkpoint as checkpoint_io
+from skyjo.experiments.contestants import load_model
 from skyjo.experiments.terminal_benchmark import reconstruct
-from skyjo.search.symmetry import ActionGroups
+from skyjo.learning import boundary_inference, observations, predictor
+from skyjo.learning import checkpoint as checkpoint_io
+from skyjo.search import mcts
 from skyjo.search.evaluator import NextDealEvaluator
+from skyjo.search.symmetry import ActionGroups
 
 
 @dataclasses.dataclass(frozen=True)
@@ -204,9 +201,12 @@ def summarize_timings(rows: list[dict]) -> list[dict]:
     for (cohort, phase, evaluator, iterations), modes in sorted(groups.items()):
         if set(modes) != {False, True} or len(modes[False]) != len(modes[True]):
             raise ValueError("Timings require equal numbers of paired pooling modes")
-        result = dict(
-            cohort=cohort, phase=phase, evaluator=evaluator, iterations=iterations
-        )
+        result = {
+            "cohort": cohort,
+            "phase": phase,
+            "evaluator": evaluator,
+            "iterations": iterations,
+        }
         for merge, label in ((False, "off"), (True, "on")):
             values = np.asarray(modes[merge])
             result[label] = {
@@ -240,7 +240,10 @@ def summarize_diagnostics(rows: list[dict]) -> list[dict]:
     summaries = []
     for (cohort, evaluator, iterations, merge), items in sorted(groups.items()):
         count = len(items)
-        total = lambda name: sum(item.get(name, 0) for item in items)
+
+        def total(name, items=items):
+            return sum(item.get(name, 0) for item in items)
+
         summaries.append(
             {
                 "cohort": cohort,
@@ -357,12 +360,12 @@ def run_benchmark(
         checkpoint.resolve(),
         boundary_checkpoint.resolve(),
     )
-    search_settings = dict(
-        c_puct=1.0,
-        fpu_reduction=0.0,
-        dirichlet_epsilon=0.0,
-        after_state_evaluate_all_children=False,
-    )
+    search_settings = {
+        "c_puct": 1.0,
+        "fpu_reduction": 0.0,
+        "dirichlet_epsilon": 0.0,
+        "after_state_evaluate_all_children": False,
+    }
     configuration = {
         "name": "symmetric-mcts-benchmark",
         "seed": settings.seed,

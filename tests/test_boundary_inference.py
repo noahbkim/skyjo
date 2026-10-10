@@ -1,13 +1,13 @@
 import numpy as np
 import pytest
 import torch
+from test_full_game import completed_round
 
 from skyjo.learning.boundary_inference import (
     load_boundary_model,
     predict_completed_rounds,
 )
 from skyjo.learning.boundary_value import BoundaryValueModel
-from test_full_game import completed_round
 
 
 def test_completed_scores_are_charged_once_and_values_return_in_fixed_seats():

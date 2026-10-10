@@ -129,10 +129,9 @@ def test_extensible_events_artifacts_and_rng_neutrality(repository):
 )
 def test_failure_preserves_prior_history_and_propagates(repository, error, status):
     run = create_run(repository)
-    with pytest.raises(type(error)):
-        with run:
-            run.record_event("training", progress={"optimizer_steps": 7})
-            raise error
+    with pytest.raises(type(error)), run:
+        run.record_event("training", progress={"optimizer_steps": 7})
+        raise error
     events = read_events(run.path / "trajectory.jsonl")
     assert [e["kind"] for e in events] == ["started", "training", status]
     manifest = json.loads((run.path / "run.json").read_text())
