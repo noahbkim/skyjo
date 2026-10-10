@@ -78,6 +78,7 @@ class ReplayRatioTrainConfig(config.Config):
     loss_function: losses.LossFunction
     learn_rate: float
     gradient_diagnostic: bool = False
+    replay_ratio_after_fill: float | None = None
     diagnostic_done: bool = dataclasses.field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -85,6 +86,12 @@ class ReplayRatioTrainConfig(config.Config):
             raise ValueError("batch_size must be at least one")
         if self.replay_ratio <= 0:
             raise ValueError("replay_ratio must be positive")
+        if self.replay_ratio_after_fill is not None and (
+            type(self.replay_ratio_after_fill) not in (int, float)
+            or not math.isfinite(self.replay_ratio_after_fill)
+            or self.replay_ratio_after_fill <= 0
+        ):
+            raise ValueError("replay_ratio_after_fill must be finite and positive")
 
 
 @dataclasses.dataclass(frozen=True)

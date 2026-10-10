@@ -386,6 +386,20 @@ def train_self_play(
         auxiliary_objectives=auxiliary_objectives,
     )
     optimizer = train.make_optimizer(model, training_config.learn_rate)
+    replay_ratio_before_fill = training_config.replay_ratio
+    # Retain an activated schedule only when its settings and capacity match.
+    if parent is not None and training_config.replay_ratio_after_fill is not None:
+        previous = parent.payload["configuration"]
+        previous_training = previous["training"]
+        if (
+            previous.get("replay", {}).get("capacity")
+            == training_data_buffer_config.max_size
+            and previous_training.get("replay_ratio_before_fill")
+            == replay_ratio_before_fill
+            and previous_training.get("replay_ratio_after_fill")
+            == training_config.replay_ratio_after_fill
+        ):
+            training_config.replay_ratio = previous_training["replay_ratio"]
     run_configuration = {
         "seed": run_seed,
         "optimizer": {"type": "adam"},
@@ -407,9 +421,12 @@ def train_self_play(
         "training": {
             "batch_size": training_config.batch_size,
             "replay_ratio": training_config.replay_ratio,
+            "replay_ratio_before_fill": replay_ratio_before_fill,
+            "replay_ratio_after_fill": training_config.replay_ratio_after_fill,
             "learn_rate": training_config.learn_rate,
             "loss_function": training_config.loss_function,
         },
+        "replay": {"capacity": training_data_buffer_config.max_size},
     }
     if parent is not None:
         if initial_training_dataset_path is None:
@@ -578,6 +595,45 @@ def train_self_play(
                 batch_size=training_config.batch_size,
             )
 
+            after_fill = training_config.replay_ratio_after_fill
+            evicted_positions = (
+                prepared.replay_before[1]
+                + prepared.positions
+                - len(training_data_buffer)
+            )
+            if (
+                after_fill is not None
+                and training_config.replay_ratio != after_fill
+                and (
+                    evicted_positions > 0
+                    or len(training_data_buffer) == training_data_buffer.max_size
+                )
+            ):
+                before_fill = training_config.replay_ratio
+                # The filling iteration used the old ratio; save the next one.
+                training_config.replay_ratio = after_fill
+                run_configuration["training"]["replay_ratio"] = after_fill
+                recording.event(
+                    "replay_ratio_changed",
+                    state,
+                    metrics={
+                        "training/previous_replay_ratio": before_fill,
+                        "training/replay_ratio": after_fill,
+                        "replay/positions": len(training_data_buffer),
+                        "replay/evicted_positions": evicted_positions,
+                    },
+                    context={
+                        "reason": "replay_filled",
+                        "applies_from_iteration": iteration + 1,
+                    },
+                )
+                logging.info(
+                    "[TRAIN] Replay filled; replay ratio %.2f -> %.2f from iteration %s",
+                    before_fill,
+                    after_fill,
+                    iteration + 1,
+                )
+
             concepts = None
             started = time.perf_counter()
             is_final = budget.stop_reason(iteration - initial_iteration) is not None
@@ -734,6 +790,7 @@ def launch(
             training_config = train.ReplayRatioTrainConfig(
                 batch_size=training_settings["batch_size"],
                 replay_ratio=training_settings["replay_ratio"],
+                replay_ratio_after_fill=training_settings["replay_ratio_after_fill"],
                 learn_rate=training_settings["learn_rate"],
                 loss_function=loss,
                 gradient_diagnostic=training_settings["gradient_diagnostic"],

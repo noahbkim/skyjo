@@ -224,6 +224,77 @@ def test_continuations_restore_exact_state_and_reproduce_updates(
     )
 
 
+def test_replay_ratio_switches_after_fill_and_survives_continuation(
+    tmp_path, monkeypatch
+):
+    sample = play.play_game([NaiveQuickFinishPlayer(), NaiveQuickFinishPlayer()])
+    positions = len(play.game_result_to_game_data(sample)[0])
+    monkeypatch.setattr(runner.mp, "Pool", lambda **kwargs: nullcontext(None))
+    monkeypatch.setattr(
+        runner,
+        "generate_iteration",
+        lambda pool, **kwargs: [
+            runner.GeneratedGame(kwargs["first_game_index"], 3, sample)
+        ],
+    )
+    config = smoke_config()
+    config["validation"]["concept_interval"] = 0
+    config["training"].update(
+        batch_size=positions, replay_ratio=1.0, replay_ratio_after_fill=2.0
+    )
+    config["replay"]["capacity"] = 2 * positions + 1
+    config["budget"]["iterations"] = 3
+    parent = launch(tmp_path, config)
+    trace = records(parent, "trajectory.jsonl")
+    assert [
+        e["metrics"]["training/optimizer_steps"]
+        for e in trace if e["kind"] == "training"
+    ] == [1, 1, 1]
+    changes = [e for e in trace if e["kind"] == "replay_ratio_changed"]
+    assert len(changes) == 1
+    assert changes[0]["context"]["applies_from_iteration"] == 4
+
+    child = copy.deepcopy(config)
+    child["budget"]["iterations"] = 1
+    child["initial_checkpoint"] = str(final_checkpoint(parent)[0])
+    child["replay"]["initial_dataset"] = str(parent / "data/replay")
+    continued = launch(tmp_path, child)
+    assert next(
+        e["metrics"]["training/optimizer_steps"]
+        for e in records(continued, "trajectory.jsonl") if e["kind"] == "training"
+    ) == 2
+
+    # An uninterrupted run and a restored run must perform the same updates.
+    config["budget"]["iterations"] = 4
+    uninterrupted = launch(tmp_path, config)
+    torch.testing.assert_close(
+        final_checkpoint(continued)[1]["model_state_dict"],
+        final_checkpoint(uninterrupted)[1]["model_state_dict"],
+        rtol=0, atol=0,
+    )
+    torch.testing.assert_close(
+        final_checkpoint(continued)[1]["optimizer_state_dict"],
+        final_checkpoint(uninterrupted)[1]["optimizer_state_dict"],
+        rtol=0, atol=0,
+    )
+
+    # Enlarging replay again starts a new filling phase, not inherited ratio2.
+    child["replay"]["capacity"] = 4 * positions + 1
+    expanded = launch(tmp_path, child)
+    assert next(
+        e["metrics"]["training/optimizer_steps"]
+        for e in records(expanded, "trajectory.jsonl") if e["kind"] == "training"
+    ) == 1
+
+
+@pytest.mark.parametrize("ratio", [0, "8", True])
+def test_invalid_replay_ratio_after_fill_fails_during_resolution(tmp_path, ratio):
+    with pytest.raises(ValueError, match="replay_ratio_after_fill"):
+        experiment_config.resolve_configuration(
+            {"training": {"replay_ratio_after_fill": ratio}}, base_directory=tmp_path
+        )
+
+
 def test_legacy_seed_provenance_validation_and_optimizer_override(parent_run, tmp_path):
     config = experiment_config.resolve_configuration(
         child_config(parent_run), base_directory=tmp_path

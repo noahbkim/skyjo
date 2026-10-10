@@ -175,6 +175,13 @@ roughly 14 hours for this budget, but changing game lengths affect runtime.
 Evaluate saved checkpoints against fixed opponents with balanced seats to measure
 playing strength; that evaluation is separate from this training recipe.
 
+For an expanded buffer, optional `training.replay_ratio_after_fill` changes the
+ratio after the first iteration that fills replay or evicts an old game. That
+iteration still uses `training.replay_ratio`; the following iteration uses the
+new ratio. The switch is recorded in `trajectory.jsonl`, and checkpoints preserve
+the active ratio. Continuing with the same capacity and schedule retains it;
+changing capacity or the schedule starts from the requested base ratio.
+
 By default, launching requires a Git commit and no staged edits, tracked edits,
 or non-ignored untracked files. During development, explicitly permit dirty code:
 

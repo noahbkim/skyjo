@@ -31,6 +31,7 @@ DEFAULTS = {
     "training": {
         "batch_size": 256,
         "replay_ratio": 4.0,
+        "replay_ratio_after_fill": None,
         "learn_rate": 0.001,
         "value_scale": 1.0,
         "policy_scale": 1.0,
@@ -186,6 +187,13 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
     if config["auxiliary_targets"]["samples"] < 1:
         raise ValueError("auxiliary_targets.samples must be positive")
     training, replay = (config[key] for key in ("training", "replay"))
+    after_fill = training["replay_ratio_after_fill"]
+    if after_fill is not None and (
+        type(after_fill) not in (int, float)
+        or not math.isfinite(after_fill)
+        or after_fill <= 0
+    ):
+        raise ValueError("training.replay_ratio_after_fill must be finite and positive")
     for section, keys in {
         "training": (
             "batch_size",
