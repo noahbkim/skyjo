@@ -53,6 +53,21 @@ class RandomPlayer(AbstractPlayer):
         )
 
 
+class PolicyPlayer(AbstractPlayer):
+    """Choose the network's highest-probability legal action without search."""
+
+    def __init__(self, inference: predictor.LocalPredictor):
+        self.inference = inference
+
+    def get_action_probabilities(
+        self, game_state: sj.Skyjo
+    ) -> np.ndarray[tuple[int], np.float32]:
+        prediction = self.inference.predict(game_state)
+        legal_actions = np.flatnonzero(sj.actions(game_state))
+        action = legal_actions[prediction.policy_output[legal_actions].argmax()]
+        return self._action_to_action_probabilities(int(action), game_state)
+
+
 @dataclasses.dataclass(slots=True)
 class ModelPlayerConfig(config.Config):
     action_softmax_temperature: float

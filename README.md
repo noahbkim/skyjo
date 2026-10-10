@@ -504,12 +504,54 @@ use `--iterations 32` for both players. Either per-player override falls back to
 The library accepts the same overrides in `EvaluationConfig`; existing shared
 budgets keep their behavior.
 
+Compare the same checkpoint's greedy policy against MCTS32 over 64 games:
+
+```bash
+uv run python run_checkpoint_comparison.py \
+  --control /path/to/checkpoint.pth --control-policy-only \
+  --iterations 32 --seed-count 32 --seed 9300 \
+  --workers 8 --threads 1 --runs-dir .runs
+```
+
+`--control-policy-only` and `--variant-policy-only` independently select the
+network's highest-scored legal action without search. These flags preserve the
+same checkpoint weights; boundary evaluator settings are invalid for a
+policy-only player. Reports identify each side in `play_mode_by_player` and set
+its `search_by_player` entry to null when search is disabled.
+
+Compare the full sampled boundary evaluator with the original evaluator using
+the same frozen gameplay checkpoint:
+
+```bash
+uv run python run_checkpoint_comparison.py \
+  --control /path/to/checkpoint.pth --iterations 32 \
+  --variant-boundary-samples 10 \
+  --variant-boundary-value-checkpoint /path/to/boundary_value.pth \
+  --seed-count 16 --seed 0 --threads 1 --runs-dir .runs
+```
+
+Both players default to one sampled ending and the original next-deal evaluator.
+Each side has independent `--control-boundary-samples` /
+`--variant-boundary-samples` and `--control-boundary-value-checkpoint` /
+`--variant-boundary-value-checkpoint` options. More than one sample requires that
+side's score evaluator. Supplying an evaluator with one sample supports isolating
+the effect of sample count in a separate comparison. Reports include the frozen
+boundary evaluator paths and hashes. Equal MCTS iterations do not imply equal
+evaluation time.
+
 Each seed plays both seats, so 16 seeds produce 32 full games. Evaluation uses
 CPU inference, temperature zero, no Dirichlet noise, and outcome-only search.
 Seeds are common starting seeds, not guaranteed identical card sequences after
 search and actions diverge. `search_by_player` records the actual settings for
 each participant; the older `search` field retains the shared defaults.
-The CLI prints progress after every game and creates a recorded run containing
+Add `--workers 8 --threads 1` to run eight worker processes, each using one
+PyTorch CPU thread. `--seed-count` is the total number of seed pairs across all
+workers, so `--seed-count 128 --workers 8` still plays 256 full games. Worker count
+does not change the evaluation seeds or search settings. Each worker loads its
+models once; the parent records progress and writes one combined report, with
+games ordered by seed and seat. Progress can arrive out of seed order.
+
+The CLI prints progress for returned games and creates a recorded run containing
 checkpoint paths/hashes, per-game scores and win credit in `trajectory.jsonl`,
 and the final `comparison.json`. Completed game records survive interruption.
 Positive control-minus-variant score margins favor the variant; ties split win

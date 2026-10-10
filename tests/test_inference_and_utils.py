@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
 
 from skyjo import game as sj
-from skyjo import observations, predictor, skynet
+from skyjo import mcts, observations, player, predictor, skynet
 
 
 class InferenceCheckingSkyNet(skynet.EquivariantSkyNet):
@@ -88,3 +90,33 @@ def test_local_inference_preserves_all_predictions_across_chunks(auxiliary):
 def test_local_inference_rejects_invalid_batch_limit(limit):
     with pytest.raises(ValueError, match="positive integer"):
         predictor.LocalPredictor(make_model(), max_batch_size=limit)
+
+
+@pytest.mark.parametrize("legal_scores,expected", [([2.0, 5.0], 1), ([5.0, 5.0], 0)])
+def test_policy_player_chooses_legal_argmax_without_search(monkeypatch, legal_scores, expected):
+    state = sj.new(players=2, top=sj.CARD_0)
+    # Every illegal action outranks the two legal initial-reveal actions.
+    scores = np.full(sj.MASK_SIZE, 100.0, dtype=np.float32)
+    scores[:2] = legal_scores
+    prediction = skynet.SkyNetPrediction(
+        value_output=np.array([0.5, 0.5]),
+        policy_output=np.exp(scores - scores.max()),
+        policy_logits=scores,
+    )
+    calls = []
+
+    def predict(observed):
+        assert observed is state
+        calls.append(observed)
+        return prediction
+
+    def forbidden_search(*args, **kwargs):
+        pytest.fail("Policy-only play must not call MCTS")
+
+    monkeypatch.setattr(mcts, "run_mcts", forbidden_search)
+    agent = player.PolicyPlayer(SimpleNamespace(predict=predict))
+    actual = agent.get_action_probabilities(state)
+    target = np.zeros(sj.MASK_SIZE)
+    target[expected] = 1
+    np.testing.assert_array_equal(actual, target)
+    assert len(calls) == 1

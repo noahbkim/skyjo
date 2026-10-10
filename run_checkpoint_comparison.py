@@ -1,5 +1,5 @@
 """Status: manual
-Purpose: Compare frozen checkpoints or search budgets in seat-balanced full games.
+Purpose: Compare frozen checkpoints or search settings in seat-balanced full games.
 Promote when: Additional evaluation logic belongs in skyjo.evaluation.
 """
 
@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 from typing import Annotated
 
-import torch
 import typer
 
 from skyjo import evaluation, runs
@@ -32,13 +31,38 @@ def compare(
     variant_iterations: Annotated[
         int | None, typer.Option("--variant-iterations", min=1)
     ] = None,
+    control_boundary_samples: Annotated[
+        int, typer.Option("--control-boundary-samples", min=1)
+    ] = 1,
+    variant_boundary_samples: Annotated[
+        int, typer.Option("--variant-boundary-samples", min=1)
+    ] = 1,
+    control_boundary_value_checkpoint: Annotated[
+        Path | None,
+        typer.Option("--control-boundary-value-checkpoint", exists=True, dir_okay=False),
+    ] = None,
+    variant_boundary_value_checkpoint: Annotated[
+        Path | None,
+        typer.Option("--variant-boundary-value-checkpoint", exists=True, dir_okay=False),
+    ] = None,
     seed_count: Annotated[
         int, typer.Option("--seed-count", min=1, help="Each seed plays both seats.")
     ] = 16,
     seed: Annotated[int, typer.Option("--seed", min=0, max=2**32 - 1)] = 0,
-    threads: Annotated[int, typer.Option("--threads", min=1)] = 1,
+    threads: Annotated[
+        int, typer.Option("--threads", min=1, help="PyTorch CPU threads per worker.")
+    ] = 1,
     runs_dir: Annotated[Path, typer.Option("--runs-dir")] = Path(".runs"),
     allow_dirty: Annotated[bool, typer.Option("--allow-dirty")] = False,
+    workers: Annotated[
+        int, typer.Option("--workers", min=1, help="Parallel game worker processes.")
+    ] = 1,
+    control_policy_only: Annotated[
+        bool, typer.Option("--control-policy-only", help="Control plays its highest-scored legal policy action without search.")
+    ] = False,
+    variant_policy_only: Annotated[
+        bool, typer.Option("--variant-policy-only", help="Variant plays its highest-scored legal policy action without search.")
+    ] = False,
 ) -> Path:
     """Evaluate without training; positive score margins favor the variant."""
     control = control.resolve()
@@ -48,12 +72,26 @@ def compare(
             raise FileNotFoundError(path)
     if type(threads) is not int or threads < 1:
         raise ValueError("threads must be a positive integer")
+    if type(workers) is not int or workers < 1:
+        raise ValueError("workers must be a positive integer")
     settings = evaluation.EvaluationConfig(
         seed_count=seed_count,
         seed=seed,
         iterations=iterations,
         control_iterations=control_iterations,
         variant_iterations=variant_iterations,
+        control_boundary_samples=control_boundary_samples,
+        variant_boundary_samples=variant_boundary_samples,
+        control_boundary_value_checkpoint=(
+            str(control_boundary_value_checkpoint.resolve())
+            if control_boundary_value_checkpoint is not None else None
+        ),
+        variant_boundary_value_checkpoint=(
+            str(variant_boundary_value_checkpoint.resolve())
+            if variant_boundary_value_checkpoint is not None else None
+        ),
+        control_policy_only=control_policy_only,
+        variant_policy_only=variant_policy_only,
     )
     configuration = {
         "name": "checkpoint-comparison",
@@ -61,7 +99,7 @@ def compare(
         "variant": str(variant),
         "seed": seed,
         "evaluation": dataclasses.asdict(settings),
-        "execution": {"device": "cpu", "threads": threads},
+        "execution": {"device": "cpu", "threads": threads, "workers": workers},
     }
     recorder = runs.RunRecorder.create(
         root=runs_dir,
@@ -81,15 +119,28 @@ def compare(
             str(control_iterations or iterations),
             "--variant-iterations",
             str(variant_iterations or iterations),
+            "--control-boundary-samples",
+            str(control_boundary_samples),
+            "--variant-boundary-samples",
+            str(variant_boundary_samples),
             "--seed-count",
             str(seed_count),
             "--seed",
             str(seed),
             "--threads",
             str(threads),
+            "--workers",
+            str(workers),
             "--runs-dir",
             str(runs_dir.resolve()),
+        ] + [
+            argument
+            for name in ("control", "variant")
+            if (path := getattr(settings, f"{name}_boundary_value_checkpoint")) is not None
+            for argument in (f"--{name}-boundary-value-checkpoint", path)
         ]
+        + (["--control-policy-only"] if control_policy_only else [])
+        + (["--variant-policy-only"] if variant_policy_only else [])
         + (["--allow-dirty"] if allow_dirty else []),
         allow_dirty=allow_dirty,
     )
@@ -113,14 +164,10 @@ def compare(
         )
 
     with recorder:
-        previous_threads = torch.get_num_threads()
-        try:
-            torch.set_num_threads(threads)
-            report = evaluation.evaluate_checkpoints(
-                control, variant, settings, on_game=record_game
-            )
-        finally:
-            torch.set_num_threads(previous_threads)
+        report = evaluation.evaluate_checkpoints(
+            control, variant, settings, on_game=record_game,
+            workers=workers, threads=threads,
+        )
         path = recorder.path / "comparison.json"
         path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
         recorder.register_artifact(
