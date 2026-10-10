@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 
-from skyjo import batches, models, observations, skynet
-from skyjo import game as sj
+from skyjo.engine import game as sj
+from skyjo.learning import batches, models, observations, skynet
 
 
 def make_model(players: int = 2) -> skynet.EquivariantSkyNet:
@@ -190,19 +189,6 @@ def test_default_model_stays_within_small_parameter_budget() -> None:
     model = models.build({}, players=2, device="cpu")
 
     assert sum(parameter.numel() for parameter in model.parameters()) < 10_000
-
-
-def test_predict_returns_probabilities_only_for_valid_actions() -> None:
-    model = make_model()
-    game_state = sj.new(players=2, top=sj.CARD_0)
-
-    prediction = model.predict(game_state)
-    valid_actions = sj.actions(game_state).astype(bool)
-
-    assert prediction.value_output.shape == (2,)
-    assert prediction.policy_output.shape == (sj.MASK_SIZE,)
-    assert prediction.policy_output.sum() == pytest.approx(1.0)
-    assert np.all(prediction.policy_output[~valid_actions] == 0)
 
 
 @pytest.mark.parametrize(

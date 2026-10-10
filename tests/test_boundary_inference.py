@@ -1,10 +1,13 @@
 import numpy as np
 import pytest
 import torch
-
-from skyjo.boundary_inference import load_boundary_model, predict_completed_rounds
-from skyjo.boundary_value import BoundaryValueModel
 from test_full_game import completed_round
+
+from skyjo.learning.boundary_inference import (
+    load_boundary_model,
+    predict_completed_rounds,
+)
+from skyjo.learning.boundary_value import BoundaryValueModel
 
 
 def test_completed_scores_are_charged_once_and_values_return_in_fixed_seats():
@@ -35,7 +38,9 @@ def test_mixed_terminal_and_continuing_outcomes_keep_exact_tie_mass():
     )
     actual = predict_completed_rounds(model, [continuing, terminal])
     np.testing.assert_allclose(actual, [[0.3, 0.6, 0.1], [0.5, 0.5, 0]], atol=1e-7)
-    np.testing.assert_array_equal(predict_completed_rounds(None, [terminal]), [[0.5, 0.5, 0]])
+    np.testing.assert_array_equal(
+        predict_completed_rounds(None, [terminal]), [[0.5, 0.5, 0]]
+    )
     with pytest.raises(ValueError, match="matching boundary model"):
         predict_completed_rounds(None, [continuing])
 
@@ -44,8 +49,11 @@ def test_checkpoint_load_is_frozen_cached_and_preserves_rng(tmp_path):
     model = BoundaryValueModel("mlp", 2)
     path = tmp_path / "value.pth"
     payload = {
-        "format": "skyjo.boundary-value", "version": 1,
-        "kind": "mlp", "players": 2, "hidden_width": 32,
+        "format": "skyjo.boundary-value",
+        "version": 1,
+        "kind": "mlp",
+        "players": 2,
+        "hidden_width": 32,
         "score_scale": 100.0,
         "input_order": "next starter first, then cyclic seat order",
         "model_state_dict": model.state_dict(),

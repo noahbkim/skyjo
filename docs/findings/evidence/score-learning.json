@@ -1,0 +1,267 @@
+{
+  "topic": "score-learning",
+  "verified_at": "2026-10-10",
+  "provenance_note": "Selected fields copied from structured local reports. Keys are source JSON pointers. Historical paths are relative to the original run root, not required checkout files. Null git means the diagnostic report did not record its execution revision; checkpoint/run provenance is retained where available. Dirty revisions do not fully identify the executed code.",
+  "sources": [
+    {
+      "path": ".runs/research-notes/evidence/representation-report.json",
+      "sha256": "165515cce9d0e6fc01c6d91ba19733339b75c0d2962fa7b86125702e96dda667",
+      "git": null,
+      "selected": {
+        "/checkpoint": {
+          "artifact_id": "d7d107ab317c4a0f9bdaef056b96646a",
+          "artifact_kind": "checkpoint",
+          "kind": "registered",
+          "metadata": {
+            "role": "periodic"
+          },
+          "path": "checkpoints/checkpoint_20261003_023445_446009.pth",
+          "progress": {
+            "epoch": 0,
+            "generated_games": 10496,
+            "generated_positions": 2990378,
+            "iteration": 41,
+            "optimizer_steps": 46746,
+            "sampled_positions": 11966976,
+            "trained_positions": 11966976
+          },
+          "run_id": "20261002T205756Z-baseline-round-score-doubling-520eb7ede1",
+          "sequence": 433,
+          "sha256": "f8d96c043553c05749cfdb239c576065e6c975d2d98f6ee2e8094c8ac0008854",
+          "timestamp": "2026-10-03T02:34:45.450374+00:00"
+        },
+        "/dataset_id": "8f339075bca144d28efdd0faae59ff0c",
+        "/known_player_examples": 5842,
+        "/known_player_fraction": 0.005572895998046339,
+        "/known_target_max_visible_discrepancy_points": 3.8146972620722863e-06,
+        "/known_trained_head": {
+          "mae_points": 8.827705383300781,
+          "rmse_points": 11.043136596679688
+        },
+        "/stage_probes/card_sum/known_final/test": {
+          "mae_points": 0.000594286204405498,
+          "rmse_points": 0.0007451695104450648
+        },
+        "/stage_probes/global/known_final/test": {
+          "mae_points": 7.3388279355548836,
+          "rmse_points": 9.151096206376453
+        }
+      }
+    },
+    {
+      "path": ".runs/research-notes/evidence/capacity-fit.json",
+      "sha256": "8f84e04fa32cf2b0557a773bce1aad0f2f98854d778e424362e9ac084faaf5cd",
+      "git": null,
+      "selected": {
+        "/protocol": "Original architecture; only known opponent final score MSE, no other losses, no weight decay. 1200 Adam steps, batch 128, lr .001. Best of 12 validation checkpoints. Disposable copies, no live-run changes.",
+        "/sample_counts": {
+          "train": 3478,
+          "validation": 1190,
+          "test": 1174
+        },
+        "/fits/trained_encoder/test": {
+          "mae_points": 0.44975414872169495,
+          "rmse_points": 0.5962770581245422
+        },
+        "/fits/initial_encoder/test": {
+          "mae_points": 0.9804484248161316,
+          "rmse_points": 1.253848910331726
+        }
+      }
+    },
+    {
+      "path": ".runs/research-notes/evidence/weight-2k-comparison.json",
+      "sha256": "8afe70e491bb085c18123adfd47dabb5bb8b7587efc1d49b08ac7aabcd134a28",
+      "git": null,
+      "selected": {
+        "/averages/00-round_score_doubling/optimizer_steps": 2000.0,
+        "/averages/00-round_score_doubling/validation/round_raw_score_known_mae_points": {
+          "mean": 8.126659428300304,
+          "seed_count": 3
+        },
+        "/averages/00-round_score_doubling/validation/round_raw_score_mae_points": {
+          "mean": 11.550944086239975,
+          "seed_count": 3
+        },
+        "/averages/00-round_score_doubling/validation/outcome_value_loss": {
+          "mean": 0.221692899634877,
+          "seed_count": 3
+        },
+        "/averages/01-round_score_weight_1/optimizer_steps": 2000.0,
+        "/averages/01-round_score_weight_1/validation/round_raw_score_known_mae_points": {
+          "mean": 6.254137334156361,
+          "seed_count": 3
+        },
+        "/averages/01-round_score_weight_1/validation/round_raw_score_mae_points": {
+          "mean": 11.153054505856312,
+          "seed_count": 3
+        },
+        "/averages/01-round_score_weight_1/validation/outcome_value_loss": {
+          "mean": 0.22114033776657657,
+          "seed_count": 3
+        },
+        "/runs/0/configuration/offline/seeds": [
+          0,
+          1,
+          2
+        ],
+        "/runs/0/configuration/offline/validation_fraction": 0.1,
+        "/runs/0/configuration/offline/source_dataset_id": "34ae43fc6b514d70aa1f18393f3c2d41",
+        "/runs/0/configuration/experiment/suite_run_id": "20261003T034526Z-offline-comparison-6bd978c8ef",
+        "/runs/0/configuration/model": {
+          "name": "hierarchical_equivariant_v2",
+          "embedding_dimensions": 16,
+          "global_state_embedding_dimensions": 32,
+          "num_heads": 2
+        }
+      }
+    },
+    {
+      "path": ".runs/research-notes/evidence/weight-10k-comparison.json",
+      "sha256": "87d3e3fc30b884c35e17f2fcd538f92d7ef1990af6a6a73afbc49158293de3eb",
+      "git": null,
+      "selected": {
+        "/averages/00-round_score_doubling/optimizer_steps": 10000.0,
+        "/averages/00-round_score_doubling/validation/round_raw_score_known_mae_points": {
+          "mean": 8.460467627024082,
+          "seed_count": 3
+        },
+        "/averages/00-round_score_doubling/validation/round_raw_score_mae_points": {
+          "mean": 11.486888251113813,
+          "seed_count": 3
+        },
+        "/averages/00-round_score_doubling/validation/outcome_value_loss": {
+          "mean": 0.23199807074934195,
+          "seed_count": 3
+        },
+        "/averages/01-round_score_weight_1/optimizer_steps": 10000.0,
+        "/averages/01-round_score_weight_1/validation/round_raw_score_known_mae_points": {
+          "mean": 6.315948688332945,
+          "seed_count": 3
+        },
+        "/averages/01-round_score_weight_1/validation/round_raw_score_mae_points": {
+          "mean": 11.315351110869813,
+          "seed_count": 3
+        },
+        "/averages/01-round_score_weight_1/validation/outcome_value_loss": {
+          "mean": 0.2345430868895737,
+          "seed_count": 3
+        },
+        "/runs/0/configuration/offline/seeds": [
+          0,
+          1,
+          2
+        ],
+        "/runs/0/configuration/offline/validation_fraction": 0.1,
+        "/runs/0/configuration/offline/source_dataset_id": "34ae43fc6b514d70aa1f18393f3c2d41",
+        "/runs/0/configuration/experiment/suite_run_id": "20261003T041149Z-offline-comparison-edec110086",
+        "/runs/0/configuration/model": {
+          "name": "hierarchical_equivariant_v2",
+          "embedding_dimensions": 16,
+          "global_state_embedding_dimensions": 32,
+          "num_heads": 2
+        }
+      }
+    },
+    {
+      "path": ".runs/research-notes/evidence/width-comparison.json",
+      "sha256": "3e6862d70bd1d7fb64d4cfefbfda0067d71a8f35c5f569d21758d80c70b62082",
+      "git": null,
+      "selected": {
+        "/paired_differences": [
+          {
+            "variant": "01-capacity_medium",
+            "seed": 0,
+            "control_run_id": "20261003T033018Z-offline-00-round_score_doubling-seed-0-465ba7d691",
+            "variant_run_id": "20261003T033224Z-offline-01-capacity_medium-seed-0-05dc7a2cd3",
+            "variant_minus_control": {
+              "outcome_value_loss": 0.0027656200844883017,
+              "policy_kl": -0.001057268902889999,
+              "policy_loss": -0.0010572689028900406,
+              "round_doubled_loss": -5.9664746767662535e-06,
+              "round_raw_score_known_mae_points": 0.301659977476751,
+              "round_raw_score_loss": -0.00016856419809684227,
+              "round_raw_score_mae_points": -0.10386789777413696
+            }
+          },
+          {
+            "variant": "01-capacity_medium",
+            "seed": 1,
+            "control_run_id": "20261003T033631Z-offline-00-round_score_doubling-seed-1-0445d12b81",
+            "variant_run_id": "20261003T033840Z-offline-01-capacity_medium-seed-1-02fc4ba6ba",
+            "variant_minus_control": {
+              "outcome_value_loss": 0.006869148210104925,
+              "policy_kl": -0.0010008361022293966,
+              "policy_loss": -0.001000836102229341,
+              "round_doubled_loss": -0.0011515792189414897,
+              "round_raw_score_known_mae_points": -0.3697365102304122,
+              "round_raw_score_loss": 0.00029892837260965185,
+              "round_raw_score_mae_points": 0.08634959848636825
+            }
+          }
+        ],
+        "/runs/0/configuration/experiment/suite_run_id": "20261003T033017Z-offline-comparison-6a915152fa",
+        "/runs/0/optimizer_steps": 2000
+      }
+    },
+    {
+      "path": ".runs/diagnostics/score-learning-long-run/paired.json",
+      "sha256": "90e304a36737205978c56dc7a5b596d0ea8f8717eec083eccf1a78a89ee5232e",
+      "git": null,
+      "selected": {
+        "/known:long_40_minus_original_41": {
+          "mae_difference": -2.8158648014068604,
+          "paired_game_bootstrap_95_interval": [
+            -3.00662018710946,
+            -2.6368207837245885
+          ],
+          "game_count": 2112
+        },
+        "/known:long_40_minus_long_10": {
+          "mae_difference": 0.11479748040437698,
+          "paired_game_bootstrap_95_interval": [
+            -0.014102722241036751,
+            0.24961242439501607
+          ],
+          "game_count": 2112
+        }
+      }
+    },
+    {
+      "path": ".runs/20261002T205756Z-baseline-round-score-doubling-520eb7ede1/run.json",
+      "sha256": "674ffb2f07a3bde98b25fc506fcb8cd59c15d38b5538090cc5a0a8e71241a5f7",
+      "run_id": "20261002T205756Z-baseline-round-score-doubling-520eb7ede1",
+      "git": {
+        "allow_dirty": true,
+        "commit": "2d80136324a37dafa7cdc81dbf81845305352a84",
+        "dirty": true
+      },
+      "selected": {
+        "/run_id": "20261002T205756Z-baseline-round-score-doubling-520eb7ede1",
+        "/git": {
+          "allow_dirty": true,
+          "commit": "2d80136324a37dafa7cdc81dbf81845305352a84",
+          "dirty": true
+        }
+      }
+    },
+    {
+      "path": ".runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/run.json",
+      "sha256": "81d461dfb565054b87c1c28a8afe816c11f0eb19de110a699557b5fa84d44369",
+      "run_id": "20261003T045231Z-long-selfplay-1024-fdc1843ade",
+      "git": {
+        "allow_dirty": true,
+        "commit": "9054ac565d609001dd5fd76cf1eb21e7276a7276",
+        "dirty": true
+      },
+      "selected": {
+        "/run_id": "20261003T045231Z-long-selfplay-1024-fdc1843ade",
+        "/git": {
+          "allow_dirty": true,
+          "commit": "9054ac565d609001dd5fd76cf1eb21e7276a7276",
+          "dirty": true
+        }
+      }
+    }
+  ]
+}

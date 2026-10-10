@@ -5,7 +5,7 @@ import typing
 
 import typer
 
-from skyjo import selfplay_training
+from skyjo.experiments import selfplay_training
 
 
 def launch(
@@ -15,13 +15,13 @@ def launch(
     ),
     allow_dirty: typing.Annotated[bool, typer.Option("--allow-dirty")] = False,
 ) -> None:
-    path = selfplay_training.launch(
+    result = selfplay_training.launch(
         config,
         runs_dir,
         repository=pathlib.Path(__file__).resolve().parent,
         allow_dirty=allow_dirty,
     )
-    typer.echo(f"Run directory: {path}")
+    typer.echo(f"Run directory: {result.path}")
 
 
 if __name__ == "__main__":

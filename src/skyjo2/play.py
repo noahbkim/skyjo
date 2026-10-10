@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
-from typing import Iterator, NamedTuple, Protocol
+from collections.abc import Iterator, Sequence
+from typing import NamedTuple, Protocol
 
 from . import HAND_ROWS, Game, State
 

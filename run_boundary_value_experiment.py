@@ -19,7 +19,7 @@ def experiment(
     allow_dirty: Annotated[bool, typer.Option("--allow-dirty")] = False,
 ) -> Path:
     """Fit logistic and neural boundary values; leave gameplay unchanged."""
-    from skyjo.boundary_experiment import launch_experiment
+    from skyjo.experiments.boundary_experiment import launch_experiment
 
     result = launch_experiment(source_run, config, runs_dir, allow_dirty=allow_dirty)
     typer.echo(f"Boundary experiment: {result}")

@@ -21,7 +21,7 @@ def benchmark(
     allow_dirty: Annotated[bool, typer.Option("--allow-dirty")] = False,
 ) -> Path:
     """Run a bounded public-state audit without changing models or gameplay."""
-    from skyjo.terminal_benchmark import Settings, run_benchmark
+    from skyjo.experiments.terminal_benchmark import Settings, run_benchmark
 
     result = run_benchmark(
         source_run,

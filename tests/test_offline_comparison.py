@@ -7,19 +7,11 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo import (
-    buffer,
-    checkpoint,
-    evaluation,
-    experiment_config,
-    game,
-    models,
-    observations,
-    offline,
-    offline_comparison,
-    play,
-    skynet,
-)
+from skyjo.engine import game
+from skyjo.experiments import experiment_config, offline_comparison
+from skyjo.experiments.contestants import load_model
+from skyjo.learning import batches, buffer, checkpoint, observations, replay_io
+from skyjo.learning.learner import Learner
 
 
 def dataset_at(path):
@@ -44,13 +36,15 @@ def dataset_at(path):
             "round_raw_score": np.array([0.3, index / 12], dtype=np.float32),
             "round_doubled": np.array([0, 1], dtype=np.float32),
         }
-        replay.add_game_data(
-            [play.GameDataPoint(state, None, labels)] * 2,
-            game_index=100 + index,
-            play_seed=index,
-            target_seed=index + 10,
+        encoded = batches.states_to_batch([state, state])
+        prepared = batches.TrainingBatch(
+            encoded.spatial_inputs,
+            encoded.non_spatial_inputs,
+            encoded.action_masks,
+            {name: np.stack([value, value]) for name, value in labels.items()},
         )
-    replay.save(path)
+        replay.append(prepared, buffer.GameProvenance(100 + index, index, index + 10))
+    replay_io.save(replay, path)
     return replay
 
 
@@ -75,7 +69,7 @@ round_doubled = 0.1
 def test_inheritance_uses_declaring_paths_and_validates(tmp_path):
     parent_dir = tmp_path / "parent"
     parent_dir.mkdir()
-    replay = dataset_at(parent_dir / "replay")
+    dataset_at(parent_dir / "replay")
     base = config_at(parent_dir / "base.toml")
     # Dataset contains a superset of targets; both enabled here match exactly.
     with base.open("a") as stream:
@@ -87,7 +81,7 @@ def test_inheritance_uses_declaring_paths_and_validates(tmp_path):
     _, resolved = experiment_config.load_configuration(child)
     assert resolved["model"]["embedding_dimensions"] == 8
     assert resolved["training"]["batch_size"] == 2
-    assert resolved["replay"]["initial_dataset"] == str(replay.path)
+    assert resolved["replay"]["initial_dataset"] == str(parent_dir / "replay")
     assert resolved["auxiliary_objectives"] == {
         "round_raw_score": 0.1,
         "round_doubled": 0.1,
@@ -119,8 +113,8 @@ def test_evaluation_does_not_change_updates_and_sampler_resumes(tmp_path):
     torch.set_num_threads(1)
     replay = dataset_at(tmp_path / "replay")
     config = experiment_config.load_configuration(config_at(tmp_path / "base.toml"))[1]
-    first = offline.OfflineTrainer.from_configuration(config, 5)
-    second = offline.OfflineTrainer.from_configuration(config, 5)
+    first = Learner.from_configuration(config, 5)
+    second = Learner.from_configuration(config, 5)
     first.fit(replay, steps=3, batch_size=2)
     second.fit(replay, steps=1, batch_size=2)
     second.evaluate(replay, batch_size=2, diagnostics=True)
@@ -133,7 +127,7 @@ def test_evaluation_does_not_change_updates_and_sampler_resumes(tmp_path):
         sampling_rng=second.sampling_rng,
         progress=checkpoint.TrainingProgress(optimizer_steps=1),
     )
-    resumed = offline.OfflineTrainer.from_configuration(config, 99)
+    resumed = Learner.from_configuration(config, 99)
     checkpoint.load_checkpoint(
         path,
         model=resumed.model,
@@ -143,14 +137,14 @@ def test_evaluation_does_not_change_updates_and_sampler_resumes(tmp_path):
     resumed.fit(replay, steps=2, batch_size=2)
     for key, expected in first.model.state_dict().items():
         assert torch.equal(expected, resumed.model.state_dict()[key]), key
-    restored = evaluation.load_model(path)
+    restored = load_model(path)
     assert restored.auxiliary_objectives == config["auxiliary_objectives"]
 
 
 def test_metrics_normalization_and_missing_head(tmp_path):
     replay = dataset_at(tmp_path / "replay")
     config = experiment_config.load_configuration(config_at(tmp_path / "base.toml"))[1]
-    trainer = offline.OfflineTrainer.from_configuration(config, 0)
+    trainer = Learner.from_configuration(config, 0)
     with torch.no_grad():
         trainer.model.auxiliary_heads["round_raw_score"].weight.zero_()
         trainer.model.auxiliary_heads["round_raw_score"].bias.zero_()
@@ -162,23 +156,23 @@ def test_metrics_normalization_and_missing_head(tmp_path):
         0.1 * metrics["round_raw_score_loss"]
     )
     config["auxiliary_objectives"] = {}
-    without = offline.OfflineTrainer.from_configuration(config, 0).evaluate(
+    without = Learner.from_configuration(config, 0).evaluate(
         replay, batch_size=5, diagnostics=True
     )
     assert not any(key.startswith("round_") for key in without)
 
 
 def test_recorded_comparison_inherited_configs_and_different_losses(tmp_path):
-    replay = dataset_at(tmp_path / "replay")
+    dataset_at(tmp_path / "replay")
     base = config_at(tmp_path / "base.toml")
     wider = tmp_path / "wide.toml"
     wider.write_text(
         'extends = "base.toml"\n[model]\nembedding_dimensions = 8\n[training]\nbatch_size = 3\n[auxiliary_objectives]\nround_raw_score = 0.0\n'
     )
-    original_manifest = (replay.path / "manifest.json").read_bytes()
+    original_manifest = ((tmp_path / "replay") / "manifest.json").read_bytes()
     result = offline_comparison.launch_comparison(
         [base, wider],
-        replay.path,
+        (tmp_path / "replay"),
         tmp_path / "runs",
         seeds=(2,),
         steps=2,
@@ -196,7 +190,7 @@ def test_recorded_comparison_inherited_configs_and_different_losses(tmp_path):
     assert not set(split["training_game_indices"]) & set(
         split["validation_game_indices"]
     )
-    assert (replay.path / "manifest.json").read_bytes() == original_manifest
+    assert ((tmp_path / "replay") / "manifest.json").read_bytes() == original_manifest
     assert (result / "data/replay/manifest.json").exists()
     assert (result / "curves.csv").exists()
     assert "total_loss" not in report["paired_differences"][0]["variant_minus_control"]
@@ -206,7 +200,7 @@ def test_recorded_comparison_inherited_configs_and_different_losses(tmp_path):
             json.loads((Path(child["path"]) / "run.json").read_text())["status"]
             == "completed"
         )
-        assert evaluation.load_model(Path(child["checkpoint"]["path"]))
+        assert load_model(Path(child["checkpoint"]["path"]))
         events = [
             json.loads(line)
             for line in (Path(child["path"]) / "trajectory.jsonl")
@@ -217,20 +211,20 @@ def test_recorded_comparison_inherited_configs_and_different_losses(tmp_path):
 
 
 def test_validation_and_failure_preserve_completed_work(tmp_path, monkeypatch):
-    replay = dataset_at(tmp_path / "replay")
+    dataset_at(tmp_path / "replay")
     base = config_at(tmp_path / "base.toml")
     missing = tmp_path / "missing.toml"
     missing.write_text('extends="base.toml"\n[auxiliary_objectives]\nround_score=0.1\n')
     with pytest.raises(ValueError, match="round_score"):
         offline_comparison.launch_comparison(
             [base, missing],
-            replay.path,
+            (tmp_path / "replay"),
             tmp_path / "invalid",
             steps=0,
             allow_dirty=True,
         )
     assert not (tmp_path / "invalid").exists()
-    original = offline.OfflineTrainer.from_configuration.__func__
+    original = Learner.from_configuration.__func__
     calls = 0
 
     def fail_second(cls, configuration, seed):
@@ -240,13 +234,11 @@ def test_validation_and_failure_preserve_completed_work(tmp_path, monkeypatch):
             raise RuntimeError("diagnostic failure")
         return original(cls, configuration, seed)
 
-    monkeypatch.setattr(
-        offline.OfflineTrainer, "from_configuration", classmethod(fail_second)
-    )
+    monkeypatch.setattr(Learner, "from_configuration", classmethod(fail_second))
     with pytest.raises(RuntimeError, match="diagnostic failure"):
         offline_comparison.launch_comparison(
             [base, base],
-            replay.path,
+            (tmp_path / "replay"),
             tmp_path / "runs",
             seeds=(0,),
             steps=0,
@@ -262,55 +254,38 @@ def test_validation_and_failure_preserve_completed_work(tmp_path, monkeypatch):
 
 
 def test_concurrent_snapshot_change_rejected(tmp_path, monkeypatch):
-    replay = dataset_at(tmp_path / "replay")
+    dataset_at(tmp_path / "replay")
     config = config_at(tmp_path / "base.toml")
-    original = buffer.ReplayBuffer.load.__func__
+    original = replay_io.load
 
-    def changed(cls, path, **kwargs):
-        loaded = original(cls, path, **kwargs)
+    def changed(path, **kwargs):
+        loaded = original(path, **kwargs)
         manifest = path / "manifest.json"
         contents = json.loads(manifest.read_text())
         contents["dataset_id"] = "changed"
         manifest.write_text(json.dumps(contents))
         return loaded
 
-    monkeypatch.setattr(buffer.ReplayBuffer, "load", classmethod(changed))
+    monkeypatch.setattr(replay_io, "load", changed)
     with pytest.raises(ValueError, match="changed while loading"):
         offline_comparison.launch_comparison(
-            [config, config], replay.path, tmp_path / "runs", steps=0, allow_dirty=True
+            [config, config],
+            (tmp_path / "replay"),
+            tmp_path / "runs",
+            steps=0,
+            allow_dirty=True,
         )
     assert not (tmp_path / "runs").exists()
 
 
-def test_registered_architecture_uses_shared_model_builder_and_checkpoint(
-    tmp_path, monkeypatch
-):
-    def resolve_custom(settings):
-        if set(settings) != {"width"}:
-            raise ValueError("custom model requires width")
-        return settings
-
-    def custom_model(*, width, **kwargs):
-        return skynet.EquivariantSkyNet(
-            embedding_dimensions=width,
-            global_state_embedding_dimensions=width * 2,
-            num_heads=1,
-            **kwargs,
-        )
-
-    monkeypatch.setitem(
-        models.REGISTRY,
-        "test-custom",
-        models.ModelDefinition(custom_model, resolve_custom),
-    )
-    path = tmp_path / "custom.toml"
-    path.write_text('[model]\nname="test-custom"\nwidth=4\n')
-    configuration = experiment_config.load_configuration(path)[1]
-    trainer = offline.OfflineTrainer.from_configuration(configuration, 0)
-    saved = tmp_path / "custom.pth"
-    checkpoint.save_checkpoint(
-        saved, model=trainer.model, optimizer=None, configuration=configuration
-    )
-    restored = evaluation.load_model(saved)
-    for key, value in trainer.model.state_dict().items():
-        assert torch.equal(value, restored.state_dict()[key])
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"training": {"batch_szie": 4}},
+        {"training": {"learn_rate": float("nan")}},
+        {"execution": {"workers": 0}},
+    ],
+)
+def test_invalid_offline_settings_fail_before_launch(settings):
+    with pytest.raises(ValueError):
+        experiment_config.resolve_offline_configuration(settings)

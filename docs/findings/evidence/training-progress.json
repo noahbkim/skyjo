@@ -1,0 +1,393 @@
+{
+  "topic": "training-progress",
+  "verified_at": "2026-10-10",
+  "provenance_note": "Selected fields copied from structured local reports. Keys are source JSON pointers. Historical paths are relative to the original run root, not required checkout files. Null git means the diagnostic report did not record its execution revision; checkpoint/run provenance is retained where available. Dirty revisions do not fully identify the executed code.",
+  "sources": [
+    {
+      "path": ".runs/research-notes/evidence/faceoffs-19-vs-39.json",
+      "sha256": "398af48e9ce936c24f63b2f5cf7789b86d2e6e8c80897d5bafc755ecf306d817",
+      "git": null,
+      "selected": {
+        "/settings": {
+          "seed_count": 32,
+          "seed": 1,
+          "iterations": 32,
+          "control_iterations": null,
+          "variant_iterations": null
+        },
+        "/checkpoints": {
+          "control": {
+            "path": ".runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/checkpoints/checkpoint_20261003_125640_381463.pth",
+            "sha256": "a6f9bb5583a4c03fd6283a827b689b2430fc0aff81eba02b0271465b28c36017"
+          },
+          "variant": {
+            "path": ".runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/checkpoints/checkpoint_20261003_213443_085597.pth",
+            "sha256": "7c471751101910b2ad937ce6971adf72aefe851c39d956377735e66c97f42300"
+          }
+        },
+        "/variant_win_fraction": 0.828125,
+        "/control_minus_variant_margin": 49.15625
+      }
+    },
+    {
+      "path": ".runs/research-notes/evidence/faceoffs-30-vs-39.json",
+      "sha256": "65c49abae75caf881adeab3285db6aabadcc7012eaa346b4aa34b19edf80b2e0",
+      "git": null,
+      "selected": {
+        "/settings": {
+          "seed_count": 32,
+          "seed": 1,
+          "iterations": 32,
+          "control_iterations": null,
+          "variant_iterations": null
+        },
+        "/checkpoints": {
+          "control": {
+            "path": ".runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/checkpoints/checkpoint_20261003_175223_289263.pth",
+            "sha256": "763b52f97afc39181c5e9e0994ebcb75a7bad3e94e258eb47c4ae55d9260985a"
+          },
+          "variant": {
+            "path": ".runs/20261003T045231Z-long-selfplay-1024-fdc1843ade/checkpoints/checkpoint_20261003_213443_085597.pth",
+            "sha256": "7c471751101910b2ad937ce6971adf72aefe851c39d956377735e66c97f42300"
+          }
+        },
+        "/variant_win_fraction": 0.671875,
+        "/control_minus_variant_margin": 21.859375
+      }
+    },
+    {
+      "path": ".runs/diagnostics/overnight-regression-20261005/summary.json",
+      "sha256": "ce0b006ff5607834c0400317df1943db5d6d43f168d728704f2236acf86e3699",
+      "git": null,
+      "selected": {
+        "/faceoffs/63_vs_50": {
+          "report": ".runs/20261005T133729Z-checkpoint-comparison-0183335320/comparison.json",
+          "checkpoints": {
+            "control": {
+              "path": ".runs/20261005T021353Z-overnight-search32-from50-3d081cbe76/checkpoints/checkpoint_000000.pth",
+              "sha256": "edcc15e8ae72258dcc874aa3996f9d990499c6cba3c715a2661cb61468fbc442"
+            },
+            "variant": {
+              "path": ".runs/20261005T021353Z-overnight-search32-from50-3d081cbe76/checkpoints/checkpoint_000063.pth",
+              "sha256": "f30f181ea50aff05c1ab8cec3ce2218de2d2119245f5357fca850880a84df9ea"
+            }
+          },
+          "settings": {
+            "seed_count": 32,
+            "seed": 0,
+            "iterations": 32,
+            "control_iterations": null,
+            "variant_iterations": null
+          },
+          "games": 64,
+          "wins": 15,
+          "ties": 0,
+          "losses": 49,
+          "variant_win_credit": 0.234375,
+          "control_minus_variant_margin": -39.328125,
+          "win_credit_seed_bootstrap_95": [
+            0.140625,
+            0.34375
+          ],
+          "margin_seed_bootstrap_95": [
+            -52.46875,
+            -26.09335937500009
+          ],
+          "seats": [
+            {
+              "variant_seat": 0,
+              "win_credit": 0.25,
+              "margin": -31.96875
+            },
+            {
+              "variant_seat": 1,
+              "win_credit": 0.21875,
+              "margin": -46.6875
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/replay4x-checkin-20261005/summary-i60.json",
+      "sha256": "f23052af74fcbc4b1080f64d89a756d18de0f510dd8c522104b2430c28dac68f",
+      "git": null,
+      "selected": {
+        "/additional_games_per_continuation": 10240,
+        "/faceoffs/new60_vs50": {
+          "report": ".runs/diagnostics/replay4x-checkin-20261005/faceoffs/i60-vs-i50/20261005T214416Z-checkpoint-comparison-5c1f5547f9/comparison.json",
+          "checkpoints": {
+            "control": {
+              "path": ".runs/20261005T021353Z-overnight-search32-from50-3d081cbe76/checkpoints/checkpoint_000000.pth",
+              "sha256": "edcc15e8ae72258dcc874aa3996f9d990499c6cba3c715a2661cb61468fbc442"
+            },
+            "variant": {
+              "path": ".runs/20261005T161556Z-continue-search32-replay4x-from50-2cd2a7b852/checkpoints/checkpoint_000060.pth",
+              "sha256": "cc75f6434d406f72a9120b25c9656bd857804e503adb44edd8e60d7d7073ff73"
+            }
+          },
+          "settings": {
+            "seed_count": 32,
+            "seed": 0,
+            "iterations": 32,
+            "control_iterations": null,
+            "variant_iterations": null
+          },
+          "games": 64,
+          "wins": 49,
+          "ties": 0,
+          "losses": 15,
+          "variant_win_credit": 0.765625,
+          "control_minus_variant_margin": 24.296875,
+          "win_credit_seed_bootstrap_95": [
+            0.65625,
+            0.859375
+          ],
+          "margin_seed_bootstrap_95": [
+            12.84375,
+            35.3125
+          ],
+          "seats": [
+            {
+              "variant_seat": 0,
+              "win_credit": 0.71875,
+              "margin": 16.75
+            },
+            {
+              "variant_seat": 1,
+              "win_credit": 0.8125,
+              "margin": 31.84375
+            }
+          ]
+        },
+        "/faceoffs/old60_vs50": {
+          "report": ".runs/diagnostics/overnight-regression-20261005/faceoffs/i60-vs-i50/20261005T142823Z-checkpoint-comparison-0b36d09fe9/comparison.json",
+          "checkpoints": {
+            "control": {
+              "path": ".runs/20261005T021353Z-overnight-search32-from50-3d081cbe76/checkpoints/checkpoint_000000.pth",
+              "sha256": "edcc15e8ae72258dcc874aa3996f9d990499c6cba3c715a2661cb61468fbc442"
+            },
+            "variant": {
+              "path": ".runs/20261005T021353Z-overnight-search32-from50-3d081cbe76/checkpoints/checkpoint_000060.pth",
+              "sha256": "864ab3582d0abb4379b6db2ad9fa01502745adfcd2ff373f0863fe5ee66b4df9"
+            }
+          },
+          "settings": {
+            "seed_count": 32,
+            "seed": 0,
+            "iterations": 32,
+            "control_iterations": null,
+            "variant_iterations": null
+          },
+          "games": 64,
+          "wins": 22,
+          "ties": 1,
+          "losses": 41,
+          "variant_win_credit": 0.3515625,
+          "control_minus_variant_margin": -13.078125,
+          "win_credit_seed_bootstrap_95": [
+            0.25,
+            0.453125
+          ],
+          "margin_seed_bootstrap_95": [
+            -22.828125,
+            -3.109375
+          ],
+          "seats": [
+            {
+              "variant_seat": 0,
+              "win_credit": 0.375,
+              "margin": -15.8125
+            },
+            {
+              "variant_seat": 1,
+              "win_credit": 0.328125,
+              "margin": -10.34375
+            }
+          ]
+        },
+        "/new60_minus_old60_against_common_i50": {
+          "win_credit_difference": 0.4140625,
+          "score_margin_difference": 37.375,
+          "win_credit_difference_seed_bootstrap_95": [
+            0.25,
+            0.5703125
+          ],
+          "score_margin_difference_seed_bootstrap_95": [
+            21.828125,
+            52.578125
+          ]
+        },
+        "/limitations": [
+          "One self-play continuation per recipe; intervals resample evaluation seed pairs, not training runs.",
+          "Common-opponent differences do not replace a direct iteration 60 versus 55 faceoff.",
+          "These are the same screening seeds as previous evaluations, not a fresh confirmation set.",
+          "Failure to find a difference does not establish equivalence or a plateau.",
+          "Matched fresh-game counts need not imply equal positions or optimizer steps."
+        ]
+      }
+    },
+    {
+      "path": ".runs/diagnostics/replay4x-overnight-endpoint/summary.json",
+      "sha256": "8a84618424c6a365b31fa837fb16887f6efe539df5ed4cf8f0a02d66e3baae12",
+      "git": null,
+      "selected": {
+        "/faceoffs/i109-vs-i66": {
+          "report": ".runs/faceoffs-replay4x-overnight/i109-vs-i66/20261007T025348Z-checkpoint-comparison-5c7720de32/comparison.json",
+          "checkpoints": {
+            "control": {
+              "path": ".runs/20261006T041335Z-overnight-search32-replay4x-from66-20h-f4bd070743/checkpoints/checkpoint_000000.pth",
+              "sha256": "2dc5f8d0c1a59f3437bf53bc1b7056ee177e932a8aedf8d9777b7b4a1b9ea101"
+            },
+            "variant": {
+              "path": ".runs/20261006T041335Z-overnight-search32-replay4x-from66-20h-f4bd070743/checkpoints/checkpoint_000109.pth",
+              "sha256": "defb3dcf6492c09b6ea2ece9108750c1e784f20be33a5a6d9c1060efdc31561a"
+            }
+          },
+          "settings": {
+            "seed_count": 32,
+            "seed": 1000,
+            "iterations": 32,
+            "control_iterations": null,
+            "variant_iterations": null
+          },
+          "games": 64,
+          "wins": 40,
+          "ties": 1,
+          "losses": 23,
+          "variant_win_credit": 0.6328125,
+          "control_minus_variant_margin": 13.625,
+          "win_credit_seed_bootstrap_95": [
+            0.546875,
+            0.71875
+          ],
+          "margin_seed_bootstrap_95": [
+            4.96875,
+            22.546875
+          ],
+          "seats": [
+            {
+              "variant_seat": 0,
+              "win_credit": 0.640625,
+              "margin": 15.9375
+            },
+            {
+              "variant_seat": 1,
+              "win_credit": 0.625,
+              "margin": 11.3125
+            }
+          ]
+        },
+        "/faceoffs/i109-vs-i82": {
+          "report": ".runs/faceoffs-replay4x-overnight/i109-vs-i82/20261007T025348Z-checkpoint-comparison-38bbed437c/comparison.json",
+          "checkpoints": {
+            "control": {
+              "path": ".runs/20261006T041335Z-overnight-search32-replay4x-from66-20h-f4bd070743/checkpoints/checkpoint_000082.pth",
+              "sha256": "42f97a06bacc158db869101903b8077e5febfa27aecbde3796eaab8b3bfec92e"
+            },
+            "variant": {
+              "path": ".runs/20261006T041335Z-overnight-search32-replay4x-from66-20h-f4bd070743/checkpoints/checkpoint_000109.pth",
+              "sha256": "defb3dcf6492c09b6ea2ece9108750c1e784f20be33a5a6d9c1060efdc31561a"
+            }
+          },
+          "settings": {
+            "seed_count": 32,
+            "seed": 1000,
+            "iterations": 32,
+            "control_iterations": null,
+            "variant_iterations": null
+          },
+          "games": 64,
+          "wins": 31,
+          "ties": 0,
+          "losses": 33,
+          "variant_win_credit": 0.484375,
+          "control_minus_variant_margin": -4.46875,
+          "win_credit_seed_bootstrap_95": [
+            0.375,
+            0.59375
+          ],
+          "margin_seed_bootstrap_95": [
+            -14.171875,
+            5.640625
+          ],
+          "seats": [
+            {
+              "variant_seat": 0,
+              "win_credit": 0.53125,
+              "margin": -4.8125
+            },
+            {
+              "variant_seat": 1,
+              "win_credit": 0.4375,
+              "margin": -4.125
+            }
+          ]
+        },
+        "/provenance": {
+          "source_commit": "d3561d07b93295edb7c4d1c7c09ed253120a12fe",
+          "allow_dirty_for_evaluation": true,
+          "working_tree_at_launch": "Only README.md had tracked changes; untracked boundary-experiment files were present. The tracked gameplay and evaluation code was unchanged."
+        }
+      }
+    },
+    {
+      "path": ".runs/research-notes/evidence/replay-growth-analysis-2026-10-09.json",
+      "sha256": "c44db63ccbfcc5aee95860798fc0975fe6d013f43be3820d06e39a236e1a91c1",
+      "git": null,
+      "selected": {
+        "/comparison_path": ".runs/faceoffs-replay-growth/final-vs-initial/20261008T134702Z-checkpoint-comparison-4d6693ef3c/comparison.json",
+        "/comparison_sha256": "b156f4e17ab7d9f7e991b2326b312b09d0e7fa15671628e9be1fc9b990eacd83",
+        "/games": 256,
+        "/seed_pairs": 128,
+        "/variant_win_credit": 0.4453125,
+        "/variant_win_credit_95_percent_interval": [
+          0.390625,
+          0.5
+        ],
+        "/control_minus_variant_score_margin": -3.8359375,
+        "/score_margin_95_percent_interval": [
+          -8.88671875,
+          1.1796875
+        ],
+        "/bootstrap": {
+          "method": "percentile, jointly resample complete two-seat seed pairs",
+          "resamples": 20000,
+          "rng": "numpy default_rng",
+          "seed": 20261009
+        }
+      }
+    },
+    {
+      "path": ".runs/faceoffs-lr-comparison/lower-vs-control/20261009T040511Z-checkpoint-comparison-0f307165c4/analysis.json",
+      "sha256": "5e4c51f7f81e5c2e00c04202137b3ef9050e3069f5ca1c99b81d82161b497dfb",
+      "run_id": "20261009T040511Z-checkpoint-comparison-0f307165c4",
+      "git": {
+        "allow_dirty": true,
+        "commit": "d3561d07b93295edb7c4d1c7c09ed253120a12fe",
+        "dirty": true
+      },
+      "selected": {
+        "/control": "learning rate0.001, checkpoint128",
+        "/variant": "learning rate0.0003, checkpoint128",
+        "/games": 256,
+        "/variant_win_credit": 0.525390625,
+        "/variant_win_credit_95_percent_interval": [
+          0.462890625,
+          0.587890625
+        ],
+        "/control_minus_variant_score_margin": 0.109375,
+        "/score_margin_95_percent_interval": [
+          -5.1603515625,
+          5.26953125
+        ],
+        "/bootstrap": {
+          "method": "percentile; jointly resample complete two-seat seed pairs",
+          "resamples": 20000,
+          "rng": "numpy default_rng",
+          "seed": 20261009
+        }
+      }
+    }
+  ]
+}

@@ -13,7 +13,7 @@ from hypothesis.stateful import (
     rule,
 )
 
-import skyjo as sj
+from skyjo.engine import game as sj
 
 
 def assert_card_conservation(state: sj.Skyjo) -> None:

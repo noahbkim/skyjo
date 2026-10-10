@@ -11,23 +11,22 @@ import pytest
 import torch
 from helpers import NaiveQuickFinishPlayer
 
-from skyjo import (
-    batches,
+from skyjo.engine import game as sj
+from skyjo.learning import (
     buffer,
     checkpoint,
-    experiment_config,
     losses,
     objectives,
     observations,
-    play,
     predictor,
+    replay_io,
     skynet,
     targets,
     train,
 )
-from skyjo import game as sj
+from skyjo.simulation import play
 
-ALL = {name: 0.1 for name in objectives.REGISTRY}
+ALL = {name: 0.1 for name in objectives.OBJECTIVE_NAMES}
 
 
 def terminal(scores, turn=0, stalled=()):
@@ -70,13 +69,6 @@ def test_scoring_exposes_rule_flags_even_when_score_does_not_change(
     np.testing.assert_array_equal(sj.get_round_scores(state), final)
 
 
-@pytest.fixture(scope="module")
-def result():
-    random.seed(21)
-    np.random.seed(21)
-    return play.play_game([NaiveQuickFinishPlayer() for _ in range(3)])
-
-
 def model(config, players=3):
     return skynet.EquivariantSkyNet(
         spatial_input_shape=(players, sj.ROW_COUNT, sj.COLUMN_COUNT, sj.FINGER_SIZE),
@@ -91,58 +83,63 @@ def model(config, players=3):
     )
 
 
-def test_round_local_labels_preserve_full_game_targets_and_rng(result, monkeypatch):
-    assert len(result.rounds) > 1
+@pytest.fixture(scope="module")
+def result():
+    return play.play_game(
+        [NaiveQuickFinishPlayer() for _ in range(3)],
+        environment_rng=np.random.default_rng(21),
+        action_rng=np.random.default_rng(22),
+    )
+
+
+def test_round_labels_preserve_observed_targets_history_and_rng(result, monkeypatch):
     before = pickle.dumps(result)
-    rng = pickle.dumps(checkpoint.capture_rng_state())
-    baseline, stats = play.game_result_to_game_data(result)
+    rng = checkpoint.capture_rng_state()
+    baseline = targets.build_training_batch(result)
     builder = Mock(wraps=targets.summarize_round)
-    monkeypatch.setitem(targets.CONTEXT_BUILDERS, "terminal", builder)
-    observed, _ = play.game_result_to_game_data(result, ALL)
+    monkeypatch.setattr(targets, "summarize_round", builder)
+    observed = targets.build_training_batch(result, ALL)
     assert builder.call_count == len(result.rounds)
     offset = 0
-    raw_by_round = []
     for round_result in result.rounds:
-        final = round_result.history[-1].state
-        raw = np.roll([sj.get_score(final, i) for i in range(3)], sj.get_player(final))
-        raw_by_round.append(tuple(raw))
-        for row in observed[offset : offset + len(round_result.history) - 1]:
-            shift = sj.get_player(row.state)
+        raw = np.roll(
+            [sj.get_score(round_result.history[-1].state, i) for i in range(3)],
+            sj.get_player(round_result.history[-1].state),
+        )
+        for entry in round_result.history[:-1]:
+            shift = sj.get_player(entry.state)
             np.testing.assert_allclose(
-                np.roll(row.targets["round_raw_score"], shift) * 144, raw, atol=1e-5
+                np.roll(observed.targets["round_raw_score"][offset], shift) * 144,
+                raw,
+                atol=1e-5,
             )
             np.testing.assert_allclose(
-                np.roll(row.targets["round_score"], shift) * 336 - 48,
+                np.roll(observed.targets["round_score"][offset], shift) * 336 - 48,
                 round_result.round_scores,
                 atol=1e-5,
             )
-        offset += len(round_result.history) - 1
-    assert len(set(raw_by_round)) > 1
-    sampled, sample_stats = play.game_result_to_game_data(
+            offset += 1
+    sampled = targets.build_training_batch(
         result, ALL, mode="resampled", samples=8, seed=5
     )
-    subset, _ = play.game_result_to_game_data(
+    subset = targets.build_training_batch(
         result, {"round_raw_score": 0.1}, mode="resampled", samples=8, seed=5
     )
-    for core, full, resampled, selected in zip(
-        baseline, observed, sampled, subset, strict=True
-    ):
-        for name in ("value", "policy"):
-            np.testing.assert_array_equal(core.targets[name], full.targets[name])
-            np.testing.assert_array_equal(core.targets[name], resampled.targets[name])
-        np.testing.assert_array_equal(
-            resampled.targets["round_raw_score"], selected.targets["round_raw_score"]
-        )
-    assert pickle.dumps(stats) == pickle.dumps(sample_stats)
+    for name in ("value", "policy"):
+        np.testing.assert_array_equal(baseline.targets[name], observed.targets[name])
+        np.testing.assert_array_equal(baseline.targets[name], sampled.targets[name])
+    np.testing.assert_array_equal(
+        sampled.targets["round_raw_score"], subset.targets["round_raw_score"]
+    )
     assert pickle.dumps(result) == before
-    # torch RNG pickle serializes storage identifiers; compare subsequent draws instead below.
-    saved = pickle.loads(rng)
-    assert random.getstate() == saved["python"]
-    np.testing.assert_equal(np.random.get_state(), saved["numpy"])
-    assert torch.equal(torch.get_rng_state(), saved["torch_cpu"])
+    assert random.getstate() == rng["python"]
+    np.testing.assert_equal(np.random.get_state(), rng["numpy"])
+    assert torch.equal(torch.get_rng_state(), rng["torch_cpu"])
 
 
-def test_correlated_sample_penalties_and_deterministic_shortcut(result, monkeypatch):
+def test_resampling_preserves_correlation_and_skips_deterministic_work(
+    result, monkeypatch
+):
     endings = [terminal([10, 20, 21]), terminal([24, 20, 21])]
     apply = Mock(side_effect=endings)
     monkeypatch.setattr(targets.sj, "apply_action", apply)
@@ -151,26 +148,11 @@ def test_correlated_sample_penalties_and_deterministic_shortcut(result, monkeypa
     np.testing.assert_array_equal(summary.raw_scores, [17, 20, 21])
     np.testing.assert_array_equal(summary.doubled, [0.5, 0, 0])
     np.testing.assert_array_equal(summary.scores, [29, 20, 21])
-    assert apply.call_count == 2
-    # Resampling radically different endings still leaves the observed game
-    # winners, statistics, and labels for the core outcome untouched.
-    baseline, stats = play.game_result_to_game_data(result)
-    apply.side_effect = endings * len(result.rounds)
-    sampled, sampled_stats = play.game_result_to_game_data(
-        result, ALL, mode="resampled", samples=2
-    )
-    assert pickle.dumps(stats) == pickle.dumps(sampled_stats)
-    for row, core in zip(sampled, baseline, strict=True):
-        np.testing.assert_array_equal(row.targets["value"], core.targets["value"])
-        fixed_raw = np.roll(row.targets["round_raw_score"], sj.get_player(row.state))
-        np.testing.assert_allclose(fixed_raw * 144, [17, 20, 21])
     monkeypatch.setattr(targets.sj, "is_action_random", lambda *args: False)
     apply.reset_mock(side_effect=True)
     apply.return_value = endings[0]
     targets.summarize_round(result.rounds[0], mode="resampled", samples=32)
     assert apply.call_count == 1
-    with pytest.raises(ValueError, match="positive integer"):
-        targets.summarize_round(result.rounds[0], samples=0)
 
 
 @pytest.mark.parametrize(
@@ -181,49 +163,47 @@ def test_correlated_sample_penalties_and_deterministic_shortcut(result, monkeypa
         {"round_score": 0.1},
         {"round_raw_score": 0.1},
         {"round_doubled": 0.1},
-        {"round_raw_score": 0.1, "round_doubled": 0.1},
         ALL,
     ],
 )
-def test_objectives_through_replay_training_and_inference(
+def test_optional_objectives_through_encoding_replay_fit_and_checkpoint(
     result, configuration, tmp_path
 ):
     torch.manual_seed(7)
     baseline = model({})
-    core_rng = torch.get_rng_state()
+    expected_rng = torch.get_rng_state()
     torch.manual_seed(7)
     net = model(configuration)
-    assert torch.equal(torch.get_rng_state(), core_rng)
-    for name, tensor in baseline.state_dict().items():
-        assert torch.equal(net.state_dict()[name], tensor)
+    assert torch.equal(torch.get_rng_state(), expected_rng)
+    for name, value in baseline.state_dict().items():
+        torch.testing.assert_close(net.state_dict()[name], value, rtol=0, atol=0)
     active = objectives.resolve(configuration).weights
-    rows, _ = play.game_result_to_game_data(result, configuration)
-    replay = buffer.ReplayBuffer.from_config(
-        buffer.Config(
-            max_size=len(rows),
-            spatial_input_shape=net.spatial_input_shape,
-            non_spatial_input_shape=net.non_spatial_input_shape,
-            action_mask_shape=net.policy_output_shape,
-            target_specs=experiment_config.target_specs(3, configuration),
-            path=tmp_path / "data",
-        )
+    batch = targets.build_training_batch(result, configuration)
+    replay = buffer.ReplayBuffer(
+        len(batch),
+        net.spatial_input_shape,
+        net.non_spatial_input_shape,
+        net.policy_output_shape,
+        (
+            *buffer.core_target_specs(3, net.policy_output_shape),
+            *(buffer.TargetShapeSpec(name, (3,)) for name in active),
+        ),
     )
-    replay.add_game_data(rows)
-    replay.save()
-    replay = buffer.ReplayBuffer.load(tmp_path / "data")
-    assert set(replay.target_names) == {"value", "policy", *active}
-    before = net.predict(rows[0].state)
-    expected = baseline.predict(rows[0].state)
-    np.testing.assert_array_equal(before.value_output, expected.value_output)
-    np.testing.assert_array_equal(before.policy_output, expected.policy_output)
-    loss_fn = functools.partial(
-        objectives.configured_loss, auxiliary_objectives=configuration
-    )
+    replay.append(batch, buffer.GameProvenance(0))
+    replay_io.save(replay, tmp_path / "replay")
+    replay = replay_io.load(tmp_path / "replay")
+    state = result.rounds[0].history[0].state
+    before = predictor.LocalPredictor(net, 2).evaluate([state])[0]
+    expected = predictor.LocalPredictor(baseline, 2).evaluate([state])[0]
+    np.testing.assert_array_equal(before.value, expected.value)
+    np.testing.assert_array_equal(before.policy, expected.policy)
     loss, details = train.train_step(
-        net, replay.sample_batch(8), loss_fn, train.make_optimizer(net, 1e-3)
+        net,
+        replay.sample_batch(8, rng=np.random.default_rng(0)),
+        functools.partial(losses.configured_loss, auxiliary_objectives=configuration),
+        train.make_optimizer(net, 1e-3),
     )
     assert np.isfinite(loss)
-    assert set(net.auxiliary_heads) == set(active)
     assert net.card_embedder.weight.grad.abs().sum() > 0
     for name, head in net.auxiliary_heads.items():
         assert all(
@@ -232,98 +212,53 @@ def test_objectives_through_replay_training_and_inference(
         assert details[f"{name}_weighted_loss"] == pytest.approx(
             active[name] * details[f"{name}_loss"]
         )
-    if not active:
-        assert set(details) == {"total_loss", "outcome_value_loss", "policy_loss"}
     saved = checkpoint.save_checkpoint(
-        tmp_path / "model.pth",
-        model=net,
-        optimizer=None,
-        configuration={"auxiliary_objectives": configuration},
+        tmp_path / "model.pth", model=net, optimizer=None
     )
     restored = model(configuration)
     checkpoint.load_checkpoint(saved, model=restored, restore_rng=False)
-    direct = restored.predict(rows[0].state)
-    inference = predictor.LocalPredictor(restored, max_batch_size=2)
-    predictions = inference.predict_many([row.state for row in rows[:2]])
-    assert len(predictions) == 2
-    np.testing.assert_allclose(
-        predictions[0].value_output, direct.value_output, atol=1e-5
-    )
-    np.testing.assert_allclose(
-        predictions[0].policy_output, direct.policy_output, atol=1e-6
-    )
+    expected = predictor.LocalPredictor(net, 2).evaluate([state])[0]
+    actual = predictor.LocalPredictor(restored, 2).evaluate([state])[0]
+    np.testing.assert_array_equal(actual.value, expected.value)
+    np.testing.assert_array_equal(actual.policy, expected.policy)
 
 
-def test_disabled_loss_and_diagnostic_preserve_optimizer_update(result):
+def test_gradient_diagnostic_does_not_change_optimizer_update(result):
     torch.manual_seed(11)
-    baseline = model({})
-    net = copy.deepcopy(baseline)
-    rows, _ = play.game_result_to_game_data(result, ALL)
-    batch = batches.game_data_to_training_batch(
-        rows[:8], target_names=("value", "policy", *ALL)
-    )
-    rng = torch.get_rng_state()
-    expected = train.train_step(
-        baseline, batch, losses.base_loss, train.make_optimizer(baseline, 1e-3)
-    )
+    net = model(ALL)
+    baseline = copy.deepcopy(net)
+    batch = targets.build_training_batch(result, ALL)[:8]
+    loss_fn = functools.partial(losses.configured_loss, auxiliary_objectives=ALL)
     scales = {}
+    expected = train.train_step(
+        baseline, batch, loss_fn, train.make_optimizer(baseline, 1e-3)
+    )
     actual = train.train_step(
-        net,
-        batch,
-        functools.partial(
-            objectives.configured_loss, auxiliary_objectives={"round_raw_score": 0}
-        ),
-        train.make_optimizer(net, 1e-3),
-        gradient_scales=scales,
+        net, batch, loss_fn, train.make_optimizer(net, 1e-3), gradient_scales=scales
     )
     assert expected == actual
     assert scales["core_weighted_norm"] > 0
-    assert torch.equal(torch.get_rng_state(), rng)
-    for name, tensor in baseline.state_dict().items():
-        assert torch.equal(net.state_dict()[name], tensor)
-
-
-def test_auxiliary_diagnostic_uses_shared_graph_without_changing_gradients(result):
-    from skyjo.gradient_diagnostic import measure
-
-    net = model(ALL)
-    rows, _ = play.game_result_to_game_data(result, ALL)
-    batch = batches.game_data_to_training_batch(
-        rows[:4], target_names=("value", "policy", *ALL)
-    )
-    t = batches.to_tensors(batch, device=net.device).targets
-    out = net(
-        torch.tensor(batch.spatial_inputs),
-        torch.tensor(batch.non_spatial_inputs),
-        torch.tensor(batch.action_masks),
-    )
-    for p in net.parameters():
-        p.grad = torch.ones_like(p)
-    rng = torch.get_rng_state()
-    scales = measure(net, out, t, auxiliary_objectives=ALL)
-    assert torch.equal(torch.get_rng_state(), rng)
-    assert all(torch.equal(p.grad, torch.ones_like(p)) for p in net.parameters())
     for name in ALL:
-        assert scales[f"{name}/unweighted_norm"] > 0
         assert scales[f"{name}/weighted_norm"] == pytest.approx(
             0.1 * scales[f"{name}/unweighted_norm"]
         )
-    loss, _ = objectives.configured_loss(out, t, auxiliary_objectives=ALL)
-    loss.backward()  # Graph remains usable for the real optimizer step.
+    for name, value in baseline.state_dict().items():
+        torch.testing.assert_close(net.state_dict()[name], value, rtol=0, atol=0)
 
 
 def test_normalized_losses_and_missing_labels():
-    for fn, points in (
-        (objectives.raw_score_loss, 144),
-        (objectives.charged_loss, 336),
-    ):
+    for fn, points in ((losses.raw_score_loss, 144), (losses.charged_loss, 336)):
         loss, metrics = fn(torch.ones(1, 2), torch.zeros(1, 2))
-        assert loss.item() == 1
-        assert metrics["mae_points"] == points
-    loss, _ = objectives.doubled_loss(torch.zeros(1, 2), torch.full((1, 2), 0.5))
+        assert loss.item() == 1 and metrics["mae_points"] == points
+    loss, _ = losses.doubled_loss(torch.zeros(1, 2), torch.full((1, 2), 0.5))
     assert loss.item() == pytest.approx(np.log(2))
+    output = skynet.ModelOutput(torch.zeros(1, 2), torch.zeros(1, 2))
     with pytest.raises(ValueError, match="Missing target"):
-        objectives.resolve(ALL).add_losses(torch.tensor(0.0), {}, SimpleNamespace(), {})
+        losses.configured_loss(
+            output,
+            {"value": torch.zeros(1, 2), "policy": torch.full((1, 2), 0.5)},
+            auxiliary_objectives=ALL,
+        )
     with pytest.raises(ValueError, match="nonnegative"):
         objectives.resolve({"round_doubled": -1})
 

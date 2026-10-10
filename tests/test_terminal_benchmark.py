@@ -3,8 +3,8 @@ import dataclasses
 import numpy as np
 import pytest
 
-from skyjo import game, observations
-from skyjo.terminal_benchmark import (
+from skyjo.engine import game
+from skyjo.experiments.terminal_benchmark import (
     enumerate_one_hidden,
     guaranteed_terminal,
     random_stream,
@@ -13,6 +13,7 @@ from skyjo.terminal_benchmark import (
     summarize_outcomes,
     terminal_credit,
 )
+from skyjo.learning import observations
 
 
 def final_action_state(*, turn=3, scores=(80, 94), hidden=1):

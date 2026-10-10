@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from skyjo import batches, checkpoint, losses, skynet, train
+from skyjo.learning import batches, checkpoint, losses, skynet, train
 
 
 class ToyModel(torch.nn.Module):
@@ -16,11 +16,11 @@ class ToyModel(torch.nn.Module):
         spatial_tensor: torch.Tensor,
         non_spatial_tensor: torch.Tensor,
         mask: torch.Tensor,
-    ) -> skynet.SkyNetOutput:
+    ) -> skynet.ModelOutput:
         del non_spatial_tensor, mask
         value = self.linear(spatial_tensor.reshape(-1, 1))
         policy_logits = torch.zeros(value.shape[0], 2, device=value.device)
-        return skynet.EquivariantOutput(value, policy_logits)
+        return skynet.ModelOutput(value, policy_logits)
 
 
 class FakeReplayBuffer:
@@ -31,7 +31,7 @@ class FakeReplayBuffer:
     def __len__(self) -> int:
         return self.length
 
-    def sample_batch(self, batch_size: int) -> batches.TrainingBatch:
+    def sample_batch(self, batch_size: int, *, rng) -> batches.TrainingBatch:
         del batch_size
         return self.batch
 
@@ -49,7 +49,7 @@ def _batch() -> batches.TrainingBatch:
 
 
 def _loss(
-    model_output: skynet.SupportsCoreSkyNetOutput,
+    model_output: skynet.ModelOutput,
     targets: batches.TensorTargets,
 ) -> tuple[torch.Tensor, losses.LossDetails]:
     del targets
@@ -69,6 +69,7 @@ def test_train_steps_runs_exact_optimizer_step_count():
         optimizer_steps=3,
         optimizer=optimizer,
         loss_function=_loss,
+        sampling_rng=np.random.default_rng(0),
     )
 
     parameter = next(model.parameters())

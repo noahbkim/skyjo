@@ -1,7 +1,6 @@
 name = "full-game-baseline"
-description = "Full-game win and policy baseline with cheap search and frequent policy updates."
+description = "Full-game win and policy training with 32 search visits per decision."
 tags = ["baseline", "full-game"]
-notes = "25,600 games with frequent policy updates. Approximately 14 hours at the prior run’s late throughput; game lengths may change. Concept checks are heuristic diagnostics, not playing-strength evaluation."
 seed = 0
 players = 2
 
@@ -19,7 +18,7 @@ policy_scale = 1.0
 
 [selfplay]
 games_per_iteration = 256
-# Small tasks balance variable full-game lengths across the eight workers.
+# Task grouping changes scheduling, not game identities.
 games_per_task = 8
 start_state = "standard"
 
@@ -33,17 +32,17 @@ fpu_reduction = 0.0
 action_softmax_temperature = 1.0
 
 [replay]
-# About seven recent batches at 295 decisions/game.
+# Capacity is positions; retention and eviction preserve complete games.
 capacity = 524288
 
 [budget]
-# Preserve frequent feedback and extend the learning horizon, not search cost.
+# 100 iterations × 256 complete games. Measure runtime on the target environment.
 iterations = 100
 checkpoint_interval = 1
 
 [execution]
 device = "cpu"
-workers = 8
+workers = 1
 threads_per_worker = 1
 debug = false
 

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-import dataclasses
-
 import numpy as np
 import pytest
 import torch
 import typer
 from typer.testing import CliRunner
 
-import run_train_epoch  # noqa: E402
-from skyjo import batches, buffer, checkpoint, losses, observations, play, skynet, train
-from skyjo import game as sj
+import run_train_epoch
+from skyjo.engine import game as sj
+from skyjo.learning import (
+    batches,
+    buffer,
+    checkpoint,
+    learner,
+    observations,
+    replay_io,
+    skynet,
+)
 
 
 def make_dataset(path, extra_targets=None):
@@ -32,47 +38,25 @@ def make_dataset(path, extra_targets=None):
         state = sj.new(players=2, top=game_index)
         action_mask = sj.actions(state).astype(np.float32)
         policy = action_mask / action_mask.sum()
-        game_data = [
-            play.GameDataPoint(
-                state,
-                None,
-                {
-                    batches.VALUE_TARGET_NAME: np.array(
-                        [game_index % 2, (game_index + 1) % 2],
-                        dtype=np.float32,
-                    ),
-                    batches.POLICY_TARGET_NAME: policy,
-                    **extra_targets,
+        inputs = batches.states_to_batch([state, state])
+        data = batches.TrainingBatch(
+            inputs.spatial_inputs,
+            inputs.non_spatial_inputs,
+            inputs.action_masks,
+            {
+                "value": np.tile([game_index % 2, (game_index + 1) % 2], (2, 1)),
+                "policy": np.stack([policy, policy]),
+                **{
+                    name: np.stack([value, value])
+                    for name, value in extra_targets.items()
                 },
-            )
-            for _ in range(2)
-        ]
-        replay_buffer.add_game_data(
-            game_data,
-            game_index=game_index,
-            play_seed=game_index * 2,
-            target_seed=game_index * 2 + 1,
+            },
         )
-    replay_buffer.save(path, generation_metadata={"test": True})
-    return buffer.ReplayBuffer.load(path)
-
-
-def make_model() -> skynet.EquivariantSkyNet:
-    return skynet.EquivariantSkyNet(
-        spatial_input_shape=(
-            2,
-            sj.ROW_COUNT,
-            sj.COLUMN_COUNT,
-            sj.FINGER_SIZE,
-        ),
-        non_spatial_input_shape=observations.get_non_spatial_input_shape(2),
-        value_output_shape=(2,),
-        policy_output_shape=(sj.MASK_SIZE,),
-        device=torch.device("cpu"),
-        embedding_dimensions=4,
-        global_state_embedding_dimensions=8,
-        num_heads=1,
-    )
+        replay_buffer.append(
+            data, buffer.GameProvenance(game_index, game_index * 2, game_index * 2 + 1)
+        )
+    replay_io.save(replay_buffer, path, generation_metadata={"test": True})
+    return replay_io.load(path)
 
 
 def assert_optimizer_states_equal(left, right) -> None:
@@ -89,124 +73,65 @@ def assert_optimizer_states_equal(left, right) -> None:
                 assert expected == actual
 
 
-def test_loaded_dataset_training_resume_matches_uninterrupted_and_evaluates(
-    tmp_path,
-):
+def test_loaded_dataset_training_resume_matches_uninterrupted_and_evaluates(tmp_path):
     complete = make_dataset(tmp_path / "dataset")
-    training_buffer, validation_buffer = complete.split_by_game(0.5, seed=3)
-    configuration = {
-        "model": {"name": "equivariant", "width": 4},
-        "training": {"batch_size": 2, "loss": "base"},
-        "dataset": {"dataset_id": complete.dataset_id, "split_seed": 3},
-    }
-    loss_function = losses.base_loss
-
-    torch.manual_seed(4)
-    initial_model = make_model()
-    initial_state = {
-        name: value.detach().clone()
-        for name, value in initial_model.state_dict().items()
+    training, validation = complete.split_by_game(0.5, seed=3)
+    settings = {
+        "embedding_dimensions": 4,
+        "global_state_embedding_dimensions": 8,
+        "num_heads": 1,
     }
 
-    continuous = make_model()
-    continuous.load_state_dict(initial_state)
-    continuous_optimizer = train.make_optimizer(continuous, 1e-3)
-    np.random.seed(19)
-    train.train_steps(
-        continuous,
-        training_buffer,
-        training_batch_size=2,
-        optimizer_steps=4,
-        optimizer=continuous_optimizer,
-        loss_function=loss_function,
-    )
+    def create(seed):
+        return learner.Learner.create(
+            settings, players=2, device="cpu", learn_rate=1e-3, seed=seed
+        )
 
-    interrupted = make_model()
-    interrupted.load_state_dict(initial_state)
-    interrupted_optimizer = train.make_optimizer(interrupted, 1e-3)
-    np.random.seed(19)
-    train.train_steps(
-        interrupted,
-        training_buffer,
-        training_batch_size=2,
-        optimizer_steps=2,
-        optimizer=interrupted_optimizer,
-        loss_function=loss_function,
+    continuous = create(4)
+    continuous.fit(training, steps=4, batch_size=2)
+    interrupted = create(4)
+    interrupted.fit(training, steps=2, batch_size=2)
+    progress = checkpoint.TrainingProgress(optimizer_steps=2, sampled_positions=4)
+    path = checkpoint.save_checkpoint(
+        tmp_path / "resume.pth",
+        model=interrupted.model,
+        optimizer=interrupted.optimizer,
+        configuration=settings,
+        progress=progress,
+        sampling_rng=interrupted.sampling_rng,
     )
-    saved_progress = checkpoint.TrainingProgress(
-        optimizer_steps=2,
-        sampled_positions=4,
-        trained_positions=4,
+    resumed = create(999)
+    restored = checkpoint.load_checkpoint(
+        path,
+        model=resumed.model,
+        optimizer=resumed.optimizer,
+        expected_configuration=settings,
+        sampling_rng=resumed.sampling_rng,
     )
-    checkpoint_path = tmp_path / "resume.pth"
-    checkpoint.save_checkpoint(
-        checkpoint_path,
-        model=interrupted,
-        optimizer=interrupted_optimizer,
-        configuration=configuration,
-        progress=saved_progress,
-    )
-
-    resumed = make_model()
-    resumed_optimizer = train.make_optimizer(resumed, 1e-3)
-    restored_progress = checkpoint.load_checkpoint(
-        checkpoint_path,
-        model=resumed,
-        optimizer=resumed_optimizer,
-        expected_configuration=configuration,
-    )
-    assert restored_progress == saved_progress
-    train.train_steps(
-        resumed,
-        training_buffer,
-        training_batch_size=2,
-        optimizer_steps=2,
-        optimizer=resumed_optimizer,
-        loss_function=loss_function,
-    )
-    final_progress = dataclasses.replace(
-        restored_progress,
-        optimizer_steps=4,
-        sampled_positions=8,
-        trained_positions=8,
-    )
-
+    assert restored == progress
+    resumed.fit(training, steps=2, batch_size=2)
     for expected, actual in zip(
-        continuous.parameters(), resumed.parameters(), strict=True
+        continuous.model.parameters(), resumed.model.parameters(), strict=True
     ):
-        assert torch.equal(expected, actual)
-    assert_optimizer_states_equal(continuous_optimizer, resumed_optimizer)
-    assert final_progress.optimizer_steps == 4
-    assert final_progress.sampled_positions == 8
-
-    continuous_loss = train.evaluate_loss(
-        continuous,
-        validation_buffer,
-        evaluation_batch_size=2,
-        loss_function=loss_function,
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert_optimizer_states_equal(continuous.optimizer, resumed.optimizer)
+    assert continuous.evaluate(validation, batch_size=2) == resumed.evaluate(
+        validation, batch_size=2
     )
-    resumed_loss = train.evaluate_loss(
-        resumed,
-        validation_buffer,
-        evaluation_batch_size=2,
-        loss_function=loss_function,
+    np.testing.assert_array_equal(
+        continuous.sampling_rng.integers(100, size=20),
+        resumed.sampling_rng.integers(100, size=20),
     )
-    assert continuous_loss == resumed_loss
-    assert set(resumed_loss) == {
-        "total_loss",
-        "outcome_value_loss",
-        "policy_loss",
-    }
 
 
 def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
-    dataset = make_dataset(tmp_path / "dataset")
+    make_dataset(tmp_path / "dataset")
     first_checkpoint = tmp_path / "step_1.pth"
     resumed_checkpoint = tmp_path / "step_2.pth"
     app = typer.Typer()
     app.command()(run_train_epoch.main)
     common_arguments = [
-        str(dataset.path),
+        str(tmp_path / "dataset"),
         "--batch-size",
         "2",
         "--validation-fraction",
@@ -258,13 +183,13 @@ def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
 
 
 def test_offline_training_selects_games_and_runs_without_validation(tmp_path):
-    dataset = make_dataset(tmp_path / "dataset")
+    make_dataset(tmp_path / "dataset")
     step_zero_checkpoint = tmp_path / "step_0.pth"
     resumed_checkpoint = tmp_path / "step_2.pth"
     app = typer.Typer()
     app.command()(run_train_epoch.main)
     common_arguments = [
-        str(dataset.path),
+        str(tmp_path / "dataset"),
         "--game-index",
         "0",
         "--game-index",
@@ -321,7 +246,7 @@ def test_offline_training_selects_games_and_runs_without_validation(tmp_path):
     mismatched_selection = CliRunner().invoke(
         app,
         [
-            str(dataset.path),
+            str(tmp_path / "dataset"),
             "--game-index",
             "0",
             "--game-index",
@@ -343,20 +268,17 @@ def test_offline_training_selects_games_and_runs_without_validation(tmp_path):
         ],
     )
     assert mismatched_selection.exit_code != 0
-    assert isinstance(mismatched_selection.exception, ValueError)
-    assert "checkpoint configuration does not match" in str(
-        mismatched_selection.exception
-    )
+    assert "checkpoint configuration does not match" in mismatched_selection.output
 
 
 def test_offline_training_rejects_unknown_game_index(tmp_path):
-    dataset = make_dataset(tmp_path / "dataset")
+    make_dataset(tmp_path / "dataset")
     app = typer.Typer()
     app.command()(run_train_epoch.main)
 
     result = CliRunner().invoke(
         app,
-        [str(dataset.path), "--game-index", "99", "--validation-fraction", "0"],
+        [str(tmp_path / "dataset"), "--game-index", "99", "--validation-fraction", "0"],
     )
 
     assert result.exit_code != 0
@@ -364,22 +286,19 @@ def test_offline_training_rejects_unknown_game_index(tmp_path):
 
 
 @pytest.mark.parametrize("auxiliary", [None, '{"round_score": 0.1}'])
-def test_offline_objectives_are_explicit_even_with_legacy_extra_labels(
-    tmp_path, auxiliary
-):
-    dataset = make_dataset(
+def test_offline_objectives_are_explicit_for_available_labels(tmp_path, auxiliary):
+    make_dataset(
         tmp_path / "dataset",
         extra_targets={
             "round_score": np.array([0.2, 0.4], dtype=np.float32),
-            # Archived datasets may contain labels from retired objectives.
-            "future_clear": np.zeros((2, sj.COLUMN_COUNT), dtype=np.float32),
+            "round_raw_score": np.zeros((2,), dtype=np.float32),
         },
     )
     saved = tmp_path / "trained.pth"
     app = typer.Typer()
     app.command()(run_train_epoch.main)
     arguments = [
-        str(dataset.path),
+        str(tmp_path / "dataset"),
         "--steps",
         "1",
         "--batch-size",
@@ -404,19 +323,19 @@ def test_offline_objectives_are_explicit_even_with_legacy_extra_labels(
     payload = torch.load(saved, weights_only=False)
     configuration = payload["configuration"]["model"]
     assert configuration["name"] == skynet.EQUIVARIANT_ARCHITECTURE_NAME
-    assert configuration["auxiliary_objectives"] == (
+    assert payload["configuration"]["auxiliary_objectives"] == (
         {} if auxiliary is None else {"round_score": 0.1}
     )
 
 
 def test_offline_enabled_objective_requires_matching_labels(tmp_path):
-    dataset = make_dataset(tmp_path / "dataset")
+    make_dataset(tmp_path / "dataset")
     app = typer.Typer()
     app.command()(run_train_epoch.main)
     result = CliRunner().invoke(
         app,
         [
-            str(dataset.path),
+            str(tmp_path / "dataset"),
             "--auxiliary-objectives",
             '{"round_score": 0.1}',
         ],

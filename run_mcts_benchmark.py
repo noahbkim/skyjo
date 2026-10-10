@@ -24,7 +24,7 @@ def benchmark(
     allow_dirty: Annotated[bool, typer.Option("--allow-dirty")] = False,
 ) -> Path:
     """Compare pooling off/on; paths identify immutable replay snapshots and weights."""
-    from skyjo.mcts_benchmark import Settings, run_benchmark
+    from skyjo.experiments.mcts_benchmark import Settings, run_benchmark
 
     result = run_benchmark(
         control_replay=control_replay,

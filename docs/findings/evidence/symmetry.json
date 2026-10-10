@@ -1,0 +1,283 @@
+{
+  "topic": "symmetry",
+  "verified_at": "2026-10-10",
+  "provenance_note": "Selected fields copied from structured local reports. Keys are source JSON pointers. Historical paths are relative to the original run root, not required checkout files. Null git means the diagnostic report did not record its execution revision; checkpoint/run provenance is retained where available. Dirty revisions do not fully identify the executed code.",
+  "sources": [
+    {
+      "path": ".runs/symmetry-benchmarks/20261009T134343Z-symmetric-mcts-benchmark-cc332d596e/report.json",
+      "sha256": "fa866c7f06a0c8e19b195927ae17aa9120b0d7c3d6401413843522c06d11df6f",
+      "run_id": "20261009T134343Z-symmetric-mcts-benchmark-cc332d596e",
+      "git": {
+        "allow_dirty": true,
+        "commit": "d3561d07b93295edb7c4d1c7c09ed253120a12fe",
+        "dirty": true
+      },
+      "selected": {
+        "/settings": {
+          "name": "symmetric-mcts-benchmark",
+          "seed": 20261009,
+          "settings": {
+            "positions": 128,
+            "iterations": [
+              32,
+              128
+            ],
+            "sweeps": 3,
+            "warmup": 2,
+            "seed": 20261009
+          },
+          "search": {
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false
+          },
+          "control_replay": ".runs/boundary-overnight/control/20261007T033057Z-boundary-control-from109-10iter-ad130455c4/data/replay",
+          "variant_replay": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/data/replay",
+          "checkpoint": ".runs/boundary-overnight/control/20261007T033057Z-boundary-control-from109-10iter-ad130455c4/checkpoints/checkpoint_000119.pth",
+          "boundary_checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/data/boundary_value.pth",
+          "execution": {
+            "device": "cpu",
+            "torch_threads": 1,
+            "max_batch_size": 1
+          },
+          "evaluators": {
+            "legacy": {
+              "boundary_samples": 1
+            },
+            "frozen": {
+              "boundary_samples": 10
+            }
+          }
+        },
+        "/limitations": [
+          "This measures search speed at fixed simulation counts, not playing strength.",
+          "Equal seeds improve reproducibility but pooling changes search trajectories.",
+          "Fresh roots, one CPU Torch thread, no root noise; Python/NumPy/Torch reseeded per pair.",
+          "Search timing includes ordinary inference and expansion; seed setup, GC before each search, file writes, diagnostics, and warm-up are excluded. GC remains enabled during search.",
+          "Diagnostics are a separate rerun of sweep zero. Fixtures are reported separately from replay states."
+        ],
+        "/timing_summary/0": {
+          "cohort": "all_replay",
+          "phase": "all",
+          "evaluator": "frozen",
+          "iterations": 32,
+          "off": {
+            "searches": 768,
+            "total_seconds": 49.756758438190445,
+            "median_ms": 63.75352153554559,
+            "p95_ms": 89.66403141384943,
+            "p99_ms": 104.43421477684771,
+            "searches_per_second": 15.435089103604609
+          },
+          "on": {
+            "searches": 768,
+            "total_seconds": 50.11880340334028,
+            "median_ms": 63.846667064353824,
+            "p95_ms": 91.15766469622031,
+            "p99_ms": 108.85368188144643,
+            "searches_per_second": 15.323590106878228
+          },
+          "throughput_ratio_on_over_off": 0.9927762647835741
+        },
+        "/timing_summary/1": {
+          "cohort": "all_replay",
+          "phase": "all",
+          "evaluator": "frozen",
+          "iterations": 128,
+          "off": {
+            "searches": 768,
+            "total_seconds": 160.65694466978312,
+            "median_ms": 207.39191654138267,
+            "p95_ms": 273.6164827947505,
+            "p99_ms": 307.9170324071311,
+            "searches_per_second": 4.780372249569165
+          },
+          "on": {
+            "searches": 768,
+            "total_seconds": 160.4935951444786,
+            "median_ms": 205.43260395061225,
+            "p95_ms": 274.22577092656866,
+            "p99_ms": 303.895316340495,
+            "searches_per_second": 4.785237686953399
+          },
+          "throughput_ratio_on_over_off": 1.001017794667491
+        },
+        "/timing_summary/2": {
+          "cohort": "all_replay",
+          "phase": "all",
+          "evaluator": "legacy",
+          "iterations": 32,
+          "off": {
+            "searches": 768,
+            "total_seconds": 36.93275043182075,
+            "median_ms": 47.43422905448824,
+            "p95_ms": 63.13461433164774,
+            "p99_ms": 77.34880077652642,
+            "searches_per_second": 20.79455201739597
+          },
+          "on": {
+            "searches": 768,
+            "total_seconds": 36.863243982428685,
+            "median_ms": 46.865687472745776,
+            "p95_ms": 61.618766910396516,
+            "p99_ms": 77.38160981796692,
+            "searches_per_second": 20.833760598119813
+          },
+          "throughput_ratio_on_over_off": 1.0018855217795046
+        },
+        "/timing_summary/3": {
+          "cohort": "all_replay",
+          "phase": "all",
+          "evaluator": "legacy",
+          "iterations": 128,
+          "off": {
+            "searches": 768,
+            "total_seconds": 135.5504071265459,
+            "median_ms": 173.99960453622043,
+            "p95_ms": 229.82838965253904,
+            "p99_ms": 251.83902930235513,
+            "searches_per_second": 5.665788958368953
+          },
+          "on": {
+            "searches": 768,
+            "total_seconds": 135.38588668289594,
+            "median_ms": 174.33452093973756,
+            "p95_ms": 223.90247730072588,
+            "p99_ms": 243.31537564750764,
+            "searches_per_second": 5.672674004778858
+          },
+          "throughput_ratio_on_over_off": 1.0012151964113905
+        },
+        "/diagnostic_summary/0": {
+          "cohort": "all_replay",
+          "evaluator": "frozen",
+          "iterations": 32,
+          "merge_symmetric_actions": false,
+          "searches": 256,
+          "effective_pooling_fraction": 0.0,
+          "safety_fallback_fraction": 0,
+          "root_grouping_fraction": 0.0,
+          "grouped_decision_fraction": 0.0,
+          "mean_tree_nodes": 286.5546875,
+          "mean_retained_action_groups": 264.859375,
+          "mean_legal_action_edges": 264.859375,
+          "mean_gameplay_evaluated_states": 32.65625,
+          "mean_boundary_evaluated_states": 0.39453125
+        },
+        "/diagnostic_summary/1": {
+          "cohort": "all_replay",
+          "evaluator": "frozen",
+          "iterations": 32,
+          "merge_symmetric_actions": true,
+          "searches": 256,
+          "effective_pooling_fraction": 1.0,
+          "safety_fallback_fraction": 0.0,
+          "root_grouping_fraction": 0.36328125,
+          "grouped_decision_fraction": 0.3827751196172249,
+          "mean_tree_nodes": 239.8671875,
+          "mean_retained_action_groups": 217.33984375,
+          "mean_legal_action_edges": 270.08984375,
+          "mean_gameplay_evaluated_states": 32.65625,
+          "mean_boundary_evaluated_states": 0.41796875
+        },
+        "/diagnostic_summary/2": {
+          "cohort": "all_replay",
+          "evaluator": "frozen",
+          "iterations": 128,
+          "merge_symmetric_actions": false,
+          "searches": 256,
+          "effective_pooling_fraction": 0.0,
+          "safety_fallback_fraction": 0,
+          "root_grouping_fraction": 0.0,
+          "grouped_decision_fraction": 0.0,
+          "mean_tree_nodes": 1015.1328125,
+          "mean_retained_action_groups": 931.78125,
+          "mean_legal_action_edges": 931.78125,
+          "mean_gameplay_evaluated_states": 127.2265625,
+          "mean_boundary_evaluated_states": 2.22265625
+        },
+        "/diagnostic_summary/3": {
+          "cohort": "all_replay",
+          "evaluator": "frozen",
+          "iterations": 128,
+          "merge_symmetric_actions": true,
+          "searches": 256,
+          "effective_pooling_fraction": 1.0,
+          "safety_fallback_fraction": 0.0,
+          "root_grouping_fraction": 0.36328125,
+          "grouped_decision_fraction": 0.35038064833005894,
+          "mean_tree_nodes": 875.9765625,
+          "mean_retained_action_groups": 790.8828125,
+          "mean_legal_action_edges": 971.42578125,
+          "mean_gameplay_evaluated_states": 127.25,
+          "mean_boundary_evaluated_states": 1.953125
+        },
+        "/diagnostic_summary/4": {
+          "cohort": "all_replay",
+          "evaluator": "legacy",
+          "iterations": 32,
+          "merge_symmetric_actions": false,
+          "searches": 256,
+          "effective_pooling_fraction": 0.0,
+          "safety_fallback_fraction": 0,
+          "root_grouping_fraction": 0.0,
+          "grouped_decision_fraction": 0.0,
+          "mean_tree_nodes": 288.87890625,
+          "mean_retained_action_groups": 266.94921875,
+          "mean_legal_action_edges": 266.94921875,
+          "mean_gameplay_evaluated_states": 32.7109375,
+          "mean_boundary_evaluated_states": 0.0
+        },
+        "/diagnostic_summary/5": {
+          "cohort": "all_replay",
+          "evaluator": "legacy",
+          "iterations": 32,
+          "merge_symmetric_actions": true,
+          "searches": 256,
+          "effective_pooling_fraction": 1.0,
+          "safety_fallback_fraction": 0.0,
+          "root_grouping_fraction": 0.36328125,
+          "grouped_decision_fraction": 0.38069608898457125,
+          "mean_tree_nodes": 240.1640625,
+          "mean_retained_action_groups": 217.609375,
+          "mean_legal_action_edges": 270.4765625,
+          "mean_gameplay_evaluated_states": 32.71484375,
+          "mean_boundary_evaluated_states": 0.0
+        },
+        "/diagnostic_summary/6": {
+          "cohort": "all_replay",
+          "evaluator": "legacy",
+          "iterations": 128,
+          "merge_symmetric_actions": false,
+          "searches": 256,
+          "effective_pooling_fraction": 0.0,
+          "safety_fallback_fraction": 0,
+          "root_grouping_fraction": 0.0,
+          "grouped_decision_fraction": 0.0,
+          "mean_tree_nodes": 1008.6484375,
+          "mean_retained_action_groups": 925.484375,
+          "mean_legal_action_edges": 925.484375,
+          "mean_gameplay_evaluated_states": 127.42578125,
+          "mean_boundary_evaluated_states": 0.0
+        },
+        "/diagnostic_summary/7": {
+          "cohort": "all_replay",
+          "evaluator": "legacy",
+          "iterations": 128,
+          "merge_symmetric_actions": true,
+          "searches": 256,
+          "effective_pooling_fraction": 1.0,
+          "safety_fallback_fraction": 0.0,
+          "root_grouping_fraction": 0.36328125,
+          "grouped_decision_fraction": 0.3494412378730198,
+          "mean_tree_nodes": 875.6640625,
+          "mean_retained_action_groups": 790.6484375,
+          "mean_legal_action_edges": 969.8359375,
+          "mean_gameplay_evaluated_states": 127.4453125,
+          "mean_boundary_evaluated_states": 0.0
+        }
+      }
+    }
+  ]
+}

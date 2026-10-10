@@ -4,7 +4,10 @@ import json
 
 import numpy as np
 
-from skyjo import buffer, checkpoint, experiment_training, game, observations
+from skyjo.engine import game
+from skyjo.experiments import experiment_training
+from skyjo.experiments.artifacts import RunArtifacts
+from skyjo.learning import batches, buffer, checkpoint, observations, replay_io
 
 
 def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separate(
@@ -22,19 +25,26 @@ def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separ
         "value": np.array([1.0, 0.0], dtype=np.float32),
         "policy": mask / mask.sum(),
     }
-    replay.add(state, targets, game_index=0)
-    original = replay.save(tmp_path / "initial")
+    encoded = batches.states_to_batch([state])
+    batch = batches.TrainingBatch(
+        encoded.spatial_inputs,
+        encoded.non_spatial_inputs,
+        encoded.action_masks,
+        {name: value[None] for name, value in targets.items()},
+    )
+    replay.append(batch, buffer.GameProvenance(0))
+    original = replay_io.save(replay, tmp_path / "initial")
     initial_id = replay.dataset_id
     original_manifest = (original / "manifest.json").read_bytes()
-    replay.path = tmp_path / "output"
-    recording = experiment_training.RecipeRecording(
-        None, replay, initial_dataset_path=original
+    output_path = tmp_path / "output"
+    recording = RunArtifacts(
+        None, output_path, initial_dataset=original, dataset_id=initial_id
     )
     progress = checkpoint.TrainingProgress()
     training = experiment_training.TrainingState(progress)
     previous_id = initial_id
     for index in (1, 2):
-        replay.add(state, targets, game_index=index)
+        replay.append(batch, buffer.GameProvenance(index))
         generation = experiment_training.Snapshot(
             tmp_path / f"model-{index}.pth", f"model-{index}"
         )
@@ -46,7 +56,7 @@ def test_replay_provenance_keeps_initial_buffer_reference_and_latest_batch_separ
             game_count=1,
             generation_settings={"seed": index},
         )
-        manifest = json.loads((replay.path / "manifest.json").read_text())
+        manifest = json.loads((output_path / "manifest.json").read_text())
         metadata = manifest["generation_metadata"]
         assert metadata["initial_buffer"] == {
             "path": str(original),

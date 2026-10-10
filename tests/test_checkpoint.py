@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-import functools
 import random
 
 import numpy as np
 import pytest
 import torch
 
-from skyjo import checkpoint
-
-
-def sample_loss(value, *, scale):
-    return value * scale
+from skyjo.learning import checkpoint
 
 
 def make_training_objects():
@@ -94,18 +89,6 @@ def test_checkpoint_validates_configuration(tmp_path) -> None:
             optimizer=optimizer,
             expected_configuration={"players": 3},
         )
-
-
-def test_checkpoint_normalizes_partial_callable_settings():
-    normalized = checkpoint.normalize_configuration(
-        functools.partial(sample_loss, scale=0.25)
-    )
-
-    assert normalized == {
-        "callable": f"{__name__}.sample_loss",
-        "args": [],
-        "keywords": {"scale": 0.25},
-    }
 
 
 def test_resumed_training_matches_uninterrupted_training(tmp_path) -> None:
@@ -229,3 +212,17 @@ def test_malformed_resume_metadata_is_rejected_before_loading_weights(
             path, model=model, optimizer=optimizer, scheduler=scheduler
         )
     assert torch.equal(model.weight, before)
+
+
+def test_mismatched_model_shape_is_rejected_before_any_parameter_changes(tmp_path):
+    model = torch.nn.Linear(2, 2)
+    path = checkpoint.save_checkpoint(
+        tmp_path / "model.pth", model=model, optimizer=None
+    )
+    payload = checkpoint.decode_checkpoint(path)
+    payload["model_state_dict"]["weight"] = torch.ones_like(model.weight) * 99
+    payload["model_state_dict"]["bias"] = torch.zeros(3)
+    before = model.weight.detach().clone()
+    with pytest.raises(checkpoint.CheckpointFormatError, match="model parameters"):
+        checkpoint.restore_checkpoint(payload, model=model, restore_rng=False)
+    torch.testing.assert_close(model.weight, before, rtol=0, atol=0)
