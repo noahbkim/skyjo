@@ -241,6 +241,24 @@ accepts independent `--no-control-merge-symmetric-actions` and
 Reusing a pooled root requires matching settings and a safe cumulative budget;
 an unsafe extension raises before changing the tree.
 
+The manual speed benchmark compares both modes on frozen positions using the
+same gameplay weights, at 32 and 128 simulations and with both boundary methods:
+
+```sh
+uv run python run_mcts_benchmark.py \
+  --control-replay /path/to/control/data/replay \
+  --variant-replay /path/to/variant/data/replay \
+  --checkpoint /path/to/control/checkpoints/checkpoint_000119.pth \
+  --boundary-checkpoint /path/to/variant/data/boundary_value.pth \
+  --allow-dirty
+```
+
+Defaults select 128 positions per replay with seed 20261009, one CPU thread,
+warm-up, and three alternating paired sweeps. Each recorded run includes source
+snapshots, input hashes, selected positions, raw timings, phase summaries,
+separate node/inference diagnostics, and a `report.md`. This measures speed;
+it imposes no performance gate and does not measure playing strength.
+
 To replace the boundary approximation with sampled endings and a frozen score
 evaluator, set these options in an ordinary training TOML:
 
