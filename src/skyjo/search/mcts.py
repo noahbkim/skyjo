@@ -47,10 +47,9 @@ DEFAULT_SEARCH_CONFIG = SearchConfig()
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class SearchContext:
-    """Shared tree bindings. Cached values are valid only for these instances."""
+    """Settings and dependencies shared within one search tree."""
 
     config: SearchConfig = dataclasses.field(default_factory=SearchConfig)
-    evaluator: Evaluator | None = None
     boundary_evaluator: BoundaryEvaluator | None = None
     rng: np.random.Generator = dataclasses.field(default_factory=np.random.default_rng)
 
@@ -79,7 +78,6 @@ class DecisionStateNode:
     children: dict[int, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
     is_expanded: bool = False
-    is_retired: bool = False
     dirichlet_noise: np.ndarray = dataclasses.field(init=False)
     action_groups: symmetry.ActionGroups | None = None
     model_action_priors: np.ndarray | None = None
@@ -172,45 +170,6 @@ class DecisionStateNode:
             ) * self.model_action_priors + epsilon * self.action_groups.aggregate(
                 self.dirichlet_noise
             )
-
-    def validate_search_extension(
-        self, state, iterations, config, evaluator, boundary_evaluator, rng
-    ):
-        """Reject incompatible cache reuse before consuming randomness or mutating."""
-        if self.is_retired:
-            raise ValueError("reused root is retired after subtree promotion")
-        if state is not self.state and any(
-            not np.array_equal(
-                getattr(state, field.name), getattr(self.state, field.name)
-            )
-            for field in dataclasses.fields(sj.Skyjo)
-        ):
-            raise ValueError("reused root state does not match")
-        if self.context.config != config:
-            raise ValueError("reused root search configuration does not match")
-        if self.context.evaluator is not evaluator:
-            raise ValueError("reused root evaluator does not match")
-        if (
-            boundary_evaluator is not None
-            and self.context.boundary_evaluator is not boundary_evaluator
-        ):
-            raise ValueError("reused root boundary evaluator does not match")
-        if rng is not None and self.context.rng is not rng:
-            raise ValueError("reused root random generator does not match")
-        if (
-            self.effective_merge_symmetric_actions
-            and not symmetry.safe_to_merge_actions(state, self.visit_count + iterations)
-        ):
-            raise ValueError("reused pooled root exceeds its safe search budget")
-
-    def promote_to_root(self):
-        """Retire ancestors whose cached statistics will no longer be updated."""
-        ancestor = self.parent
-        while ancestor is not None:
-            if isinstance(ancestor, DecisionStateNode):
-                ancestor.is_retired = True
-            ancestor = ancestor.parent
-        self.parent = None
 
 
 @dataclasses.dataclass(slots=True)
@@ -409,41 +368,26 @@ def run_mcts(
     config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     boundary_evaluator: BoundaryEvaluator | None = None,
     rng: np.random.Generator | None = None,
-    root_node: DecisionStateNode | None = None,
 ) -> DecisionStateNode:
-    """Search one round, using fixed-seat values throughout the tree.
-
-    Reuse requires the same configuration and evaluator objects. Omitting rng
-    or boundary_evaluator on reuse keeps the original tree's binding.
-    Promoting a subtree retires its ancestors; their cached values become stale.
-    """
+    """Build and search a fresh tree from game_state, using fixed-seat values."""
     if type(iterations) is not int or iterations < 0:
         raise ValueError("iterations must be a nonnegative integer")
-    if root_node is None:
-        context = SearchContext(
-            config,
-            evaluator,
-            boundary_evaluator
-            if boundary_evaluator is not None
-            else NextDealEvaluator(evaluator),
-            rng if rng is not None else np.random.default_rng(),
-        )
-        root_node = DecisionStateNode(
-            game_state,
-            None,
-            None,
-            context,
-            effective_merge_symmetric_actions=config.merge_symmetric_actions
-            and symmetry.safe_to_merge_actions(game_state, iterations),
-        )
-        root_node.expand(evaluator.evaluate([game_state])[0])
-    else:
-        if not isinstance(root_node, DecisionStateNode):
-            raise TypeError("root_node must be a DecisionStateNode")
-        root_node.validate_search_extension(
-            game_state, iterations, config, evaluator, boundary_evaluator, rng
-        )
-        root_node.promote_to_root()
+    context = SearchContext(
+        config=config,
+        boundary_evaluator=boundary_evaluator
+        if boundary_evaluator is not None
+        else NextDealEvaluator(evaluator),
+        rng=rng if rng is not None else np.random.default_rng(),
+    )
+    root_node = DecisionStateNode(
+        game_state,
+        None,
+        None,
+        context,
+        effective_merge_symmetric_actions=config.merge_symmetric_actions
+        and symmetry.safe_to_merge_actions(game_state, iterations),
+    )
+    root_node.expand(evaluator.evaluate([game_state])[0])
     root_node.refresh_root_noise()
     for _ in range(iterations):
         path = find_leaf(

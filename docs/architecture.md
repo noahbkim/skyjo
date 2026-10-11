@@ -25,13 +25,12 @@ through replay's public interface so file formats do not dictate storage layout.
 Treat state arrays as immutable: transitions copy changed data so search branches
 can share predecessors safely.
 
-Trees bind to evaluator instances and immutable search settings. Validate reuse
-before mutation: mixing exact-chance and sampled-chance nodes previously
-corrupted their weights. Iteration budgets and action temperature remain separate
-because they govern work and action selection, not evaluator identity.
-Subtree promotion is forward-only: it detaches the new root and retires its
-ancestor decision nodes. Searching those ancestors again is rejected before
-mutation because their cached statistics no longer receive descendant updates.
+Search accepts a game state and constructs a fresh tree for each call. Callers
+cannot supply an existing node; nodes and their statistics persist only across
+iterations within that search. The returned tree supports policy extraction and
+diagnostics. This keeps evaluator bindings, chance modes, and symmetry safety
+local to one search. Iteration budgets and action temperature govern search effort
+and action selection separately.
 
 Visits count traversals, not evaluator calls or initialization samples. Root
 evaluation initializes priors and FPU without a visit; outgoing action children
@@ -56,8 +55,8 @@ and fractional tie credit. PUCT uses the pooled mean with equal weight per outco
 the initial batch mean is backed up once, followed by each fresh singleton return.
 Thus boundary sample counts and ancestor visit counts intentionally differ. For
 example, initial outcomes 0, 0 followed by 1 give a boundary estimate of 1/3 and a
-direct ancestor's per-visit estimate of 1/2. Reusing a root continues sampling
-without repeating the initial batch.
+direct ancestor's per-visit estimate of 1/2. Later iterations within that search
+continue sampling without repeating the initial batch.
 
 Even a deterministic round ending may lead to an uncertain next deal: its
 completed state can be reused, but the evaluator must run on each revisit. Only

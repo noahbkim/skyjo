@@ -1,4 +1,4 @@
-"""Search accounting and cache safety without any neural model dependency."""
+"""Search accounting and fresh-tree ownership without a neural model dependency."""
 
 import dataclasses
 import random
@@ -10,6 +10,7 @@ from test_action_symmetry import board_state
 from skyjo.engine import game as sj
 from skyjo.search import mcts
 from skyjo.search.evaluator import Prediction
+from skyjo.search.player import SearchPlayer
 
 
 class UniformEvaluator:
@@ -75,7 +76,10 @@ def test_ucb_uses_fixed_seat_value_and_prior_on_first_selection():
 
 
 @pytest.mark.parametrize("exact_chance", [False, True])
-def test_chance_initialization_and_boundary_backups(monkeypatch, exact_chance):
+@pytest.mark.parametrize("iterations", [1, 3, 4])
+def test_chance_initialization_and_boundary_backups(
+    monkeypatch, exact_chance, iterations
+):
     state = dataclasses.replace(
         board_state(
             ((0, "X", "X", "X"), (3, "X", "X", "X"), (6, "X", "X", "X")),
@@ -127,31 +131,32 @@ def test_chance_initialization_and_boundary_backups(monkeypatch, exact_chance):
         merge_symmetric_actions=False,
     )
     root = mcts.run_mcts(
-        state, evaluator, 0, config=config, boundary_evaluator=boundary
+        state, evaluator, iterations, config=config, boundary_evaluator=boundary
     )
-    assert root.visit_count == sum(c.visit_count for c in root.children.values()) == 0
-    mcts.run_mcts(state, evaluator, 1, config=config, root_node=root)
     chance = root.children[sj.MASK_DRAW]
-    assert root.visit_count == chance.visit_count == 1
-    assert sum(c.visit_count for c in chance.children.values()) == (
-        0 if exact_chance else 1
-    )
-    assert root.state_value[0] == pytest.approx(0.5 if exact_chance else 0.2)
+    assert root.visit_count == chance.visit_count == iterations
+    if iterations == 1:
+        assert sum(c.visit_count for c in chance.children.values()) == (
+            0 if exact_chance else 1
+        )
+        assert root.state_value[0] == pytest.approx(0.5 if exact_chance else 0.2)
+        return
 
-    mcts.run_mcts(state, evaluator, 2, config=config, root_node=root)
     child = next(
         c for c in chance.children.values() if sj.get_top(c.state) == sj.CARD_P1
     )
     assert child.visit_count == (2 if exact_chance else 3)
     assert child.state_value[0] == pytest.approx(0.5 if exact_chance else 0.4)
-    assert chance.state_value[0] == pytest.approx(0.575 if exact_chance else 0.4)
-    expected = (0.5 + 0.45 + 0.575) / 3 if exact_chance else 0.4
-    np.testing.assert_allclose(root.state_value, [expected, 1 - expected])
     np.testing.assert_allclose(
         child.children[sj.MASK_REPLACE].state_value, [1 / 3, 2 / 3]
     )
 
-    mcts.run_mcts(state, evaluator, 1, config=config, root_node=root)
+    if iterations == 3:
+        assert chance.state_value[0] == pytest.approx(0.575 if exact_chance else 0.4)
+        expected = (0.5 + 0.45 + 0.575) / 3 if exact_chance else 0.4
+        np.testing.assert_allclose(root.state_value, [expected, 1 - expected])
+        assert boundary.batches == [2, 1]
+        return
     second = next(
         c for c in chance.children.values() if sj.get_top(c.state) == sj.CARD_P2
     )
@@ -159,95 +164,36 @@ def test_chance_initialization_and_boundary_backups(monkeypatch, exact_chance):
     assert second.state_value[0] == pytest.approx(0.2 if exact_chance else 0.6)
     assert boundary.batches == ([2, 1, 2] if exact_chance else [2, 1])
     assert len(evaluator.states) == 3  # Root and each distinct outcome, once.
-    assert root.visit_count == chance.visit_count == 4
     np.testing.assert_allclose(root.state_value, [0.45, 0.55])
 
 
-def test_reused_root_rejects_changed_chance_or_evaluators_before_mutation():
-    state, evaluator = make_state(), UniformEvaluator()
-    config = mcts.SearchConfig(
-        after_state_evaluate_all_children=True, dirichlet_epsilon=0.2
-    )
-    rng = np.random.default_rng(1)
-    root = mcts.run_mcts(state, evaluator, 3, config=config, rng=rng)
-    weights = [
-        (dict(child.child_weights), child.child_weight_total)
-        for child in root.children.values()
-    ]
-    noise, value, random_state = (
-        root.dirichlet_noise.copy(),
-        root.state_value_total.copy(),
-        rng.bit_generator.state,
-    )
-    for kwargs in (
-        {
-            "config": dataclasses.replace(
-                config, after_state_evaluate_all_children=False
-            )
-        },
-        {"config": dataclasses.replace(config, c_puct=2)},
-        {"evaluator": UniformEvaluator()},
-        {"boundary_evaluator": object()},
-        {"rng": np.random.default_rng(2)},
-    ):
-        args = {
-            "config": config,
-            "evaluator": evaluator,
-            "iterations": 1,
-            "root_node": root,
-        } | kwargs
-        with pytest.raises(ValueError):
-            mcts.run_mcts(state, **args)
-        assert root.visit_count == 3
-        assert rng.bit_generator.state == random_state
-        assert weights == [
-            (dict(child.child_weights), child.child_weight_total)
-            for child in root.children.values()
-        ]
-        np.testing.assert_array_equal(root.dirichlet_noise, noise)
-        np.testing.assert_array_equal(root.state_value_total, value)
-    assert mcts.run_mcts(state, evaluator, 2, config=config, root_node=root) is root
-    assert root.visit_count == 5
+def test_each_player_search_builds_a_fresh_tree():
+    state = make_state()
 
+    class Evaluator(UniformEvaluator):
+        root_evaluations = 0
 
-def test_subtree_promotion_retires_ancestors_only_after_validation():
-    state, evaluator = make_state(), UniformEvaluator()
-    config = mcts.SearchConfig(
-        after_state_evaluate_all_children=True, dirichlet_epsilon=0.2
-    )
-    rng = np.random.default_rng(8)
-    root = mcts.run_mcts(state, evaluator, 1, config=config, rng=rng)
-    chance = next(c for c in root.children.values() if c.is_expanded)
-    promoted = next(iter(chance.children.values()))
-    random_state = rng.bit_generator.state
-    with pytest.raises(ValueError, match="configuration"):
-        mcts.run_mcts(promoted.state, evaluator, 1, root_node=promoted)
-    assert not root.is_retired
-    assert promoted.parent is chance
-    assert rng.bit_generator.state == random_state
+        def evaluate(self, states):
+            self.root_evaluations += sum(observed is state for observed in states)
+            return super().evaluate(states)
 
-    mcts.run_mcts(promoted.state, evaluator, 1, config=config, root_node=promoted)
-    next_chance = next(c for c in promoted.children.values() if c.is_expanded)
-    descendant = next(iter(next_chance.children.values()))
-    mcts.run_mcts(descendant.state, evaluator, 1, config=config, root_node=descendant)
-    mcts.run_mcts(descendant.state, evaluator, 1, config=config, root_node=descendant)
-    assert descendant.visit_count == 2
-    assert descendant.parent is None
-
-    random_state = rng.bit_generator.state
-    for retired in (root, promoted):
-        visits = retired.visit_count
-        value, noise = retired.state_value_total.copy(), retired.dirichlet_noise.copy()
-        with pytest.raises(ValueError, match="retired"):
-            mcts.run_mcts(retired.state, evaluator, 1, config=config, root_node=retired)
-        assert retired.visit_count == visits
-        np.testing.assert_array_equal(retired.state_value_total, value)
-        np.testing.assert_array_equal(retired.dirichlet_noise, noise)
-        assert rng.bit_generator.state == random_state
+    evaluator = Evaluator()
+    player = SearchPlayer(evaluator, 4, rng=np.random.default_rng(8))
+    first = player.run_mcts(state)
+    first_value = first.state_value.copy()
+    first_policy = first.policy_targets().copy()
+    second = player.run_mcts(state)
+    assert first is not second
+    assert first.parent is second.parent is None
+    assert first.visit_count == second.visit_count == 4
+    assert evaluator.root_evaluations == 2
+    np.testing.assert_array_equal(first.state_value, first_value)
+    np.testing.assert_array_equal(first.policy_targets(), first_policy)
 
 
 def test_policy_temperature_handles_extremes_and_unvisited_roots():
     root = mcts.run_mcts(make_state(), UniformEvaluator(), 0)
+    assert root.visit_count == sum(c.visit_count for c in root.children.values()) == 0
     actions = list(root.children)
     for temperature in (0, 1):
         with pytest.raises(ValueError, match="visited legal"):

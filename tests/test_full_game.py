@@ -307,10 +307,6 @@ def test_search_resamples_continuing_boundaries_in_fixed_order(
         )
     prediction_count = len(client.states)
     assert prediction_count == (1 if finishes_game else 101)
-    mcts.run_mcts(state, client, iterations=10, root_node=root)
-    assert len(applications) == 3
-    assert len(client.states) == prediction_count + (0 if finishes_game else 10)
-    assert root.visit_count == 110
 
 
 def test_full_game_replay_keeps_rounds_together(tmp_path, equal_hands):

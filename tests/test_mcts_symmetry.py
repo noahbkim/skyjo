@@ -1,13 +1,11 @@
-"""Grouped action behavior, inherited settings, and safe subtree reuse."""
-
-import dataclasses
+"""Grouped action behavior, inherited settings, and search-budget safety."""
 
 import numpy as np
 import pytest
 from test_action_symmetry import RECYCLING_BOARD, board_state, with_slack
 
 from skyjo.engine import game as sj
-from skyjo.search import mcts, symmetry
+from skyjo.search import mcts
 from skyjo.search.evaluator import Prediction
 
 
@@ -70,9 +68,6 @@ def test_expansion_aggregates_unequal_priors_and_root_noise():
             for action in group
         )
         assert root.action_probability(group[0]) == pytest.approx(expected)
-    before = root.dirichlet_noise.copy()
-    mcts.run_mcts(state, evaluator, 0, root_node=root, config=config)
-    assert not np.array_equal(before, root.dirichlet_noise)
     assert len(evaluator.states) == 1
 
 
@@ -135,52 +130,18 @@ def test_recycling_falls_back_to_ordinary_search():
     assert not root.effective_merge_symmetric_actions
     assert tuple(root.children) == tuple(sj.get_actions(state))
     assert root.children[16] is not root.children[21]
-    mcts.run_mcts(state, evaluator, 0, root_node=root)
-    assert not root.effective_merge_symmetric_actions
 
 
-def test_reused_root_rejects_unsafe_budget_and_changed_state_before_mutation():
+@pytest.mark.parametrize("iterations, merged", [(1, True), (3, False)])
+def test_full_search_budget_controls_inherited_symmetry_mode(iterations, merged):
     state = with_slack(board_state(phase=sj.ACTION_REPLACE), 2)
-    evaluator = FixedEvaluator()
-    root = mcts.run_mcts(state, evaluator, 1)
-    mcts.run_mcts(state, evaluator, 1, root_node=root)
-    value = root.state_value_total.copy()
-    for changed, iterations in (
-        (state, 1),
-        (dataclasses.replace(state, turn=state.turn + 1), 0),
-    ):
-        with pytest.raises(ValueError):
-            mcts.run_mcts(changed, evaluator, iterations, root_node=root)
-        assert root.visit_count == 2
-        np.testing.assert_array_equal(root.state_value_total, value)
-
-
-def test_chance_children_can_be_promoted_without_changing_settings():
-    state = board_state(phase=sj.ACTION_DRAW_OR_TAKE)
-    for merge in (False, True):
-        evaluator = FixedEvaluator(sj.MASK_DRAW)
-        config = mcts.SearchConfig(
-            after_state_evaluate_all_children=True, merge_symmetric_actions=merge
-        )
-        root = mcts.run_mcts(state, evaluator, 1, config=config)
-        promoted = next(iter(root.children[sj.MASK_DRAW].children.values()))
-        assert promoted.is_expanded and promoted.visit_count == 0
-        assert (
-            mcts.run_mcts(
-                promoted.state, evaluator, 1, root_node=promoted, config=config
-            )
-            is promoted
-        )
-        assert promoted.effective_merge_symmetric_actions is merge
-        assert promoted.policy_targets().sum() == pytest.approx(1)
-    # A descendant of a fallback tree keeps its original ungrouped action priors.
-    evaluator = FixedEvaluator(sj.MASK_TAKE)
-    root = mcts.run_mcts(with_slack(state, 1), evaluator, 1)
-    child = root.children[sj.MASK_TAKE]
-    assert not child.effective_merge_symmetric_actions
-    assert symmetry.safe_to_merge_actions(child.state, 0)
-    mcts.run_mcts(child.state, evaluator, 0, root_node=child)
-    assert len(child.children) == sj.actions(child.state).sum()
+    root = mcts.run_mcts(
+        state, FixedEvaluator(), iterations, rng=np.random.default_rng(4)
+    )
+    assert all(
+        node.effective_merge_symmetric_actions is merged
+        for node in decision_nodes(root)
+    )
 
 
 @pytest.mark.parametrize("exact_chance", [False, True])

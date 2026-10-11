@@ -45,7 +45,8 @@ def hidden_boundary_state(completed):
     return state
 
 
-def test_boundary_pools_outcomes_but_backs_up_fresh_returns_on_reuse(monkeypatch):
+@pytest.mark.parametrize("iterations", [1, 2, 4])
+def test_boundary_pools_outcomes_but_backs_up_fresh_returns(monkeypatch, iterations):
     first = completed_round(
         ((-2, 0, 1), (0, 1, 2), (1, 2, 3)), (10, 20, 30), ending_player=2
     )
@@ -72,24 +73,23 @@ def test_boundary_pools_outcomes_but_backs_up_fresh_returns_on_reuse(monkeypatch
     evaluator, boundary = RootOnlyEvaluator(sj.MASK_REPLACE), Boundary()
     config = mcts.SearchConfig(boundary_samples=2, fpu_reduction=1)
     root = mcts.run_mcts(
-        state, evaluator, 1, config=config, boundary_evaluator=boundary
+        state, evaluator, iterations, config=config, boundary_evaluator=boundary
     )
     child = root.children[sj.MASK_REPLACE]
-    assert child.sample_count == 2 and child.visit_count == 1
-    np.testing.assert_allclose(root.state_value, [0, 1, 0])
-    mcts.run_mcts(state, evaluator, 1, config=config, root_node=root)
-    np.testing.assert_allclose(child.state_value, [1 / 3, 2 / 3, 0])
-    np.testing.assert_allclose(root.state_value, [0.5, 0.5, 0])
-    assert child.sample_count == 3 and child.visit_count == 2
-
-    mcts.run_mcts(state, evaluator, 2, config=config, root_node=root)
-    assert [len(batch) for batch in evaluated] == [2, 1, 1, 1]
-    assert applications == [sj.MASK_REPLACE] * 5
+    assert [len(batch) for batch in evaluated] == [2] + [1] * (iterations - 1)
+    assert applications == [sj.MASK_REPLACE] * (iterations + 1)
     assert len(evaluator.states) == 1
-    np.testing.assert_allclose(child.state_value, [0.6, 0.4, 0])
-    np.testing.assert_allclose(root.state_value, [0.75, 0.25, 0])
-    assert root.visit_count == child.visit_count == 4
-    assert child.sample_count == 5
+    boundary_value, ancestor_value = {1: (0, 0), 2: (1 / 3, 0.5), 4: (0.6, 0.75)}[
+        iterations
+    ]
+    np.testing.assert_allclose(
+        child.state_value, [boundary_value, 1 - boundary_value, 0]
+    )
+    np.testing.assert_allclose(
+        root.state_value, [ancestor_value, 1 - ancestor_value, 0]
+    )
+    assert root.visit_count == child.visit_count == iterations
+    assert child.sample_count == iterations + 1
 
 
 def test_terminal_boundaries_use_exact_ties_without_a_model():
@@ -123,21 +123,19 @@ def test_deterministic_round_completion_preserves_next_deal_sample_budget():
     root = mcts.run_mcts(
         state,
         evaluator,
-        1,
+        3,
         config=config,
         rng=np.random.default_rng(11),
     )
-    # One root prediction and all ten independently dealt continuing states.
-    assert len(evaluator.states) == 11
+    # One root prediction, ten initial deals, and two fresh revisit deals.
+    assert len(evaluator.states) == 13
     deals = evaluator.states[1:]
     assert all(not sj.get_round_over(deal) for deal in deals)
     assert len({sj.hash_skyjo(deal) for deal in deals}) > 1
     np.testing.assert_allclose(root.state_value, [0.1, 0.2, 0.7], atol=1e-6)
-    mcts.run_mcts(state, evaluator, 2, config=config, root_node=root)
-    assert len(evaluator.states) == 13
     assert root.children[sj.MASK_REPLACE].sample_count == 12
     assert all(
-        sj.hash_skyjo(deal) not in {sj.hash_skyjo(old) for old in deals}
+        sj.hash_skyjo(deal) not in {sj.hash_skyjo(old) for old in deals[:10]}
         for deal in evaluator.states[11:]
     )
 
