@@ -3,7 +3,7 @@
 import numpy as np
 
 from .evaluator import BoundaryEvaluator, Evaluator
-from .mcts import DEFAULT_SEARCH_CONFIG, DecisionStateNode, SearchConfig, run_mcts
+from .mcts import DEFAULT_SEARCH_CONFIG, SearchConfig, run_mcts
 
 
 class SearchPlayer:
@@ -27,7 +27,7 @@ class SearchPlayer:
     def get_action_probabilities(self, game_state):
         return self.run_mcts(game_state).policy_targets(self.temperature)
 
-    def run_mcts(self, game_state, root_node: DecisionStateNode | None = None):
+    def run_mcts(self, game_state):
         return run_mcts(
             game_state,
             self.evaluator,
@@ -35,5 +35,4 @@ class SearchPlayer:
             config=self.config,
             boundary_evaluator=self.boundary_evaluator,
             rng=self.rng,
-            root_node=root_node,
         )
