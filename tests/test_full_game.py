@@ -246,7 +246,7 @@ def test_full_game_targets_use_final_shared_winners_without_resampling(monkeypat
 
 
 @pytest.mark.parametrize("finishes_game", [False, True])
-def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
+def test_search_resamples_continuing_boundaries_in_fixed_order(
     monkeypatch, finishes_game
 ):
     from skyjo.search import mcts
@@ -306,10 +306,10 @@ def test_search_caches_one_boundary_sample_and_bootstraps_in_fixed_order(
             for deal in client.states[1:]
         )
     prediction_count = len(client.states)
-    assert prediction_count == (1 if finishes_game else 4)
+    assert prediction_count == (1 if finishes_game else 101)
     mcts.run_mcts(state, client, iterations=10, root_node=root)
     assert len(applications) == 3
-    assert len(client.states) == prediction_count
+    assert len(client.states) == prediction_count + (0 if finishes_game else 10)
     assert root.visit_count == 110
 
 

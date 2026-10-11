@@ -1,4 +1,4 @@
-"""Completed rounds are sampled once per action and evaluated before averaging."""
+"""Boundary outcome estimates and per-traversal returns have distinct weights."""
 
 import dataclasses
 
@@ -9,68 +9,87 @@ from test_full_game import completed_round
 from skyjo.engine import game as sj
 from skyjo.learning.boundary_inference import ScoreBoundaryEvaluator
 from skyjo.search import mcts
-from skyjo.search.evaluator import Prediction
+from skyjo.search.evaluator import NextDealEvaluator, Prediction
 
 
 class RootOnlyEvaluator:
-    def __init__(self):
+    def __init__(self, action=None):
         self.states = []
+        self.action = action
 
     def evaluate(self, states):
-        self.states.extend(states)
-        return [
-            Prediction(
-                np.array([0.1, 0.2, 0.7], dtype=np.float32),
-                sj.actions(state) / sj.actions(state).sum(),
+        predictions = []
+        for state in states:
+            self.states.append(state)
+            policy = sj.actions(state).astype(np.float32)
+            if self.action is not None and len(self.states) == 1:
+                assert policy[self.action]
+                policy.fill(0)
+                policy[self.action] = 1
+            predictions.append(
+                Prediction(
+                    np.array([0.1, 0.2, 0.7], dtype=np.float32),
+                    policy / policy.sum(),
+                )
             )
-            for state in states
-        ]
+        return predictions
 
 
-def test_search_caches_sampled_values_before_averaging_without_dealing(monkeypatch):
+def hidden_boundary_state(completed):
+    state = sj.apply_action(dataclasses.replace(completed, countdown=2), sj.MASK_TAKE)
+    state = dataclasses.replace(state, table=state.table.copy(), deck=state.deck.copy())
+    card = int(np.argmax(state.table[1, 0, 0]))
+    state.table[1, 0, 0] = 0
+    state.table[1, 0, 0, sj.FINGER_HIDDEN] = 1
+    state.deck[card] += 1
+    return state
+
+
+def test_boundary_pools_outcomes_but_backs_up_fresh_returns_on_reuse(monkeypatch):
     first = completed_round(
         ((-2, 0, 1), (0, 1, 2), (1, 2, 3)), (10, 20, 30), ending_player=2
     )
     second = completed_round(
         ((-2, 0, 1), (0, 1, 2), (1, 2, 3)), (20, 30, 40), ending_player=2
     )
-    state = sj.apply_action(dataclasses.replace(first, countdown=2), sj.MASK_TAKE)
-    card = int(np.argmax(state.table[1, 0, 0]))
-    state.table[1, 0, 0] = 0
-    state.table[1, 0, 0, sj.FINGER_HIDDEN] = 1
-    state.deck[card] += 1
+    state = hidden_boundary_state(first)
     applications, evaluated = [], []
 
     def sample(unchanged, action, *, rng):
         assert unchanged is state
         applications.append(action)
-        return first if len(applications) % 2 else second
+        return first if len(applications) <= 2 else second
 
     class Boundary:
         def evaluate(self, states, rng):
-            assert len(states) == 10
             evaluated.append(states)
             return np.array(
-                [
-                    [0.1, 0.2, 0.7] if item is first else [0.5, 0.4, 0.1]
-                    for item in states
-                ],
+                [[0, 1, 0] if item is first else [1, 0, 0] for item in states],
                 dtype=np.float32,
             )
 
     monkeypatch.setattr(sj, "apply_action", sample)
-    evaluator, boundary = RootOnlyEvaluator(), Boundary()
-    config = mcts.SearchConfig(boundary_samples=10)
+    evaluator, boundary = RootOnlyEvaluator(sj.MASK_REPLACE), Boundary()
+    config = mcts.SearchConfig(boundary_samples=2, fpu_reduction=1)
     root = mcts.run_mcts(
-        state, evaluator, 100, config=config, boundary_evaluator=boundary
+        state, evaluator, 1, config=config, boundary_evaluator=boundary
     )
-    assert len(evaluated) == len(root.children) == 3
-    assert len(applications) == 30
+    child = root.children[sj.MASK_REPLACE]
+    assert child.sample_count == 2 and child.visit_count == 1
+    np.testing.assert_allclose(root.state_value, [0, 1, 0])
+    mcts.run_mcts(state, evaluator, 1, config=config, root_node=root)
+    np.testing.assert_allclose(child.state_value, [1 / 3, 2 / 3, 0])
+    np.testing.assert_allclose(root.state_value, [0.5, 0.5, 0])
+    assert child.sample_count == 3 and child.visit_count == 2
+
+    mcts.run_mcts(state, evaluator, 2, config=config, root_node=root)
+    assert [len(batch) for batch in evaluated] == [2, 1, 1, 1]
+    assert applications == [sj.MASK_REPLACE] * 5
     assert len(evaluator.states) == 1
-    np.testing.assert_allclose(root.state_value, [0.3, 0.3, 0.4], atol=1e-6)
-    assert sum(child.visit_count for child in root.children.values()) == 100
-    mcts.run_mcts(state, evaluator, 10, config=config, root_node=root)
-    assert len(applications) == 30
+    np.testing.assert_allclose(child.state_value, [0.6, 0.4, 0])
+    np.testing.assert_allclose(root.state_value, [0.75, 0.25, 0])
+    assert root.visit_count == child.visit_count == 4
+    assert child.sample_count == 5
 
 
 def test_terminal_boundaries_use_exact_ties_without_a_model():
@@ -86,6 +105,7 @@ def test_terminal_boundaries_use_exact_ties_without_a_model():
     )
     assert len(evaluator.states) == 1
     np.testing.assert_allclose(root.state_value, [0, 0.5, 0.5], atol=1e-6)
+    assert all(child.sample_count == 1 for child in root.children.values())
 
 
 @pytest.mark.parametrize("samples", [0, 1.5, True])
@@ -98,12 +118,13 @@ def test_deterministic_round_completion_preserves_next_deal_sample_budget():
     completed = completed_round(((0, 1, 2), (3, 4, 5), (6, 7, 8)), (10, 20, 30))
     state = sj.apply_action(dataclasses.replace(completed, countdown=2), sj.MASK_TAKE)
     assert not state.table[:, :, :, sj.FINGER_HIDDEN].any()
-    evaluator = RootOnlyEvaluator()
+    evaluator = RootOnlyEvaluator(sj.MASK_REPLACE)
+    config = mcts.SearchConfig(boundary_samples=10, fpu_reduction=1)
     root = mcts.run_mcts(
         state,
         evaluator,
         1,
-        config=mcts.SearchConfig(boundary_samples=10),
+        config=config,
         rng=np.random.default_rng(11),
     )
     # One root prediction and all ten independently dealt continuing states.
@@ -112,3 +133,45 @@ def test_deterministic_round_completion_preserves_next_deal_sample_budget():
     assert all(not sj.get_round_over(deal) for deal in deals)
     assert len({sj.hash_skyjo(deal) for deal in deals}) > 1
     np.testing.assert_allclose(root.state_value, [0.1, 0.2, 0.7], atol=1e-6)
+    mcts.run_mcts(state, evaluator, 2, config=config, root_node=root)
+    assert len(evaluator.states) == 13
+    assert root.children[sj.MASK_REPLACE].sample_count == 12
+    assert all(
+        sj.hash_skyjo(deal) not in {sj.hash_skyjo(old) for old in deals}
+        for deal in evaluator.states[11:]
+    )
+
+
+def test_stochastic_terminal_batch_does_not_cache_future_continuing_outcomes(
+    monkeypatch,
+):
+    hands = ((0, 1, 2), (1, 2, 3), (1, 2, 3))
+    terminal = completed_round(hands, (200, 0, 0))
+    continuing = completed_round(hands, (10, 20, 30))
+    state = hidden_boundary_state(terminal)
+    outcomes = iter([terminal, terminal, continuing, terminal])
+    applications = []
+
+    def sample(unchanged, action, *, rng):
+        assert unchanged is state
+        applications.append(action)
+        return next(outcomes)
+
+    monkeypatch.setattr(sj, "apply_action", sample)
+    root_evaluator = RootOnlyEvaluator(sj.MASK_REPLACE)
+    deal_evaluator = RootOnlyEvaluator()
+    config = mcts.SearchConfig(boundary_samples=2, fpu_reduction=1)
+    root = mcts.run_mcts(
+        state,
+        root_evaluator,
+        3,
+        config=config,
+        boundary_evaluator=NextDealEvaluator(deal_evaluator),
+        rng=np.random.default_rng(3),
+    )
+    assert len(applications) == 4
+    assert len(deal_evaluator.states) == 1
+    assert not sj.get_round_over(deal_evaluator.states[0])
+    child = root.children[sj.MASK_REPLACE]
+    np.testing.assert_allclose(child.state_value, [0.025, 0.425, 0.55])
+    np.testing.assert_allclose(root.state_value, [0.1 / 3, 1.2 / 3, 1.7 / 3])
