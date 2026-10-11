@@ -75,6 +75,70 @@ def test_ucb_uses_fixed_seat_value_and_prior_on_first_selection():
     assert root.select_child() is root.children[sj.MASK_DRAW]
 
 
+@pytest.mark.parametrize("model_value", [0.1, 0.9])
+def test_fpu_tracks_search_value_in_the_parent_players_seat(model_value):
+    state = dataclasses.replace(board_state(phase=sj.ACTION_DRAW_OR_TAKE), turn=1)
+    assert sj.get_player(state) == 1
+    root = mcts.DecisionStateNode(
+        state,
+        None,
+        None,
+        mcts.SearchContext(mcts.SearchConfig(c_puct=1.5, fpu_reduction=0.1)),
+    )
+    policy = sj.actions(state).astype(np.float32) / 2
+    root.expand(Prediction(np.array([1 - model_value, model_value]), policy))
+    evaluated = root.children[sj.MASK_TAKE]
+    evaluated.expand(
+        Prediction(
+            np.array([0.4, 0.6]),
+            UniformEvaluator().evaluate([evaluated.state])[0].policy,
+        )
+    )
+    # An evaluated child supplies its own value even before it has any visits.
+    assert evaluated.visit_count == 0
+    assert mcts.ucb_score(evaluated, root) == pytest.approx(0.6 + 0.75)
+
+    mcts.backpropagate([root, evaluated], np.array([0.2, 0.8]))
+    mcts.backpropagate([root, evaluated], np.array([0.4, 0.6]))
+    # Seat 1's search mean is 0.7, regardless of the original model prediction.
+    assert mcts.ucb_score(root.children[sj.MASK_DRAW], root) == pytest.approx(
+        0.6 + 0.75 * np.sqrt(3)
+    )
+
+
+@pytest.mark.parametrize("first_prior", [1 / 12, 0.75])
+def test_search_revisits_before_full_coverage_and_later_explores(first_prior):
+    state = board_state(phase=sj.ACTION_REPLACE)
+
+    class RootPriorEvaluator(UniformEvaluator):
+        def evaluate(self, states):
+            predictions = super().evaluate(states)
+            for candidate, prediction in zip(states, predictions, strict=True):
+                if candidate is state:
+                    legal = np.flatnonzero(sj.actions(candidate))
+                    prediction.policy[legal] = (1 - first_prior) / (len(legal) - 1)
+                    prediction.policy[legal[0]] = first_prior
+            return predictions
+
+    evaluator = RootPriorEvaluator()
+    config = mcts.SearchConfig(merge_symmetric_actions=False)
+    root = mcts.run_mcts(
+        state, evaluator, 2, config=config, rng=np.random.default_rng(10)
+    )
+    visited = {action for action, child in root.children.items() if child.visit_count}
+    assert len(visited) == 1 < len(root.children)
+    assert max(child.visit_count for child in root.children.values()) == 2
+
+    root = mcts.run_mcts(
+        state, evaluator, 128, config=config, rng=np.random.default_rng(10)
+    )
+    assert any(
+        child.visit_count
+        for action, child in root.children.items()
+        if action not in visited
+    )
+
+
 @pytest.mark.parametrize("exact_chance", [False, True])
 @pytest.mark.parametrize("iterations", [1, 3, 4])
 def test_chance_initialization_and_boundary_backups(
