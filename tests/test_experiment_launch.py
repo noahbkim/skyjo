@@ -27,6 +27,7 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
         saved = tmp_path / f"{name}.json"
         saved.write_text(json.dumps(config))
         assert experiment_config.load_configuration(saved)[1] == config
+        assert config["search"]["fpu_reduction"] == 0.1
     assert config["selfplay"]["games_per_iteration"] == 256
     assert config["budget"]["iterations"] == 100
     assert config["search"]["merge_symmetric_actions"] is True

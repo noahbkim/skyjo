@@ -17,7 +17,7 @@ class SearchConfig:
     dirichlet_epsilon: float = 0.0
     after_state_evaluate_all_children: bool = False
     c_puct: float = 1.5
-    fpu_reduction: float = 0.0
+    fpu_reduction: float = 0.1
     boundary_samples: int = 1
     merge_symmetric_actions: bool = True
 
@@ -55,10 +55,12 @@ class SearchContext:
 
 def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
     config = parent.context.config
+    player = sj.get_player(parent.state)
+    # The parent supplies its model value before any visits, then its search mean.
     value = (
-        float(child.state_value[sj.get_player(parent.state)])
+        float(child.state_value[player])
         if child.has_value_estimate
-        else parent.model_value_for_current_player - config.fpu_reduction
+        else float(parent.state_value[player]) - config.fpu_reduction
     )
     return value + config.c_puct * parent.action_probability(child.action) * np.sqrt(
         parent.visit_count + 1
@@ -93,11 +95,6 @@ class DecisionStateNode:
     @property
     def has_value_estimate(self):
         return self.model_prediction is not None
-
-    @property
-    def model_value_for_current_player(self):
-        assert self.model_prediction is not None
-        return float(self.model_prediction.value[sj.get_player(self.state)])
 
     @property
     def state_value(self):

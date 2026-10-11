@@ -48,7 +48,7 @@ DEFAULTS = {
         "dirichlet_epsilon": 0.25,
         "after_state_evaluate_all_children": False,
         "c_puct": 1.0,
-        "fpu_reduction": 0.25,
+        "fpu_reduction": 0.1,
         "action_softmax_temperature": 1.0,
         "boundary_samples": 1,
         "boundary_value_checkpoint": None,
