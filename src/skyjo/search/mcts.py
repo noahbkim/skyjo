@@ -14,6 +14,8 @@ from .evaluator import BoundaryEvaluator, Evaluator, NextDealEvaluator, Predicti
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class SearchConfig:
+    """Search settings; boundary_samples controls the first visit's batch only."""
+
     dirichlet_epsilon: float = 0.0
     after_state_evaluate_all_children: bool = False
     c_puct: float = 1.5
@@ -45,10 +47,9 @@ DEFAULT_SEARCH_CONFIG = SearchConfig()
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class SearchContext:
-    """Shared tree bindings. Cached values are valid only for these instances."""
+    """Settings and dependencies shared within one search tree."""
 
     config: SearchConfig = dataclasses.field(default_factory=SearchConfig)
-    evaluator: Evaluator | None = None
     boundary_evaluator: BoundaryEvaluator | None = None
     rng: np.random.Generator = dataclasses.field(default_factory=np.random.default_rng)
 
@@ -170,34 +171,6 @@ class DecisionStateNode:
                 self.dirichlet_noise
             )
 
-    def validate_search_extension(
-        self, state, iterations, config, evaluator, boundary_evaluator, rng
-    ):
-        """Reject incompatible cache reuse before consuming randomness or mutating."""
-        if state is not self.state and any(
-            not np.array_equal(
-                getattr(state, field.name), getattr(self.state, field.name)
-            )
-            for field in dataclasses.fields(sj.Skyjo)
-        ):
-            raise ValueError("reused root state does not match")
-        if self.context.config != config:
-            raise ValueError("reused root search configuration does not match")
-        if self.context.evaluator is not evaluator:
-            raise ValueError("reused root evaluator does not match")
-        if (
-            boundary_evaluator is not None
-            and self.context.boundary_evaluator is not boundary_evaluator
-        ):
-            raise ValueError("reused root boundary evaluator does not match")
-        if rng is not None and self.context.rng is not rng:
-            raise ValueError("reused root random generator does not match")
-        if (
-            self.effective_merge_symmetric_actions
-            and not symmetry.safe_to_merge_actions(state, self.visit_count + iterations)
-        ):
-            raise ValueError("reused pooled root exceeds its safe search budget")
-
 
 @dataclasses.dataclass(slots=True)
 class AfterStateNode:
@@ -263,10 +236,13 @@ class AfterStateNode:
 
     def expand(self):
         assert not self.is_expanded
-        for key, child in self.children.items():
-            self.state_value_total += (
-                self.child_weights[key] * child.state_value / self.child_weight_total
-            )
+        if self.all_children_discovered:
+            for key, child in self.children.items():
+                self.state_value_total += (
+                    self.child_weights[key]
+                    * child.state_value
+                    / self.child_weight_total
+                )
         self.is_expanded = True
 
     def select_child(self, update_child_weights=True):
@@ -287,14 +263,19 @@ class AfterStateNode:
 
 @dataclasses.dataclass(slots=True)
 class RoundBoundaryNode:
-    """A cached completed-round estimate; traversal stops at this node."""
+    """A revisitable leaf pooling outcomes independently of traversal counts."""
 
     pre_terminal_state: sj.Skyjo
     parent: DecisionStateNode
     action: sj.SkyjoAction
     visit_count: int = 0
     is_expanded: bool = False
-    value: np.ndarray | None = None
+    sample_count: int = 0
+    sample_value_total: np.ndarray = dataclasses.field(init=False)
+    deterministic_completed_state: sj.Skyjo | None = None
+
+    def __post_init__(self):
+        self.sample_value_total = np.zeros(self.state.players, dtype=np.float32)
 
     @property
     def context(self):
@@ -306,38 +287,47 @@ class RoundBoundaryNode:
 
     @property
     def has_value_estimate(self):
-        return self.value is not None
+        return self.sample_count > 0
 
     @property
     def state_value(self):
         return (
-            self.value
-            if self.value is not None
+            self.sample_value_total / self.sample_count
+            if self.sample_count
             else np.zeros(self.state.players, dtype=np.float32)
         )
 
     def evaluate(self):
-        if self.value is None:
+        """Update the pooled estimate, returning only this visit's fresh mean."""
+        first = self.deterministic_completed_state
+        if first is not None:
+            if sj.get_game_over(first) and self.has_value_estimate:
+                return self.state_value
+        else:
             deterministic = not self.state.table[
                 :, :, :, sj.FINGER_HIDDEN
             ].any() and not sj.is_action_random(self.action, self.state)
             first = sj.apply_action(self.state, self.action, rng=self.context.rng)
-            samples = self.context.config.boundary_samples
             if deterministic:
-                # A continuing boundary can still sample a fresh next deal.
-                # Only an exact terminal outcome makes every evaluator deterministic.
-                completed = [first] * (1 if sj.get_game_over(first) else samples)
-            else:
-                completed = [first] + [
-                    sj.apply_action(self.state, self.action, rng=self.context.rng)
-                    for _ in range(samples - 1)
-                ]
-            assert self.context.boundary_evaluator is not None
-            predictions = self.context.boundary_evaluator.evaluate(
-                completed, self.context.rng
-            )
-            self.value = predictions.mean(axis=0, dtype=np.float32)
-        return self.value
+                self.deterministic_completed_state = first
+        samples = self.context.config.boundary_samples if not self.sample_count else 1
+        if self.deterministic_completed_state is not None:
+            # A deterministic continuing ending still needs fresh next-deal values.
+            completed = [first] * (1 if sj.get_game_over(first) else samples)
+        else:
+            completed = [first] + [
+                sj.apply_action(self.state, self.action, rng=self.context.rng)
+                for _ in range(samples - 1)
+            ]
+        assert self.context.boundary_evaluator is not None
+        predictions = self.context.boundary_evaluator.evaluate(
+            completed, self.context.rng
+        )
+        batch_total = predictions.sum(axis=0, dtype=np.float32)
+        self.sample_value_total += batch_total
+        self.sample_count += len(completed)
+        self.is_expanded = True
+        return batch_total / len(completed)
 
 
 MCTSNode = DecisionStateNode | AfterStateNode | RoundBoundaryNode
@@ -346,13 +336,14 @@ MCTSNode = DecisionStateNode | AfterStateNode | RoundBoundaryNode
 def find_leaf(root: MCTSNode, update_after_state_child_weights=False):
     path = [root]
     node = root
-    while node.is_expanded:
+    while node.is_expanded and not isinstance(node, RoundBoundaryNode):
         node = node.select_child(update_child_weights=update_after_state_child_weights)
         path.append(node)
     return path
 
 
 def backpropagate(search_path: list[MCTSNode], value: np.ndarray):
+    """Back up one fresh return, substituting expectations at exact chance nodes."""
     effective_value = value
     previous_node = previous_old_value = None
     for node in reversed(search_path):
@@ -377,39 +368,26 @@ def run_mcts(
     config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     boundary_evaluator: BoundaryEvaluator | None = None,
     rng: np.random.Generator | None = None,
-    root_node: DecisionStateNode | None = None,
 ) -> DecisionStateNode:
-    """Search one round, using fixed-seat values throughout the tree.
-
-    Reuse requires the same configuration and evaluator objects. Omitting rng
-    or boundary_evaluator on reuse keeps the original tree's binding.
-    """
+    """Build and search a fresh tree from game_state, using fixed-seat values."""
     if type(iterations) is not int or iterations < 0:
         raise ValueError("iterations must be a nonnegative integer")
-    if root_node is None:
-        context = SearchContext(
-            config,
-            evaluator,
-            boundary_evaluator
-            if boundary_evaluator is not None
-            else NextDealEvaluator(evaluator),
-            rng if rng is not None else np.random.default_rng(),
-        )
-        root_node = DecisionStateNode(
-            game_state,
-            None,
-            None,
-            context,
-            effective_merge_symmetric_actions=config.merge_symmetric_actions
-            and symmetry.safe_to_merge_actions(game_state, iterations),
-        )
-        root_node.expand(evaluator.evaluate([game_state])[0])
-    else:
-        if not isinstance(root_node, DecisionStateNode):
-            raise TypeError("root_node must be a DecisionStateNode")
-        root_node.validate_search_extension(
-            game_state, iterations, config, evaluator, boundary_evaluator, rng
-        )
+    context = SearchContext(
+        config=config,
+        boundary_evaluator=boundary_evaluator
+        if boundary_evaluator is not None
+        else NextDealEvaluator(evaluator),
+        rng=rng if rng is not None else np.random.default_rng(),
+    )
+    root_node = DecisionStateNode(
+        game_state,
+        None,
+        None,
+        context,
+        effective_merge_symmetric_actions=config.merge_symmetric_actions
+        and symmetry.safe_to_merge_actions(game_state, iterations),
+    )
+    root_node.expand(evaluator.evaluate([game_state])[0])
     root_node.refresh_root_noise()
     for _ in range(iterations):
         path = find_leaf(
@@ -418,7 +396,7 @@ def run_mcts(
         )
         leaf = path[-1]
         if isinstance(leaf, RoundBoundaryNode):
-            leaf.evaluate()
+            value = leaf.evaluate()
         elif isinstance(leaf, AfterStateNode):
             leaf.discover(config.after_state_evaluate_all_children)
             children = list(leaf.children.values())
@@ -429,9 +407,15 @@ def run_mcts(
             ):
                 child.expand(prediction)
             leaf.expand()
+            if not leaf.all_children_discovered:
+                # The first sampled outcome is part of this traversal, too.
+                leaf = children[0]
+                path.append(leaf)
+            value = leaf.state_value.copy()
         else:
             leaf.expand(evaluator.evaluate([leaf.state])[0])
-        backpropagate(path, leaf.state_value.copy())
+            value = leaf.state_value.copy()
+        backpropagate(path, value)
     return root_node
 
 
