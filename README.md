@@ -22,6 +22,8 @@ research runs, commit first and omit `--allow-dirty`. Use each entry point's
 `--help` and the [example configurations](configs/) for options.
 
 - [Architecture](docs/architecture.md): boundaries and the reasoning behind them.
+- [Search strategies](docs/search-strategies.md): composing exploration, valuation, actions, and learning targets.
+- [Search benchmarks](docs/search-benchmarks.md): frozen tactical positions and exact-endgame comparisons.
 - [Experiments](docs/experiments.md): comparison methodology and preserving evidence.
 - [Findings](docs/experiments.md#findings): current research conclusions.
 
