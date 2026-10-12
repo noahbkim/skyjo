@@ -35,27 +35,38 @@ and action selection separately.
 Visits count traversals, not evaluator calls or initialization samples. Root
 evaluation initializes priors and FPU without a visit; outgoing action children
 start at zero visits. PUCT allocates initial exploration using those priors and
-FPU, without a forced sweep of every action. Decision values average one return
-per traversal in fixed player order, without sign flips between players.
+FPU, without a forced sweep of every action. Values use fixed player order,
+without sign flips between players. Each evaluated decision node retains one
+neural contribution, including the root and pre-evaluated chance outcomes:
+
+`V = (neural_value + sum(child.visits * child.value)) / (1 + sum(child.visits))`.
+
+The neural contribution adds no traversal visit. Backup increments each node on
+the traversed path once, then refreshes cached mixtures bottom-up using the
+children's current estimates. It does not accumulate successive versions of a
+child's running mean as fresh returns. Refreshing a mixture reads only immediate
+children; it does not recursively recompute the whole tree.
 
 Sampled chance nodes include their first realized decision child in the path,
-just like later new outcomes. Both receive one backup of the child's model value;
-the chance total starts at zero so initialization is not counted twice. Exact
-chance nodes instead initialize the probability-weighted expectation over all
-evaluated children, leaving those children at zero visits. Subsequent traversals
-update the selected child's estimate, adjust the chance expectation by its
-probability-weighted delta, and propagate that updated expectation upward.
+just like later new outcomes. Each realized outcome increments its frequency
+once, and the chance value mixes current conditional child values using those
+frequencies. Exact chance nodes instead initialize the probability-weighted
+expectation over all evaluated children, leaving those children at zero visits.
+Subsequent traversals still sample one continuation, but the expectation always
+uses fixed outcome probabilities, regardless of how much work each child receives.
+Both modes propagate their updated mixtures through the same backup mechanism.
 
 The engine enumerates ordinary single-card chance outcomes. Round endings can
 reveal many hidden cards, so their sampling stays explicit. A round boundary
 remains a traversal leaf: its first visit evaluates `boundary_samples` outcomes,
 and each revisit evaluates one fresh outcome from the original pre-terminal state.
 Each outcome is evaluated before averaging, including exact completed-game values
-and fractional tie credit. PUCT uses the pooled mean with equal weight per outcome;
-the initial batch mean is backed up once, followed by each fresh singleton return.
-Thus boundary sample counts and ancestor visit counts intentionally differ. For
-example, initial outcomes 0, 0 followed by 1 give a boundary estimate of 1/3 and a
-direct ancestor's per-visit estimate of 1/2. Later iterations within that search
+and fractional tie credit. PUCT and ancestor mixtures use the pooled mean with
+equal weight per outcome. Boundary sample counts and ancestor visit counts
+intentionally differ: initial outcomes 0, 0 followed by 1 give a boundary value
+of 1/3 after two visits. A parent with neural value 0.5 and only this action
+visited has value `(0.5 + 2 * (1/3)) / 3 = 7/18`. It retains one neural
+contribution but no historical versions of the boundary estimate. Later iterations
 continue sampling without repeating the initial batch.
 
 Even a deterministic round ending may lead to an uncertain next deal: its

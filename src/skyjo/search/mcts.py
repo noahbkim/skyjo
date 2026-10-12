@@ -57,7 +57,7 @@ class SearchContext:
 def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
     config = parent.context.config
     player = sj.get_player(parent.state)
-    # The parent supplies its model value before any visits, then its search mean.
+    # FPU follows the parent's current mixture, initially just its neural value.
     value = (
         float(child.state_value[player])
         if child.has_value_estimate
@@ -75,7 +75,7 @@ class DecisionStateNode:
     action: sj.SkyjoAction | None
     context: SearchContext | None = None
     effective_merge_symmetric_actions: bool = False
-    state_value_total: np.ndarray = dataclasses.field(init=False)
+    _state_value: np.ndarray = dataclasses.field(init=False)
     model_prediction: Prediction | None = None
     children: dict[int, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
@@ -90,7 +90,7 @@ class DecisionStateNode:
             self.context = (
                 self.parent.context if self.parent is not None else SearchContext()
             )
-        self.state_value_total = np.zeros(self.state.players, dtype=np.float32)
+        self._state_value = np.zeros(self.state.players, dtype=np.float32)
         self.dirichlet_noise = np.zeros(sj.MASK_SIZE, dtype=np.float32)
 
     @property
@@ -99,15 +99,23 @@ class DecisionStateNode:
 
     @property
     def state_value(self):
-        if self.visit_count:
-            return self.state_value_total / self.visit_count
-        if self.model_prediction is not None:
-            return self.model_prediction.value
-        return np.zeros(self.state.players, dtype=np.float32)
+        return self._state_value
+
+    def refresh_value(self):
+        """Mix one neural contribution with current action estimates."""
+        assert self.model_prediction is not None
+        total = self.model_prediction.value.copy()
+        weight = 1
+        for child in self.children.values():
+            if child.visit_count:
+                total += child.visit_count * child.state_value
+                weight += child.visit_count
+        self._state_value = total / weight
 
     def expand(self, model_prediction: Prediction):
         assert not self.is_expanded
         self.model_prediction = model_prediction
+        self._state_value = model_prediction.value.copy()
         self.action_groups = symmetry.ActionGroups.from_state(
             self.state, merge=self.effective_merge_symmetric_actions
         )
@@ -174,7 +182,7 @@ class AfterStateNode:
     state: sj.Skyjo
     action: sj.SkyjoAction
     parent: DecisionStateNode
-    state_value_total: np.ndarray = dataclasses.field(init=False)
+    _state_value: np.ndarray = dataclasses.field(init=False)
     children: dict[int, DecisionStateNode] = dataclasses.field(default_factory=dict)
     child_weights: dict[int, float] = dataclasses.field(default_factory=dict)
     child_weight_total: float = 0.0
@@ -183,7 +191,7 @@ class AfterStateNode:
     all_children_discovered: bool = False
 
     def __post_init__(self):
-        self.state_value_total = np.zeros(self.state.players, dtype=np.float32)
+        self._state_value = np.zeros(self.state.players, dtype=np.float32)
 
     @property
     def context(self):
@@ -195,11 +203,14 @@ class AfterStateNode:
 
     @property
     def state_value(self):
-        if not self.is_expanded:
-            return np.zeros(self.state.players, dtype=np.float32)
-        if self.all_children_discovered or not self.visit_count:
-            return self.state_value_total
-        return self.state_value_total / self.visit_count
+        return self._state_value
+
+    def refresh_value(self):
+        """Use fixed probabilities or empirical frequencies, never work counts."""
+        total = np.zeros(self.state.players, dtype=np.float32)
+        for key, child in self.children.items():
+            total += self.child_weights[key] * child.state_value
+        self._state_value = total / self.child_weight_total
 
     def _create_child(self, state):
         assert not sj.get_round_over(state)
@@ -233,13 +244,7 @@ class AfterStateNode:
 
     def expand(self):
         assert not self.is_expanded
-        if self.all_children_discovered:
-            for key, child in self.children.items():
-                self.state_value_total += (
-                    self.child_weights[key]
-                    * child.state_value
-                    / self.child_weight_total
-                )
+        self.refresh_value()
         self.is_expanded = True
 
     def select_child(self, update_child_weights=True):
@@ -248,14 +253,6 @@ class AfterStateNode:
             self.child_weights[key] = self.child_weights.get(key, 0) + 1
             self.child_weight_total += 1
         return self.children[key]
-
-    def update_exact_child(self, child, previous_child_value):
-        assert self.all_children_discovered
-        self.state_value_total += (
-            (child.state_value - previous_child_value)
-            * self.child_weights[sj.hash_skyjo(child.state)]
-            / self.child_weight_total
-        )
 
 
 @dataclasses.dataclass(slots=True)
@@ -295,11 +292,11 @@ class RoundBoundaryNode:
         )
 
     def evaluate(self):
-        """Update the pooled estimate, returning only this visit's fresh mean."""
+        """Pool fresh outcome evidence independently of traversal counts."""
         first = self.deterministic_completed_state
         if first is not None:
             if sj.get_game_over(first) and self.has_value_estimate:
-                return self.state_value
+                return
         else:
             deterministic = not self.state.table[
                 :, :, :, sj.FINGER_HIDDEN
@@ -324,7 +321,6 @@ class RoundBoundaryNode:
         self.sample_value_total += batch_total
         self.sample_count += len(completed)
         self.is_expanded = True
-        return batch_total / len(completed)
 
 
 MCTSNode = DecisionStateNode | AfterStateNode | RoundBoundaryNode
@@ -339,22 +335,12 @@ def find_leaf(root: MCTSNode, update_after_state_child_weights=False):
     return path
 
 
-def backpropagate(search_path: list[MCTSNode], value: np.ndarray):
-    """Back up one fresh return, substituting expectations at exact chance nodes."""
-    effective_value = value
-    previous_node = previous_old_value = None
+def backpropagate(search_path: list[MCTSNode]):
+    """Count one traversal and refresh mixtures from the updated descendants."""
     for node in reversed(search_path):
-        old_value = node.state_value.copy()
-        if isinstance(node, DecisionStateNode):
-            node.state_value_total += effective_value
-        elif isinstance(node, AfterStateNode) and previous_node is not None:
-            if node.all_children_discovered:
-                node.update_exact_child(previous_node, previous_old_value)
-                effective_value = node.state_value.copy()
-            else:
-                node.state_value_total += effective_value
         node.visit_count += 1
-        previous_node, previous_old_value = node, old_value
+        if not isinstance(node, RoundBoundaryNode):
+            node.refresh_value()
 
 
 def run_mcts(
@@ -393,7 +379,7 @@ def run_mcts(
         )
         leaf = path[-1]
         if isinstance(leaf, RoundBoundaryNode):
-            value = leaf.evaluate()
+            leaf.evaluate()
         elif isinstance(leaf, AfterStateNode):
             leaf.discover(config.after_state_evaluate_all_children)
             children = list(leaf.children.values())
@@ -408,11 +394,9 @@ def run_mcts(
                 # The first sampled outcome is part of this traversal, too.
                 leaf = children[0]
                 path.append(leaf)
-            value = leaf.state_value.copy()
         else:
             leaf.expand(evaluator.evaluate([leaf.state])[0])
-            value = leaf.state_value.copy()
-        backpropagate(path, value)
+        backpropagate(path)
     return root_node
 
 

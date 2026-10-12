@@ -1,4 +1,4 @@
-"""Boundary outcome estimates and per-traversal returns have distinct weights."""
+"""Boundary samples and search traversals have distinct mixture weights."""
 
 import dataclasses
 
@@ -46,7 +46,7 @@ def hidden_boundary_state(completed):
 
 
 @pytest.mark.parametrize("iterations", [1, 2, 4])
-def test_boundary_pools_outcomes_but_backs_up_fresh_returns(monkeypatch, iterations):
+def test_boundary_pooled_estimate_refreshes_ancestor_mixture(monkeypatch, iterations):
     first = completed_round(
         ((-2, 0, 1), (0, 1, 2), (1, 2, 3)), (10, 20, 30), ending_player=2
     )
@@ -79,14 +79,17 @@ def test_boundary_pools_outcomes_but_backs_up_fresh_returns(monkeypatch, iterati
     assert [len(batch) for batch in evaluated] == [2] + [1] * (iterations - 1)
     assert applications == [sj.MASK_REPLACE] * (iterations + 1)
     assert len(evaluator.states) == 1
-    boundary_value, ancestor_value = {1: (0, 0), 2: (1 / 3, 0.5), 4: (0.6, 0.75)}[
-        iterations
-    ]
+    boundary_value = {1: 0, 2: 1 / 3, 4: 0.6}[iterations]
     np.testing.assert_allclose(
         child.state_value, [boundary_value, 1 - boundary_value, 0]
     )
     np.testing.assert_allclose(
-        root.state_value, [ancestor_value, 1 - ancestor_value, 0]
+        root.state_value,
+        (
+            np.array([0.1, 0.2, 0.7])
+            + iterations * np.array([boundary_value, 1 - boundary_value, 0])
+        )
+        / (1 + iterations),
     )
     assert root.visit_count == child.visit_count == iterations
     assert child.sample_count == iterations + 1
@@ -104,8 +107,10 @@ def test_terminal_boundaries_use_exact_ties_without_a_model():
         boundary_evaluator=ScoreBoundaryEvaluator(None),
     )
     assert len(evaluator.states) == 1
-    np.testing.assert_allclose(root.state_value, [0, 0.5, 0.5], atol=1e-6)
+    np.testing.assert_allclose(root.state_value, np.array([0.1, 50.2, 50.7]) / 101)
     assert all(child.sample_count == 1 for child in root.children.values())
+    for child in root.children.values():
+        np.testing.assert_allclose(child.state_value, [0, 0.5, 0.5])
 
 
 @pytest.mark.parametrize("samples", [0, 1.5, True])
@@ -172,4 +177,4 @@ def test_stochastic_terminal_batch_does_not_cache_future_continuing_outcomes(
     assert not sj.get_round_over(deal_evaluator.states[0])
     child = root.children[sj.MASK_REPLACE]
     np.testing.assert_allclose(child.state_value, [0.025, 0.425, 0.55])
-    np.testing.assert_allclose(root.state_value, [0.1 / 3, 1.2 / 3, 1.7 / 3])
+    np.testing.assert_allclose(root.state_value, [0.04375, 0.36875, 0.5875])

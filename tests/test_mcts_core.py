@@ -98,11 +98,11 @@ def test_fpu_tracks_search_value_in_the_parent_players_seat(model_value):
     assert evaluated.visit_count == 0
     assert mcts.ucb_score(evaluated, root) == pytest.approx(0.6 + 0.75)
 
-    mcts.backpropagate([root, evaluated], np.array([0.2, 0.8]))
-    mcts.backpropagate([root, evaluated], np.array([0.4, 0.6]))
-    # Seat 1's search mean is 0.7, regardless of the original model prediction.
+    mcts.backpropagate([root, evaluated])
+    # Seat 1 mixes its initial prediction with the visited child's current value.
+    expected_value = (model_value + 0.6) / 2
     assert mcts.ucb_score(root.children[sj.MASK_DRAW], root) == pytest.approx(
-        0.6 + 0.75 * np.sqrt(3)
+        expected_value - 0.1 + 0.75 * np.sqrt(2)
     )
 
 
@@ -203,21 +203,26 @@ def test_chance_initialization_and_boundary_backups(
         assert sum(c.visit_count for c in chance.children.values()) == (
             0 if exact_chance else 1
         )
-        assert root.state_value[0] == pytest.approx(0.5 if exact_chance else 0.2)
+        assert root.state_value[0] == pytest.approx(0.55 if exact_chance else 0.4)
+        assert chance.state_value[0] == pytest.approx(0.5 if exact_chance else 0.2)
         return
 
     child = next(
         c for c in chance.children.values() if sj.get_top(c.state) == sj.CARD_P1
     )
     assert child.visit_count == (2 if exact_chance else 3)
-    assert child.state_value[0] == pytest.approx(0.5 if exact_chance else 0.4)
+    # One neural value (0.2) and two visits using the boundary's current 1/3.
+    assert child.state_value[0] == pytest.approx(13 / 45)
     np.testing.assert_allclose(
         child.children[sj.MASK_REPLACE].state_value, [1 / 3, 2 / 3]
     )
 
     if iterations == 3:
-        assert chance.state_value[0] == pytest.approx(0.575 if exact_chance else 0.4)
-        expected = (0.5 + 0.45 + 0.575) / 3 if exact_chance else 0.4
+        # Exact weights stay 1/4, 3/4 although only the first outcome was searched.
+        assert chance.state_value[0] == pytest.approx(
+            47 / 90 if exact_chance else 13 / 45
+        )
+        expected = 13 / 24 if exact_chance else 11 / 30
         np.testing.assert_allclose(root.state_value, [expected, 1 - expected])
         assert boundary.batches == [2, 1]
         return
@@ -225,10 +230,85 @@ def test_chance_initialization_and_boundary_backups(
         c for c in chance.children.values() if sj.get_top(c.state) == sj.CARD_P2
     )
     assert second.visit_count == 1
-    assert second.state_value[0] == pytest.approx(0.2 if exact_chance else 0.6)
+    assert second.state_value[0] == pytest.approx(0.4 if exact_chance else 0.6)
     assert boundary.batches == ([2, 1, 2] if exact_chance else [2, 1])
     assert len(evaluator.states) == 3  # Root and each distinct outcome, once.
-    np.testing.assert_allclose(root.state_value, [0.45, 0.55])
+    # Sampled weights are now 3/4, 1/4; exact weights remain 1/4, 3/4.
+    assert chance.child_weight_total == (1 if exact_chance else 4)
+    assert chance.state_value[0] == pytest.approx(67 / 180 if exact_chance else 11 / 30)
+    expected = 94 / 225 if exact_chance else 31 / 75
+    np.testing.assert_allclose(root.state_value, [expected, 1 - expected])
+
+
+@pytest.mark.parametrize("exact_chance", [False, True])
+@pytest.mark.parametrize("iterations", [2, 3, 4, 5])
+def test_probability_one_chance_preserves_current_values(
+    monkeypatch, exact_chance, iterations
+):
+    state = board_state(
+        ((0, "X", "X", "X"), (3, "X", "X", "X"), (6, "X", "X", "X")),
+        phase=sj.ACTION_DRAW_OR_TAKE,
+        countdown=2,
+        deck_counts={1: 5},
+    )
+
+    class Evaluator:
+        def evaluate(self, states):
+            predictions = []
+            for observed in states:
+                policy = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+                policy[sj.MASK_DRAW if observed is state else sj.MASK_REPLACE] = 1
+                value = 0.8 if observed is state else 0.2
+                predictions.append(Prediction(np.array([value, 1 - value]), policy))
+            return predictions
+
+    class Boundary:
+        def __init__(self):
+            self.values = iter([1, 0, 0, 1])
+
+        def evaluate(self, states, rng):
+            return np.array([[v, 1 - v] for v in (next(self.values) for _ in states)])
+
+    def search():
+        return mcts.run_mcts(
+            state,
+            Evaluator(),
+            iterations,
+            config=mcts.SearchConfig(
+                after_state_evaluate_all_children=exact_chance,
+                merge_symmetric_actions=False,
+                fpu_reduction=1,
+            ),
+            boundary_evaluator=Boundary(),
+            rng=np.random.default_rng(1),
+        )
+
+    root = search()
+    chance = root.children[sj.MASK_DRAW]
+    child = next(iter(chance.children.values()))
+    # The current estimate first falls, then rises; old means must not persist.
+    expected_child = {2: 0.6, 3: 0.4, 4: 0.3, 5: 0.44}[iterations]
+    assert child.state_value[0] == pytest.approx(expected_child)
+    np.testing.assert_allclose(chance.state_value, child.state_value)
+    expected_root = (0.8 + iterations * expected_child) / (iterations + 1)
+    np.testing.assert_allclose(root.state_value, [expected_root, 1 - expected_root])
+    assert child.visit_count == iterations - int(exact_chance)
+
+    # Bypass only this known single-outcome transition; preserve searched actions.
+    is_random = sj.is_action_random
+    monkeypatch.setattr(
+        sj,
+        "is_action_random",
+        lambda action, observed: (
+            False if observed is state else is_random(action, observed)
+        ),
+    )
+    direct = search()
+    np.testing.assert_allclose(direct.state_value, root.state_value)
+    np.testing.assert_allclose(
+        direct.children[sj.MASK_DRAW].state_value, chance.state_value
+    )
+    assert direct.visit_count == root.visit_count == iterations
 
 
 def test_each_player_search_builds_a_fresh_tree():
@@ -258,6 +338,7 @@ def test_each_player_search_builds_a_fresh_tree():
 def test_policy_temperature_handles_extremes_and_unvisited_roots():
     root = mcts.run_mcts(make_state(), UniformEvaluator(), 0)
     assert root.visit_count == sum(c.visit_count for c in root.children.values()) == 0
+    np.testing.assert_allclose(root.state_value, [0.5, 0.5])
     actions = list(root.children)
     for temperature in (0, 1):
         with pytest.raises(ValueError, match="visited legal"):
