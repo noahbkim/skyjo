@@ -1,0 +1,314 @@
+{
+  "topic": "boundary-evaluation",
+  "verified_at": "2026-10-10",
+  "provenance_note": "Selected fields copied from structured local reports. Keys are source JSON pointers. Historical paths are relative to the original run root, not required checkout files. Null git means the diagnostic report did not record its execution revision; checkpoint/run provenance is retained where available. Dirty revisions do not fully identify the executed code.",
+  "sources": [
+    {
+      "path": ".runs/20261006T133345Z-boundary-methods-f507fe45d6/results.json",
+      "sha256": "b467405c4d4d2fcc70cf9111f16b42fc13ab50321a70056cf16d9c9006ccb8da",
+      "run_id": "20261006T133345Z-boundary-methods-f507fe45d6",
+      "git": {
+        "allow_dirty": true,
+        "commit": "d3561d07b93295edb7c4d1c7c09ed253120a12fe",
+        "dirty": true
+      },
+      "selected": {
+        "/dataset": {
+          "players": 2,
+          "source_records": 2368,
+          "games_total": 1024,
+          "games_completed": 1024,
+          "games_with_boundaries": 911,
+          "games_excluded_incomplete": 0,
+          "games_excluded_partial_start": 0,
+          "boundaries": 1344
+        },
+        "/holdout": {
+          "full_model_progress": {
+            "iteration": 50,
+            "epoch": 0,
+            "generated_games": 51200,
+            "trained_positions": 50044416,
+            "optimizer_steps": 195486,
+            "sampled_positions": 50044416
+          },
+          "evaluation_game_index_min": 51200,
+          "evaluation_game_index_max": 52223,
+          "recorded_generator_matches_evaluator": true,
+          "boundary_dataset_game_overlap": 0
+        },
+        "/methods/next_deal_1/mean_metrics/value_mse": 0.19542926958737775,
+        "/methods/next_deal_10/mean_metrics/value_mse": 0.1938969677124791,
+        "/methods/next_deal_100/mean_metrics/value_mse": 0.1939407570020885,
+        "/methods/score_logistic/mean_metrics/value_mse": 0.19232364663926482,
+        "/methods/score_mlp/mean_metrics/value_mse": 0.19158156790876066,
+        "/paired_test_mse/score_mlp_minus_next_deal_1": {
+          "mean": -0.0038477016786170972,
+          "ci95": [
+            -0.0060370469895010695,
+            -0.0015302427544892714
+          ],
+          "bootstrap_games": 911,
+          "bootstrap_samples": 2000,
+          "interpretation": "Paired game bootstrap on seed-mean per-boundary errors; conditional on this split and these fitted models, not independent training replications."
+        },
+        "/paired_test_mse/score_mlp_minus_next_deal_100": {
+          "mean": -0.0023591890933278977,
+          "ci95": [
+            -0.004520610604931031,
+            -0.00015209986631218927
+          ],
+          "bootstrap_games": 911,
+          "bootstrap_samples": 2000,
+          "interpretation": "Paired game bootstrap on seed-mean per-boundary errors; conditional on this split and these fitted models, not independent training replications."
+        }
+      }
+    },
+    {
+      "path": ".runs/20261006T132925Z-terminal-boundary-benchmark-7a59be18f0/report.json",
+      "sha256": "5bf5984c9b57c4bb517f314a8cbee12775a3aedabae9930a745a001755dd8da2",
+      "run_id": "20261006T132925Z-terminal-boundary-benchmark-7a59be18f0",
+      "git": {
+        "allow_dirty": true,
+        "commit": "d3561d07b93295edb7c4d1c7c09ed253120a12fe",
+        "dirty": true
+      },
+      "selected": {
+        "/settings": {
+          "exact_cases": 32,
+          "sampled_cases": 8,
+          "max_sampled_actions": 4,
+          "reference_samples": 8192,
+          "repetitions": 32,
+          "sample_counts": [
+            1,
+            10,
+            100
+          ],
+          "screen_samples": 64,
+          "seed": 20261006
+        },
+        "/summary/exact": {
+          "cases": 32,
+          "actions": 389,
+          "stochastic_value_cases": 9,
+          "action_sensitive_cases": 9,
+          "minimum_reference_terminal_probability": 1.0,
+          "sampling": {
+            "1": {
+              "mean_case_terminal_contribution_mse": 0.01092434263459043,
+              "mean_reference_action_regret": 0.03846508715605392,
+              "regret_cases": 32
+            },
+            "10": {
+              "mean_case_terminal_contribution_mse": 0.0011697985031373882,
+              "mean_reference_action_regret": 0.0030884317505411258,
+              "regret_cases": 32
+            },
+            "100": {
+              "mean_case_terminal_contribution_mse": 0.00011259286103411359,
+              "mean_reference_action_regret": 0.00034877232142857154,
+              "regret_cases": 32
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": ".runs/faceoffs-boundary-extended/summary.json",
+      "sha256": "ea964a46b6ebc3fc7a12463a27f50f5f56f0327c55f478e19fd6dfc4afbf49a0",
+      "git": null,
+      "selected": {
+        "/primary_analysis": "Fresh 768 games per matchup, fixed sample size, two predeclared opponent comparisons. 97.5% marginal win-credit intervals use a Bonferroni allocation for approximate 95% family coverage across the two primary comparisons.",
+        "/search_by_player": {
+          "control": {
+            "action_softmax_temperature": 0.0,
+            "mcts_iterations": 32,
+            "mcts_dirichlet_epsilon": 0.0,
+            "mcts_after_state_evaluate_all_children": false,
+            "mcts_c_puct": 1.0,
+            "mcts_fpu_reduction": 0.0,
+            "mcts_boundary_samples": 1,
+            "mcts_boundary_value_checkpoint": null
+          },
+          "variant": {
+            "action_softmax_temperature": 0.0,
+            "mcts_iterations": 32,
+            "mcts_dirichlet_epsilon": 0.0,
+            "mcts_after_state_evaluate_all_children": false,
+            "mcts_c_puct": 1.0,
+            "mcts_fpu_reduction": 0.0,
+            "mcts_boundary_samples": 1,
+            "mcts_boundary_value_checkpoint": null
+          }
+        },
+        "/matchups/vs-control119/checkpoints": {
+          "control": {
+            "path": ".runs/boundary-overnight/control/20261007T033057Z-boundary-control-from109-10iter-ad130455c4/checkpoints/checkpoint_000119.pth",
+            "sha256": "934934019afe200177e5f00148ed8e559c5d83b974663ba5b311da6ecacd3a99"
+          },
+          "variant": {
+            "path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+            "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+          }
+        },
+        "/matchups/vs-control119/fresh_primary": {
+          "games": 768,
+          "seed_pairs": 384,
+          "wins": 394,
+          "ties": 3,
+          "losses": 371,
+          "variant_win_credit": 0.5149739583333334,
+          "control_minus_variant_margin": 1.6875,
+          "bootstrap": {
+            "resamples": 20000,
+            "seed": 2026100701,
+            "method": "percentile; whole two-seat seed pairs; maximum batch 1000"
+          },
+          "seats": [
+            {
+              "variant_seat": 0,
+              "games": 384,
+              "win_credit": 0.5572916666666666,
+              "margin": 5.981770833333333
+            },
+            {
+              "variant_seat": 1,
+              "games": 384,
+              "win_credit": 0.47265625,
+              "margin": -2.6067708333333335
+            }
+          ],
+          "win_credit_seed_bootstrap_95": [
+            0.4791666666666667,
+            0.5494791666666666
+          ],
+          "margin_seed_bootstrap_95": [
+            -1.5208984374999999,
+            4.895833333333333
+          ],
+          "win_credit_seed_bootstrap_97_5": [
+            0.474609375,
+            0.5546875
+          ],
+          "margin_seed_bootstrap_97_5": [
+            -1.9544921874999999,
+            5.32687174479167
+          ],
+          "win_credit_direction_at_97_5": "unresolved"
+        },
+        "/matchups/vs-109/fresh_primary": {
+          "games": 768,
+          "seed_pairs": 384,
+          "wins": 393,
+          "ties": 6,
+          "losses": 369,
+          "variant_win_credit": 0.515625,
+          "control_minus_variant_margin": 2.1588541666666665,
+          "bootstrap": {
+            "resamples": 20000,
+            "seed": 2026100704,
+            "method": "percentile; whole two-seat seed pairs; maximum batch 1000"
+          },
+          "seats": [
+            {
+              "variant_seat": 0,
+              "games": 384,
+              "win_credit": 0.5494791666666666,
+              "margin": 4.434895833333333
+            },
+            {
+              "variant_seat": 1,
+              "games": 384,
+              "win_credit": 0.4817708333333333,
+              "margin": -0.1171875
+            }
+          ],
+          "win_credit_seed_bootstrap_95": [
+            0.4811197916666667,
+            0.5494791666666666
+          ],
+          "margin_seed_bootstrap_95": [
+            -0.6549479166666666,
+            4.916731770833328
+          ],
+          "win_credit_seed_bootstrap_97_5": [
+            0.4759114583333333,
+            0.5546875
+          ],
+          "margin_seed_bootstrap_97_5": [
+            -1.0286458333333333,
+            5.334635416666667
+          ],
+          "win_credit_direction_at_97_5": "unresolved"
+        }
+      }
+    },
+    {
+      "path": ".runs/faceoffs-boundary-inference/summary.json",
+      "sha256": "824485869e513a131a9d4f1d4fa7b705f952b9e5b61f8780a9820b54fb0f85ba",
+      "git": null,
+      "selected": {
+        "/games": 1024,
+        "/seed_pairs": 512,
+        "/wins": 520,
+        "/ties": 7,
+        "/losses": 497,
+        "/variant_win_credit": 0.51123046875,
+        "/control_minus_variant_margin": 0.740234375,
+        "/win_credit_seed_bootstrap_95": [
+          0.48291015625,
+          0.5400390625
+        ],
+        "/margin_seed_bootstrap_95": [
+          -1.6152587890625,
+          3.124047851562498
+        ],
+        "/bootstrap": {
+          "resamples": 20000,
+          "seed": 2026100706,
+          "method": "percentile; whole two-seat seed pairs; maximum batch 1000"
+        },
+        "/checkpoints": {
+          "control": {
+            "path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+            "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+          },
+          "variant": {
+            "path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+            "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+          }
+        },
+        "/boundary_value_checkpoints": {
+          "control": null,
+          "variant": {
+            "path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/data/boundary_value.pth",
+            "sha256": "125d2bfe0709d0c9b85c246bab1d497a1411f925928353ad5cbf4fd26a6484a0"
+          }
+        },
+        "/search_by_player": {
+          "control": {
+            "action_softmax_temperature": 0.0,
+            "mcts_iterations": 32,
+            "mcts_dirichlet_epsilon": 0.0,
+            "mcts_after_state_evaluate_all_children": false,
+            "mcts_c_puct": 1.0,
+            "mcts_fpu_reduction": 0.0,
+            "mcts_boundary_samples": 1,
+            "mcts_boundary_value_checkpoint": null
+          },
+          "variant": {
+            "action_softmax_temperature": 0.0,
+            "mcts_iterations": 32,
+            "mcts_dirichlet_epsilon": 0.0,
+            "mcts_after_state_evaluate_all_children": false,
+            "mcts_c_puct": 1.0,
+            "mcts_fpu_reduction": 0.0,
+            "mcts_boundary_samples": 10,
+            "mcts_boundary_value_checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/data/boundary_value.pth"
+          }
+        }
+      }
+    }
+  ]
+}

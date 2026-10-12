@@ -1,0 +1,16 @@
+# Extend this template from configs/local/, overriding both artifact paths.
+# Match the parent's seed, player count, model dimensions and enabled heads.
+extends = "baseline.toml"
+name = "continuation"
+description = "Continue a saved training state in a new recorded run."
+initial_checkpoint = "../artifacts/parent/checkpoint.pth"
+
+[replay]
+initial_dataset = "../artifacts/parent/replay"
+
+[budget]
+# Additional iterations in this invocation; the inherited counter is preserved.
+iterations = 10
+checkpoint_interval = 1
+
+# Change search/training settings here to define a controlled continuation.

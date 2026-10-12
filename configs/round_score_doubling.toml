@@ -1,0 +1,16 @@
+extends = "baseline.toml"
+name = "baseline-round-score-doubling"
+description = "Baseline with observed raw round-score and doubling objectives."
+tags = ["full-game", "round-score", "doubling"]
+
+[training]
+gradient_diagnostic = true
+
+[auxiliary_objectives]
+round_raw_score = 0.1
+round_doubled = 0.1
+
+[auxiliary_targets]
+mode = "observed"
+# Used only when mode is changed to "resampled".
+samples = 32

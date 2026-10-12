@@ -19,9 +19,10 @@ if __name__ == "__main__":
     game = skyjo2.Game.new(players=4)
     actors = (RandomActor(), RandomActor(), RandomActor(), RandomActor())
     ticks = 0
+    games = skyjo2.play_game(game, actors, random, score_max=None)
 
     with contextlib.suppress(KeyboardInterrupt):
-        for game in skyjo2.play_game(game, actors, random, score_max=None):
+        for game in games:
             ticks += 1
 
     skyjo2.print_game(game)

@@ -6,7 +6,7 @@ import skynet as sn
 
 def test_embed_non_spatial() -> None:
     game = sj.Game.new(players=4)
-    assert sn.get_game_non_spatial_embedding(game).shape == (71,)
+    assert sn.get_game_non_spatial_embedding(game).shape == (70,)
 
 
 def test_embed_spatial() -> None:

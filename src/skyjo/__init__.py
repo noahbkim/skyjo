@@ -1,3 +1,1 @@
-"""Public package API for Skyjo."""
-
-from .game import *
+"""Skyjo: NumPy engine, search, simulation, learning, analytics and experiments."""

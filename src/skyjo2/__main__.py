@@ -208,9 +208,9 @@ def main() -> None:
     print(f"seed: {seed}")
     print(f"players: {len(actors)}")
     print()
-    game = skyjo2.Game.new(players=len(actors))
+    initial_game = skyjo2.Game.new(players=len(actors))
     actors = tuple(map(NarratedActor, actors))
-    for game in skyjo2.play_game(game, actors, rng=random):
+    for game in skyjo2.play_game(initial_game, actors, rng=random):
         if game.state == skyjo2.GameState.DEAL_FIRST_CARDS:
             for i, player in enumerate(game.players):
                 me = f"p{i}"

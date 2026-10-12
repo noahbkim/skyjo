@@ -1,0 +1,7 @@
+extends = "round_score_doubling.toml"
+name = "capacity-medium"
+description = "Raw-score and doubling training with 32/64 model dimensions."
+
+[model]
+embedding_dimensions = 32
+global_state_embedding_dimensions = 64

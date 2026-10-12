@@ -20,7 +20,7 @@ cards per row. Then, each player reveals two of their playing cards at will.
 ## The Start of a Game Round
 
 The player with the highest sum (points) of the two open cards gets to start the
-first game round. 
+first game round.
 
 > Example: the cards of Player A show a 12 and a -2, which results in a total of
 > 10. The cards of Player B show a 4 and a 2, which results in a total of 6.

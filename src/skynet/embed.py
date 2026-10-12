@@ -84,7 +84,7 @@ def get_game_non_spatial_embedding(
 
     i = 0
 
-    tensor[i] = game.turn
+    tensor[i] = game.turn_index
     i += TURN_SIZE
 
     get_state_embedding(game.state, tensor[i : i + STATE_SIZE])

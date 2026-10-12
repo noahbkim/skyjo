@@ -1,199 +1,150 @@
-"""Run one Skyjo backpropagation epoch from a saved ReplayBuffer.
-
-This is a narrow benchmark/debug entrypoint for isolating the training step
-without self-play, queues, predictors, or model factory bookkeeping.
+"""Status: manual
+Purpose: Train on a saved replay dataset with a cumulative optimizer-step budget.
+Promote when: Reusable work belongs in skyjo.experiments.offline_training.
 """
 
-from __future__ import annotations
-
+import json
 import pathlib
-import random
-import time
-import typing
+from typing import Annotated
 
-import numpy as np
-import torch
 import typer
 
-from skyjo import buffer, skynet, train, train_utils
+from skyjo.experiments import offline_training
 
 DEFAULT_SEED = 0
 DEFAULT_BATCH_SIZE = 256
+DEFAULT_OPTIMIZER_STEPS = 1
 DEFAULT_LEARN_RATE = 1e-3
 DEFAULT_EMBEDDING_DIMENSIONS = 32
 DEFAULT_GLOBAL_STATE_EMBEDDING_DIMENSIONS = 64
 DEFAULT_NUM_HEADS = 2
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-def load_state_dict(
-    weights_path: pathlib.Path,
-    device: torch.device,
-) -> dict[str, typing.Any]:
-    loaded = torch.load(weights_path, map_location=device, weights_only=True)
-    if isinstance(loaded, dict) and "state_dict" in loaded:
-        return loaded["state_dict"]
-    if isinstance(loaded, dict) and "model_state_dict" in loaded:
-        return loaded["model_state_dict"]
-    return loaded
-
-
-def build_model(
-    training_data_buffer: buffer.ReplayBuffer,
-    device: torch.device,
-    embedding_dimensions: int,
-    global_state_embedding_dimensions: int,
-    num_heads: int,
-) -> skynet.EquivariantSkyNet:
-    return skynet.EquivariantSkyNet(
-        spatial_input_shape=training_data_buffer.spatial_input_buffer.shape[1:],
-        non_spatial_input_shape=training_data_buffer.non_spatial_input_buffer.shape[1:],
-        value_output_shape=training_data_buffer.outcome_target_buffer.shape[1:],
-        policy_output_shape=training_data_buffer.policy_target_buffer.shape[1:],
-        device=device,
-        embedding_dimensions=embedding_dimensions,
-        global_state_embedding_dimensions=global_state_embedding_dimensions,
-        num_heads=num_heads,
-    )
+DEFAULT_VALIDATION_FRACTION = 0.1
 
 
 def main(
-    buffer_path: pathlib.Path = typer.Argument(
-        ...,
-        help="Path to a pickled skyjo.buffer.ReplayBuffer.",
-    ),
-    weights: pathlib.Path | None = typer.Option(
-        None,
-        "--weights",
-        help="Optional .pth model state_dict to load before training.",
-    ),
-    output_weights: pathlib.Path | None = typer.Option(
-        None,
-        "--output-weights",
-        help="Optional path where the post-epoch model state_dict should be saved.",
-    ),
-    seed: int = typer.Option(
-        DEFAULT_SEED,
-        "--seed",
-        help="Seed used when initializing a model without --weights.",
-    ),
-    device_name: str = typer.Option(
-        "cpu",
-        "--device",
-        help="Torch device to train on, for example cpu, cuda, or mps.",
-    ),
-    batch_size: int = typer.Option(
-        DEFAULT_BATCH_SIZE,
-        "--batch-size",
-        help="Training batch size.",
-    ),
-    learn_rate: float = typer.Option(
-        DEFAULT_LEARN_RATE,
-        "--learn-rate",
-        help="Adam learning rate passed to train.train_epoch.",
-    ),
-    embedding_dimensions: int = typer.Option(
-        DEFAULT_EMBEDDING_DIMENSIONS,
-        "--embedding-dimensions",
-        help="EquivariantSkyNet embedding_dimensions.",
-    ),
-    global_state_embedding_dimensions: int = typer.Option(
-        DEFAULT_GLOBAL_STATE_EMBEDDING_DIMENSIONS,
-        "--global-state-embedding-dimensions",
-        help="EquivariantSkyNet global_state_embedding_dimensions.",
-    ),
-    num_heads: int = typer.Option(
-        DEFAULT_NUM_HEADS,
-        "--num-heads",
-        help="EquivariantSkyNet num_heads.",
-    ),
-    value_scale: float = typer.Option(
-        1.0,
-        "--value-scale",
-        help="Scale for the value loss term.",
-    ),
-    policy_scale: float = typer.Option(
-        1.0,
-        "--policy-scale",
-        help="Scale for the policy loss term.",
-    ),
-    cleared_columns_scale: float = typer.Option(
-        0.1,
-        "--cleared-columns-scale",
-        help="Scale for the cleared-columns loss term.",
-    ),
+    dataset_path: Annotated[
+        pathlib.Path,
+        typer.Argument(help="Path to a versioned Skyjo replay dataset directory."),
+    ],
+    resume_checkpoint: Annotated[
+        pathlib.Path | None,
+        typer.Option(
+            "--checkpoint",
+            help="Optional versioned checkpoint to resume before training.",
+        ),
+    ] = None,
+    output_checkpoint: Annotated[
+        pathlib.Path | None,
+        typer.Option(
+            "--output-checkpoint",
+            help="Optional path for the resumable post-training checkpoint.",
+        ),
+    ] = None,
+    optimizer_steps: Annotated[
+        int,
+        typer.Option(
+            "--steps",
+            min=0,
+            help="Cumulative optimizer-step target, including resumed steps.",
+        ),
+    ] = DEFAULT_OPTIMIZER_STEPS,
+    seed: Annotated[
+        int,
+        typer.Option(
+            "--seed", help="Seed for model initialization and dataset sampling."
+        ),
+    ] = DEFAULT_SEED,
+    split_seed: Annotated[
+        int,
+        typer.Option(
+            "--split-seed",
+            help="Seed used for the deterministic game-level validation split.",
+        ),
+    ] = DEFAULT_SEED,
+    validation_fraction: Annotated[
+        float,
+        typer.Option(
+            "--validation-fraction",
+            min=0.0,
+            max=1.0,
+            help="Fraction of complete games reserved for validation; zero disables validation.",
+        ),
+    ] = DEFAULT_VALIDATION_FRACTION,
+    game_indices: Annotated[
+        list[int] | None,
+        typer.Option(
+            "--game-index",
+            help="Persisted game ID to include; repeat to select multiple games.",
+        ),
+    ] = None,
+    device_name: Annotated[
+        str,
+        typer.Option("--device", help="Torch device, for example cpu, cuda, or mps."),
+    ] = "cpu",
+    batch_size: Annotated[
+        int,
+        typer.Option("--batch-size", min=1, help="Training and evaluation batch size."),
+    ] = DEFAULT_BATCH_SIZE,
+    learn_rate: Annotated[
+        float, typer.Option("--learn-rate", help="Adam learning rate.")
+    ] = DEFAULT_LEARN_RATE,
+    embedding_dimensions: Annotated[
+        int,
+        typer.Option(
+            "--embedding-dimensions", help="EquivariantSkyNet embedding_dimensions."
+        ),
+    ] = DEFAULT_EMBEDDING_DIMENSIONS,
+    global_state_embedding_dimensions: Annotated[
+        int,
+        typer.Option(
+            "--global-state-embedding-dimensions",
+            help="EquivariantSkyNet global_state_embedding_dimensions.",
+        ),
+    ] = DEFAULT_GLOBAL_STATE_EMBEDDING_DIMENSIONS,
+    num_heads: Annotated[
+        int, typer.Option("--num-heads", help="EquivariantSkyNet num_heads.")
+    ] = DEFAULT_NUM_HEADS,
+    value_scale: Annotated[
+        float, typer.Option("--value-scale", help="Scale for the value loss term.")
+    ] = 1.0,
+    policy_scale: Annotated[
+        float, typer.Option("--policy-scale", help="Scale for the policy loss term.")
+    ] = 1.0,
+    auxiliary_objectives: Annotated[
+        str | None,
+        typer.Option(
+            "--auxiliary-objectives",
+            help="JSON mapping of round objective names to weights; requires matching replay labels.",
+        ),
+    ] = None,
 ) -> None:
-    """Run one training epoch from a saved ReplayBuffer."""
-    device = torch.device(device_name)
-
-    set_seed(seed)
-
-    load_start = time.perf_counter()
-    training_data_buffer = buffer.ReplayBuffer.load(buffer_path)
-    load_seconds = time.perf_counter() - load_start
-
-    buffer_size = len(training_data_buffer)
-    if buffer_size == 0:
-        raise typer.BadParameter(f"ReplayBuffer at {buffer_path} is empty.")
-    if batch_size > buffer_size:
-        raise ValueError(
-            f"Batch size {batch_size} cannot be larger than buffer size {buffer_size}."
-        )
-
-    model = build_model(
-        training_data_buffer,
-        device=device,
-        embedding_dimensions=embedding_dimensions,
-        global_state_embedding_dimensions=global_state_embedding_dimensions,
-        num_heads=num_heads,
-    )
-
-    if weights is not None:
-        model.load_state_dict(load_state_dict(weights, device=device))
-
-    batch_count = buffer_size // batch_size + 1
-    optimizer = train.make_optimizer(model, learn_rate)
-    train_start = time.perf_counter()
-    loss_details = train.train_epoch(
-        model,
-        training_data_buffer,
-        training_batch_size=batch_size,
-        optimizer=optimizer,
-        loss_function=lambda model_outputs, targets: train_utils.base_loss(
-            model_outputs,
-            targets,
+    try:
+        result = offline_training.run(
+            dataset_path,
+            resume_checkpoint=resume_checkpoint,
+            output_checkpoint=output_checkpoint,
+            optimizer_steps=optimizer_steps,
+            seed=seed,
+            split_seed=split_seed,
+            validation_fraction=validation_fraction,
+            game_indices=game_indices,
+            device_name=device_name,
+            batch_size=batch_size,
+            learn_rate=learn_rate,
+            embedding_dimensions=embedding_dimensions,
+            global_state_embedding_dimensions=global_state_embedding_dimensions,
+            num_heads=num_heads,
             value_scale=value_scale,
             policy_scale=policy_scale,
-            cleared_columns_scale=cleared_columns_scale,
-        ),
-    )
-    train_seconds = time.perf_counter() - train_start
+            auxiliary_objectives=json.loads(auxiliary_objectives)
+            if auxiliary_objectives
+            else None,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
 
-    if output_weights is not None:
-        output_weights.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(model.state_dict(), output_weights)
-
-    typer.echo(f"buffer_path: {buffer_path}")
-    typer.echo(f"buffer_size: {buffer_size}")
-    typer.echo(f"batch_size: {batch_size}")
-    typer.echo(f"batches: {batch_count}")
-    typer.echo(f"device: {device}")
-    typer.echo(f"weights: {weights if weights is not None else 'initialized'}")
-    typer.echo(f"seed: {seed}")
-    typer.echo(f"buffer_load_seconds: {load_seconds:.6f}")
-    typer.echo(f"train_epoch_seconds: {train_seconds:.6f}")
-    typer.echo(f"seconds_per_batch: {train_seconds / batch_count:.6f}")
-    typer.echo("loss_summary:")
-    typer.echo(train_utils.loss_details_summary(loss_details).to_string())
-    if output_weights is not None:
-        typer.echo(f"output_weights: {output_weights}")
+    for name, value in result.metrics.items():
+        typer.echo(f"{name}: {value}")
 
 
 if __name__ == "__main__":

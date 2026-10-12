@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from enum import IntEnum, auto
-from typing import Iterator, Protocol, assert_never
+from typing import Protocol, assert_never
 
 from . import HAND_ROWS, Game, GameState, Rule
 
@@ -242,10 +242,11 @@ def play_game(
     assert len(actors) == len(game.players)
 
     while score_max is None or all(player.score < score_max for player in game.players):
-        for game in play_round(
+        for next_game in play_round(
             game,
             actors,
             rng,
             no_progress_turn_max=no_progress_turn_max,
         ):
+            game = next_game
             yield game
