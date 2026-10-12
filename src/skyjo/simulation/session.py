@@ -7,7 +7,7 @@ import numpy as np
 
 from skyjo.engine import game as sj
 
-from .decisions import PlayerDecision, get_decision, validate_probabilities
+from .decisions import PlayerDecision, get_decision, validate_decision
 from .jobs import GameRandomStreams
 from .recording import Recording, make_frame
 
@@ -70,7 +70,7 @@ class GameSession:
         else:
             if decision is None or action is not None:
                 raise ValueError("An automated turn requires a player decision")
-            validate_probabilities(self.state, decision.probabilities)
+            validate_decision(self.state, decision)
             action = int(
                 self.streams.actions.choice(sj.MASK_SIZE, p=decision.probabilities)
             )

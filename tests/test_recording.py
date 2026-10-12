@@ -99,6 +99,52 @@ def test_human_actions_and_legacy_player_distributions_are_checked():
         session.advance(PlayerDecision(np.zeros(sj.MASK_SIZE)))
 
 
+def test_independent_training_policy_survives_recording_and_legacy_loading():
+    session = random_session()
+    actions = np.flatnonzero(sj.actions(session.state))
+    acting = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    target = np.zeros_like(acting)
+    acting[actions[0]] = target[actions[-1]] = 1
+    session.advance(PlayerDecision(acting, training_policy=target))
+    assert session.recording.frames[0].action == actions[0]
+    data = recording.to_dict(session.recording)
+    restored = recording.from_dict(data)
+    np.testing.assert_array_equal(restored.frames[0].decision.probabilities, acting)
+    np.testing.assert_array_equal(restored.frames[0].decision.training_policy, target)
+    assert recording.to_dict(restored) == data
+
+    data["version"] = 1
+    for frame in data["frames"]:
+        frame.pop("training_policy")
+    legacy = recording.from_dict(data)
+    assert legacy.frames[0].decision.training_policy is None
+    np.testing.assert_array_equal(legacy.frames[0].decision.probabilities, acting)
+
+
+def test_invalid_training_policy_is_rejected_before_play_or_replay():
+    session = random_session()
+    decision = session.propose()
+    invalid = PlayerDecision(
+        decision.probabilities, training_policy=np.zeros(sj.MASK_SIZE)
+    )
+
+    class InvalidPlayer:
+        def get_decision(self, state, *, diagnostics=True):
+            return invalid
+
+    with pytest.raises(ValueError, match="normalized distribution"):
+        get_decision(InvalidPlayer(), session.state)
+    before = sj.hash_skyjo(session.state)
+    with pytest.raises(ValueError, match="normalized distribution"):
+        session.advance(invalid)
+    assert sj.hash_skyjo(session.state) == before
+    session.advance(decision)
+    data = recording.to_dict(session.recording)
+    data["frames"][0]["training_policy"] = invalid.training_policy.tolist()
+    with pytest.raises(recording.RecordingError, match="normalized distribution"):
+        recording.from_dict(data)
+
+
 class UniformEvaluator:
     def evaluate(self, states):
         return [

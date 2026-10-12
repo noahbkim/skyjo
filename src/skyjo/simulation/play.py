@@ -12,6 +12,7 @@ from skyjo.engine import game as sj
 from skyjo.engine import values
 
 from . import player
+from .decisions import get_decision
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,14 @@ type ActionProbabilities = FloatArray
 class RoundHistoryEntry(typing.NamedTuple):
     """One observed decision point from self-play.
 
-    Terminal entries use None for action and action_probabilities.
+    Terminal entries use None for action and policies. A missing training policy
+    preserves the legacy behavior of learning from action_probabilities.
     """
 
     state: sj.Skyjo
     action: sj.SkyjoAction | None
     action_probabilities: ActionProbabilities | None
+    training_policy: ActionProbabilities | None = None
 
 
 type RoundHistory = list[RoundHistoryEntry]
@@ -66,11 +69,13 @@ class GameResult:
 def print_round_history(
     game_history: RoundHistory,
 ):
-    for game_state, action, action_probabilities in game_history:
-        print(sj.visualize_state(game_state))
-        if action is not None:
-            print(f"ACTION: {sj.get_action_name(action)}")
-        print(f"ACTION PROBABILITIES: {action_probabilities}")
+    for entry in game_history:
+        print(sj.visualize_state(entry.state))
+        if entry.action is not None:
+            print(f"ACTION: {sj.get_action_name(entry.action)}")
+        print(f"ACTION PROBABILITIES: {entry.action_probabilities}")
+        if entry.training_policy is not None:
+            print(f"TRAINING POLICY: {entry.training_policy}")
 
 
 # MARK: Selfplay
@@ -99,12 +104,17 @@ def play_round(
     if debug:
         logger.info(f"{sj.visualize_state(game_state)}")
     while not sj.get_round_over(game_state):
-        action_probabilities = players[
-            sj.get_player(game_state)
-        ].get_action_probabilities(game_state)
+        decision = get_decision(
+            players[sj.get_player(game_state)], game_state, diagnostics=False
+        )
+        action_probabilities = decision.probabilities
         action = action_rng.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
-        game_history.append(RoundHistoryEntry(game_state, action, action_probabilities))
+        game_history.append(
+            RoundHistoryEntry(
+                game_state, action, action_probabilities, decision.training_policy
+            )
+        )
         game_state = sj.apply_action(game_state, action, rng=environment_rng)
         if debug:
             print(sj.get_action_name(action))

@@ -121,8 +121,14 @@ def build_training_batch(
             if resolved.entries
             else None
         )
-        for state, action, probabilities in round_result.history[:-1]:
-            if action is None or probabilities is None:
+        for entry in round_result.history[:-1]:
+            state = entry.state
+            probabilities = (
+                entry.training_policy
+                if entry.training_policy is not None
+                else entry.action_probabilities
+            )
+            if entry.action is None or probabilities is None:
                 raise ValueError("Observed decisions require an action and policy")
             row = {
                 "value": np.roll(outcome, -sj.get_player(state)),
