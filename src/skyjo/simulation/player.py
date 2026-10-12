@@ -6,6 +6,8 @@ import numpy as np
 
 from skyjo.engine import game as sj
 
+from .decisions import PlayerDecision, policy_section
+
 
 class Player(Protocol):
     def get_action_probabilities(self, game_state: sj.Skyjo) -> np.ndarray:
@@ -19,6 +21,13 @@ class RandomPlayer:
     def get_action_probabilities(self, game_state: sj.Skyjo) -> np.ndarray:
         mask = sj.actions(game_state).astype(np.float32)
         return mask / mask.sum()
+
+    def get_decision(self, state, *, diagnostics=True):
+        probabilities = self.get_action_probabilities(state)
+        return PlayerDecision(
+            probabilities,
+            (policy_section(state, probabilities),) if diagnostics else (),
+        )
 
 
 class HumanPlayer:

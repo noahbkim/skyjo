@@ -8,7 +8,13 @@ from typing import Literal
 
 import numpy as np
 
-from skyjo.learning import boundary_inference, checkpoint, models, predictor
+from skyjo.learning import (
+    boundary_inference,
+    checkpoint,
+    models,
+    observations,
+    predictor,
+)
 from skyjo.search.mcts import SearchConfig
 from skyjo.search.player import SearchPlayer
 
@@ -52,11 +58,22 @@ class ContestantConfig:
 def load_model(path: Path, *, device="cpu"):
     payload = checkpoint.decode_checkpoint(path, map_location=device)
     config = payload["configuration"]
+    settings = dict(config["model"])
+    # Earlier experiment checkpoints embedded these derived settings in model.
+    legacy_shape = settings.pop("non_spatial_input_shape", None)
+    if legacy_shape is not None and tuple(
+        legacy_shape
+    ) != observations.get_non_spatial_input_shape(config["players"]):
+        raise ValueError("Checkpoint observation shape does not match this engine")
+    legacy_objectives = settings.pop("auxiliary_objectives", {})
+    auxiliary_objectives = config.get("auxiliary_objectives", legacy_objectives)
+    if legacy_objectives and auxiliary_objectives != legacy_objectives:
+        raise ValueError("Checkpoint contains conflicting auxiliary objectives")
     model = models.build(
-        config["model"],
+        settings,
         players=config["players"],
         device=device,
-        auxiliary_objectives=config.get("auxiliary_objectives", {}),
+        auxiliary_objectives=auxiliary_objectives,
     )
     model.load_state_dict(payload["model_state_dict"])
     return model.eval()
