@@ -1,0 +1,1122 @@
+{
+  "topic": "mcts-mixture-backups",
+  "verified_at": "2026-10-11",
+  "provenance_note": "Selected fields from structured local reports; selected keys are source JSON pointers (empty string means the whole document). Copied paths are normalized relative to the repository; source pointers and SHA256 hashes refer to the original files. Local artifacts and checkpoints are not required checkout files. These are selected diagnostics and frozen-checkpoint faceoffs, not evidence of a general strength gain. Mode current means sampled chance; all means exact chance. Regrets and value deltas marked pp are win-probability percentage points.",
+  "sources": [
+    {
+      "path": ".runs/diagnostics/mcts-mixture-20261011/searches-plan.json",
+      "sha256": "98f0b275f10bd5188906f9b402c5b5543b1c13c7c665faae6c3e4e144764db8e",
+      "selected": {
+        "/checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "/budgets": [
+          32,
+          128,
+          2048
+        ],
+        "/exact_repetitions": 8,
+        "/general_repetitions": 3,
+        "/modes": [
+          "current",
+          "all"
+        ],
+        "/hashes": {
+          ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+          "src/skyjo/search/mcts.py": "01fbbcffba9c9a3b3b38aa7a0001877a71f0057e61bc85c13dd7a78da63fdadc",
+          ".runs/diagnostics/mcts-mixture-20261011/replay.py": "d88d51a37200bd132ef8219e61180ff9d10dfd0b22eef28bea956ad38728b45a",
+          ".runs/diagnostics/mcts-case-studies-20261011/probe.py": "091a783ca41ce940ac7973b52805ad8133c13fa53fc6d2be280e58a3dbf6fa6e",
+          ".runs/diagnostics/mcts-case-studies-20261011/searches.jsonl": "88b7d57a558f56d049ccb513ee3ad16440bf3a30258167c36325c81e66fe3218",
+          ".runs/diagnostics/boundary-search-positions-20261010/states.npz": "0f2736413f45bec25095396e9ce2f54e096784d1516dfbde06e7647be2ac95dd"
+        },
+        "/protocol": "Same checkpoint, frozen positions and seeds as saved baseline; current=sampled chance, all=exact chance. c_puct=1, symmetry off, no noise, boundary_samples=1, NextDealEvaluator. Values use current mixtures and one neural contribution per decision. Timings exclude audits; historical timings are not a controlled speed benchmark.",
+        "/cases/0": {
+          "id": "terminal-174967",
+          "cohort": "terminal",
+          "index": 174967,
+          "reference": {
+            "16": 0.607843137254902,
+            "17": 0.10784313725490197,
+            "18": 1.0,
+            "19": 1.0,
+            "20": 0.20588235294117646,
+            "21": 0.8137254901960784,
+            "22": 0.8725490196078431,
+            "23": 0.2549019607843137,
+            "24": 0.4019607843137255,
+            "25": 0.20588235294117646,
+            "26": 0.28431372549019607,
+            "27": 0.607843137254902
+          },
+          "boards": [
+            [
+              [
+                6,
+                -1,
+                12,
+                "?"
+              ],
+              [
+                0,
+                9,
+                10,
+                0
+              ],
+              [
+                3,
+                0,
+                1,
+                6
+              ]
+            ],
+            [
+              [
+                -2,
+                2,
+                3,
+                11
+              ],
+              [
+                12,
+                9,
+                2,
+                2
+              ],
+              [
+                3,
+                -1,
+                1,
+                10
+              ]
+            ]
+          ],
+          "incoming": 6,
+          "scores": [
+            92,
+            75
+          ],
+          "countdown": 1,
+          "turn": 48,
+          "actor": 0,
+          "phase": "replace",
+          "visible_scores": [
+            46,
+            52
+          ],
+          "hidden": [
+            1,
+            0
+          ]
+        },
+        "/cases/13": {
+          "id": "last-turn-1650878",
+          "cohort": "last_turn",
+          "index": 1650878,
+          "reference": {
+            "2": 0.9046259280411194,
+            "3": 0.5728155339805824
+          },
+          "boards": [
+            [
+              [
+                1,
+                3,
+                -1,
+                "?"
+              ],
+              [
+                -2,
+                1,
+                2,
+                -1
+              ],
+              [
+                6,
+                1,
+                2,
+                12
+              ]
+            ],
+            [
+              [
+                11,
+                3,
+                11,
+                5
+              ],
+              [
+                1,
+                4,
+                -2,
+                0
+              ],
+              [
+                2,
+                5,
+                0,
+                0
+              ]
+            ]
+          ],
+          "incoming": 12,
+          "scores": [
+            75,
+            26
+          ],
+          "countdown": 2,
+          "turn": 57,
+          "actor": 1,
+          "phase": "draw_or_take",
+          "visible_scores": [
+            24,
+            40
+          ],
+          "hidden": [
+            1,
+            0
+          ]
+        },
+        "/cases/17": {
+          "id": "general-997508",
+          "cohort": "general",
+          "index": 997508,
+          "reference": null,
+          "stratum": "draw_early",
+          "boards": [
+            [
+              [
+                9,
+                "?",
+                "?",
+                "?"
+              ],
+              [
+                3,
+                "?",
+                "?",
+                "?"
+              ],
+              [
+                "?",
+                "?",
+                "?",
+                "?"
+              ]
+            ],
+            [
+              [
+                11,
+                2,
+                "?",
+                "?"
+              ],
+              [
+                5,
+                "?",
+                "?",
+                "?"
+              ],
+              [
+                "?",
+                "?",
+                "?",
+                "?"
+              ]
+            ]
+          ],
+          "incoming": 3,
+          "scores": [
+            38,
+            20
+          ],
+          "countdown": null,
+          "turn": 3,
+          "actor": 1,
+          "phase": "draw_or_take",
+          "visible_scores": [
+            12,
+            18
+          ],
+          "hidden": [
+            10,
+            9
+          ]
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/mcts-mixture-20261011/analysis.json",
+      "sha256": "345714d9eb5c2ec11edb1522cafdc2ca7cbf8da244302583945ca4a4ed516004",
+      "selected": {
+        "/summaries": [
+          {
+            "cohort": "exact",
+            "mode": "current",
+            "budget": 32,
+            "n": 136,
+            "group_changes": 7,
+            "max_abs_root_delta_pp": 14.546558260917664,
+            "old": {
+              "mean_seconds": 0.013503840960123959,
+              "mean_evaluated_states": 5.830882352941177,
+              "mean_evaluation_calls": 5.830882352941177,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 8,
+              "mean_regret_pp": 0.5543589287381931
+            },
+            "new": {
+              "mean_seconds": 0.01704638935488594,
+              "mean_evaluated_states": 5.823529411764706,
+              "mean_evaluation_calls": 5.823529411764706,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 3,
+              "mean_regret_pp": 0.17027572868543434,
+              "mean_max_action_depth": 0.47058823529411764,
+              "zero_visit_decision_fraction": 0.0
+            }
+          },
+          {
+            "cohort": "exact",
+            "mode": "current",
+            "budget": 128,
+            "n": 136,
+            "group_changes": 4,
+            "max_abs_root_delta_pp": 8.80906879901886,
+            "old": {
+              "mean_seconds": 0.02605851265766165,
+              "mean_evaluated_states": 7.3088235294117645,
+              "mean_evaluation_calls": 7.3088235294117645,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 2,
+              "mean_regret_pp": 0.1538494185553009
+            },
+            "new": {
+              "mean_seconds": 0.025798923121970695,
+              "mean_evaluated_states": 7.286764705882353,
+              "mean_evaluation_calls": 7.286764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 1,
+              "mean_regret_pp": 0.05252100840336132,
+              "mean_max_action_depth": 0.47058823529411764,
+              "zero_visit_decision_fraction": 0.0
+            }
+          },
+          {
+            "cohort": "exact",
+            "mode": "current",
+            "budget": 2048,
+            "n": 136,
+            "group_changes": 1,
+            "max_abs_root_delta_pp": 0.6494522094726562,
+            "old": {
+              "mean_seconds": 0.35515296298613336,
+              "mean_evaluated_states": 8.205882352941176,
+              "mean_evaluation_calls": 8.205882352941176,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 0,
+              "mean_regret_pp": 0.0
+            },
+            "new": {
+              "mean_seconds": 0.3776354527867892,
+              "mean_evaluated_states": 8.205882352941176,
+              "mean_evaluation_calls": 8.205882352941176,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 0,
+              "mean_regret_pp": 0.0,
+              "mean_max_action_depth": 0.47058823529411764,
+              "zero_visit_decision_fraction": 0.0
+            }
+          },
+          {
+            "cohort": "exact",
+            "mode": "all",
+            "budget": 32,
+            "n": 136,
+            "group_changes": 8,
+            "max_abs_root_delta_pp": 14.546558260917664,
+            "old": {
+              "mean_seconds": 0.012415853214299525,
+              "mean_evaluated_states": 8.529411764705882,
+              "mean_evaluation_calls": 1.9411764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 5,
+              "mean_regret_pp": 0.3777268483150835
+            },
+            "new": {
+              "mean_seconds": 0.0162734258971314,
+              "mean_evaluated_states": 8.529411764705882,
+              "mean_evaluation_calls": 1.9411764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 3,
+              "mean_regret_pp": 0.3553765994712631,
+              "mean_max_action_depth": 0.47058823529411764,
+              "zero_visit_decision_fraction": 0.3568965517241379
+            }
+          },
+          {
+            "cohort": "exact",
+            "mode": "all",
+            "budget": 128,
+            "n": 136,
+            "group_changes": 4,
+            "max_abs_root_delta_pp": 8.80906879901886,
+            "old": {
+              "mean_seconds": 0.02412257537670324,
+              "mean_evaluated_states": 8.529411764705882,
+              "mean_evaluation_calls": 1.9411764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 2,
+              "mean_regret_pp": 0.1538494185553009
+            },
+            "new": {
+              "mean_seconds": 0.024203047734986553,
+              "mean_evaluated_states": 8.529411764705882,
+              "mean_evaluation_calls": 1.9411764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 1,
+              "mean_regret_pp": 0.05252100840336132,
+              "mean_max_action_depth": 0.47058823529411764,
+              "zero_visit_decision_fraction": 0.16034482758620688
+            }
+          },
+          {
+            "cohort": "exact",
+            "mode": "all",
+            "budget": 2048,
+            "n": 136,
+            "group_changes": 1,
+            "max_abs_root_delta_pp": 3.2667964696884155,
+            "old": {
+              "mean_seconds": 0.35321271627874334,
+              "mean_evaluated_states": 8.529411764705882,
+              "mean_evaluation_calls": 1.9411764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 0,
+              "mean_regret_pp": 0.0
+            },
+            "new": {
+              "mean_seconds": 0.37534140900243074,
+              "mean_evaluated_states": 8.529411764705882,
+              "mean_evaluation_calls": 1.9411764705882353,
+              "mean_max_edge_depth": 1.9411764705882353,
+              "suboptimal": 0,
+              "mean_regret_pp": 0.0,
+              "mean_max_action_depth": 0.47058823529411764,
+              "zero_visit_decision_fraction": 0.03879310344827586
+            }
+          },
+          {
+            "cohort": "general",
+            "mode": "current",
+            "budget": 32,
+            "n": 24,
+            "group_changes": 0,
+            "max_abs_root_delta_pp": 0.44591426849365234,
+            "old": {
+              "mean_seconds": 0.02215930885480096,
+              "mean_evaluated_states": 33.0,
+              "mean_evaluation_calls": 33.0,
+              "mean_max_edge_depth": 6.083333333333333
+            },
+            "new": {
+              "mean_seconds": 0.022870486155928422,
+              "mean_evaluated_states": 33.0,
+              "mean_evaluation_calls": 33.0,
+              "mean_max_edge_depth": 6.083333333333333,
+              "mean_max_action_depth": 3.6666666666666665,
+              "zero_visit_decision_fraction": 0.0
+            }
+          },
+          {
+            "cohort": "general",
+            "mode": "current",
+            "budget": 128,
+            "n": 24,
+            "group_changes": 0,
+            "max_abs_root_delta_pp": 0.13908743858337402,
+            "old": {
+              "mean_seconds": 0.08495133688362937,
+              "mean_evaluated_states": 129.0,
+              "mean_evaluation_calls": 129.0,
+              "mean_max_edge_depth": 7.208333333333333
+            },
+            "new": {
+              "mean_seconds": 0.0895326146176861,
+              "mean_evaluated_states": 129.0,
+              "mean_evaluation_calls": 129.0,
+              "mean_max_edge_depth": 7.208333333333333,
+              "mean_max_action_depth": 4.75,
+              "zero_visit_decision_fraction": 0.0
+            }
+          },
+          {
+            "cohort": "general",
+            "mode": "current",
+            "budget": 2048,
+            "n": 24,
+            "group_changes": 0,
+            "max_abs_root_delta_pp": 0.14855265617370605,
+            "old": {
+              "mean_seconds": 1.4336145763518289,
+              "mean_evaluated_states": 2049.0,
+              "mean_evaluation_calls": 2049.0,
+              "mean_max_edge_depth": 9.833333333333334
+            },
+            "new": {
+              "mean_seconds": 1.5201503940237064,
+              "mean_evaluated_states": 2048.9166666666665,
+              "mean_evaluation_calls": 2048.9166666666665,
+              "mean_max_edge_depth": 9.833333333333334,
+              "mean_max_action_depth": 7.041666666666667,
+              "zero_visit_decision_fraction": 0.0
+            }
+          },
+          {
+            "cohort": "general",
+            "mode": "all",
+            "budget": 32,
+            "n": 24,
+            "group_changes": 0,
+            "max_abs_root_delta_pp": 1.2616664171218872,
+            "old": {
+              "mean_seconds": 0.06197738021728583,
+              "mean_evaluated_states": 257.5833333333333,
+              "mean_evaluation_calls": 33.0,
+              "mean_max_edge_depth": 6.583333333333333
+            },
+            "new": {
+              "mean_seconds": 0.06286329332700309,
+              "mean_evaluated_states": 254.66666666666666,
+              "mean_evaluation_calls": 33.0,
+              "mean_max_edge_depth": 6.625,
+              "mean_max_action_depth": 4.041666666666667,
+              "zero_visit_decision_fraction": 0.881871727748691
+            }
+          },
+          {
+            "cohort": "general",
+            "mode": "all",
+            "budget": 128,
+            "n": 24,
+            "group_changes": 0,
+            "max_abs_root_delta_pp": 1.6361922025680542,
+            "old": {
+              "mean_seconds": 0.25496758507021394,
+              "mean_evaluated_states": 1019.1666666666666,
+              "mean_evaluation_calls": 129.0,
+              "mean_max_edge_depth": 7.875
+            },
+            "new": {
+              "mean_seconds": 0.2611624202885044,
+              "mean_evaluated_states": 1016.25,
+              "mean_evaluation_calls": 129.0,
+              "mean_max_edge_depth": 7.875,
+              "mean_max_action_depth": 4.833333333333333,
+              "zero_visit_decision_fraction": 0.8781877818778188
+            }
+          },
+          {
+            "cohort": "general",
+            "mode": "all",
+            "budget": 2048,
+            "n": 24,
+            "group_changes": 0,
+            "max_abs_root_delta_pp": 2.2186458110809326,
+            "old": {
+              "mean_seconds": 4.240414616273483,
+              "mean_evaluated_states": 15040.458333333334,
+              "mean_evaluation_calls": 2047.875,
+              "mean_max_edge_depth": 10.625
+            },
+            "new": {
+              "mean_seconds": 4.3362661025021225,
+              "mean_evaluated_states": 15063.625,
+              "mean_evaluation_calls": 2047.7083333333333,
+              "mean_max_edge_depth": 10.916666666666666,
+              "mean_max_action_depth": 7.291666666666667,
+              "zero_visit_decision_fraction": 0.8653771074629594
+            }
+          }
+        ],
+        "/audit": {
+          "paired_searches": 960,
+          "max_mixture_error": 1.7881393432617188e-07,
+          "checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "all_visit_budgets_match": true
+        },
+        "/quality_changes/0": {
+          "case": "last-turn-1650878",
+          "mode": "all",
+          "budget": 32,
+          "repetition": 5,
+          "cohort": "last_turn",
+          "old_choice": 2,
+          "new_choice": 3,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            3
+          ],
+          "group_changed": true,
+          "old_regret": 0.0,
+          "new_regret": 0.3318103940605368,
+          "root_delta_pp": 6.729090213775635,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.7372375726699829,
+              "new_value": 0.6503992676734924,
+              "delta_pp": -8.683830499649048,
+              "old_visits": 22,
+              "new_visits": 13
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.6002408266067505,
+              "new_value": 0.7632846832275391,
+              "delta_pp": 16.304385662078857,
+              "old_visits": 10,
+              "new_visits": 19
+            }
+          ]
+        },
+        "/value_changes/0": {
+          "case": "terminal-174967",
+          "mode": "current",
+          "budget": 2048,
+          "repetition": 0,
+          "action": 22,
+          "name": "REPLACE row: 1 column: 2",
+          "old_value": 0.7297297120094299,
+          "new_value": 0.8850574493408203,
+          "delta_pp": 15.532773733139038,
+          "old_visits": 37,
+          "new_visits": 87
+        },
+        "/comparisons/663": {
+          "case": "last-turn-1650878",
+          "mode": "all",
+          "budget": 32,
+          "repetition": 5,
+          "cohort": "last_turn",
+          "old_choice": 2,
+          "new_choice": 3,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            3
+          ],
+          "group_changed": true,
+          "old_regret": 0.0,
+          "new_regret": 0.3318103940605368,
+          "root_delta_pp": 6.729090213775635,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.7372375726699829,
+              "new_value": 0.6503992676734924,
+              "delta_pp": -8.683830499649048,
+              "old_visits": 22,
+              "new_visits": 13
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.6002408266067505,
+              "new_value": 0.7632846832275391,
+              "delta_pp": 16.304385662078857,
+              "old_visits": 10,
+              "new_visits": 19
+            }
+          ]
+        },
+        "/comparisons/664": {
+          "case": "last-turn-1650878",
+          "mode": "all",
+          "budget": 128,
+          "repetition": 5,
+          "cohort": "last_turn",
+          "old_choice": 2,
+          "new_choice": 2,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            2
+          ],
+          "group_changed": false,
+          "old_regret": 0.0,
+          "new_regret": 0.0,
+          "root_delta_pp": -0.42172670364379883,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.8581125140190125,
+              "new_value": 0.8227484226226807,
+              "delta_pp": -3.5364091396331787,
+              "old_visits": 110,
+              "new_visits": 89
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.6668004989624023,
+              "new_value": 0.7051900029182434,
+              "delta_pp": 3.8389503955841064,
+              "old_visits": 18,
+              "new_visits": 39
+            }
+          ]
+        },
+        "/comparisons/665": {
+          "case": "last-turn-1650878",
+          "mode": "all",
+          "budget": 2048,
+          "repetition": 5,
+          "cohort": "last_turn",
+          "old_choice": 2,
+          "new_choice": 2,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            2
+          ],
+          "group_changed": false,
+          "old_regret": 0.0,
+          "new_regret": 0.0,
+          "root_delta_pp": 0.13690590858459473,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.8554214835166931,
+              "new_value": 0.8550779223442078,
+              "delta_pp": -0.034356117248535156,
+              "old_visits": 1977,
+              "new_visits": 1973
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.5704565048217773,
+              "new_value": 0.5800321102142334,
+              "delta_pp": 0.9575605392456055,
+              "old_visits": 71,
+              "new_visits": 75
+            }
+          ]
+        },
+        "/comparisons/861": {
+          "case": "general-997508",
+          "mode": "all",
+          "budget": 32,
+          "repetition": 0,
+          "cohort": "general",
+          "old_choice": 2,
+          "new_choice": 2,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            2
+          ],
+          "group_changed": false,
+          "old_regret": null,
+          "new_regret": null,
+          "root_delta_pp": -0.002041459083557129,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.37589287757873535,
+              "new_value": 0.3752672076225281,
+              "delta_pp": -0.06256699562072754,
+              "old_visits": 19,
+              "new_visits": 19
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.3592938184738159,
+              "new_value": 0.3592938184738159,
+              "delta_pp": 0.0,
+              "old_visits": 13,
+              "new_visits": 13
+            }
+          ]
+        },
+        "/comparisons/862": {
+          "case": "general-997508",
+          "mode": "all",
+          "budget": 128,
+          "repetition": 0,
+          "cohort": "general",
+          "old_choice": 2,
+          "new_choice": 2,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            2
+          ],
+          "group_changed": false,
+          "old_regret": null,
+          "new_regret": null,
+          "root_delta_pp": -0.03954768180847168,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.3740008473396301,
+              "new_value": 0.3742316663265228,
+              "delta_pp": 0.02308189868927002,
+              "old_visits": 79,
+              "new_visits": 79
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.35840457677841187,
+              "new_value": 0.3584532141685486,
+              "delta_pp": 0.004863739013671875,
+              "old_visits": 49,
+              "new_visits": 49
+            }
+          ]
+        },
+        "/comparisons/863": {
+          "case": "general-997508",
+          "mode": "all",
+          "budget": 2048,
+          "repetition": 0,
+          "cohort": "general",
+          "old_choice": 2,
+          "new_choice": 2,
+          "old_group": [
+            2
+          ],
+          "new_group": [
+            2
+          ],
+          "group_changed": false,
+          "old_regret": null,
+          "new_regret": null,
+          "root_delta_pp": -0.190010666847229,
+          "action_changes": [
+            {
+              "action": 2,
+              "name": "DRAW",
+              "old_value": 0.3656930923461914,
+              "new_value": 0.36586281657218933,
+              "delta_pp": 0.01697242259979248,
+              "old_visits": 1336,
+              "new_visits": 1327
+            },
+            {
+              "action": 3,
+              "name": "TAKE",
+              "old_value": 0.3582313656806946,
+              "new_value": 0.3588601052761078,
+              "delta_pp": 0.0628739595413208,
+              "old_visits": 712,
+              "new_visits": 721
+            }
+          ]
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/mcts-mixture-20261011/verification.json",
+      "sha256": "dc7b55eed3158009bf47b048f6860276ad5ba51a773900156beb642ffcc8b7e1",
+      "selected": {
+        "": {
+          "focused_search_tests_passed": 51,
+          "repository_tests_passed": 319,
+          "pre_fix_boundary_regressions_failed": 3,
+          "pre_fix_probability_one_regressions_failed": 8,
+          "production_ast_matches_replayed_snapshot": true,
+          "source_sha256": "a215fc6921b77254da98df166ff7fe79b07c9f694e447703ac041f8b371795df",
+          "lint_and_whitespace": "passed",
+          "experiment": {
+            "paired_searches": 960,
+            "max_mixture_error": 1.7881393432617188e-07,
+            "checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+            "all_visit_budgets_match": true
+          }
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/mcts-mixture-faceoff-20261011/sampled-32/plan.json",
+      "sha256": "f765fdec16f7fcb48755c5708628864c297660282f1506cc51537eaa77be9700",
+      "selected": {
+        "": {
+          "checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "iterations": 32,
+          "seed_count": 64,
+          "games": 128,
+          "workers": 8,
+          "threads_per_worker": 1,
+          "seed": 20261011,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true
+          },
+          "temperature": 0.0,
+          "max_batch_size": 64,
+          "control": "d5d0c84 historical-return backup",
+          "variant": "current-mixture backup with one retained neural contribution",
+          "hashes": {
+            ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+            ".runs/diagnostics/mcts-mixture-faceoff-20261011/baseline_mcts.py": "33ed6099c66797e4b7fe70be4686120bd6aee2dba458fe9f0de95d34f3465eb1",
+            ".runs/diagnostics/mcts-mixture-faceoff-20261011/mixture_mcts.py": "a215fc6921b77254da98df166ff7fe79b07c9f694e447703ac041f8b371795df",
+            ".runs/diagnostics/mcts-mixture-faceoff-20261011/faceoff.py": "b98324badb81cdeee211f8eabe3209be22aa22b1c410de48f1758480cf7729dc"
+          },
+          "protocol": "Same checkpoint, shared frozen evaluator, fresh search roots; 64 seeds in both seats for 128 games. Independent environment/action/search streams, same seed schedule at both budgets. Existing full-game evaluator. Pair bootstrap: 20,000 resamples, seed 20261011. CPU equal iterations, not equal time. No lazy probability-baseline estimator."
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/mcts-mixture-faceoff-20261011/sampled-128/plan.json",
+      "sha256": "c8f1e19be7c0863373c5dbbdc150087c6435452c2fc8a31ac2897e81ae0d23d0",
+      "selected": {
+        "": {
+          "checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "iterations": 128,
+          "seed_count": 64,
+          "games": 128,
+          "workers": 8,
+          "threads_per_worker": 1,
+          "seed": 20261011,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true
+          },
+          "temperature": 0.0,
+          "max_batch_size": 64,
+          "control": "d5d0c84 historical-return backup",
+          "variant": "current-mixture backup with one retained neural contribution",
+          "hashes": {
+            ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+            ".runs/diagnostics/mcts-mixture-faceoff-20261011/baseline_mcts.py": "33ed6099c66797e4b7fe70be4686120bd6aee2dba458fe9f0de95d34f3465eb1",
+            ".runs/diagnostics/mcts-mixture-faceoff-20261011/mixture_mcts.py": "a215fc6921b77254da98df166ff7fe79b07c9f694e447703ac041f8b371795df",
+            ".runs/diagnostics/mcts-mixture-faceoff-20261011/faceoff.py": "b98324badb81cdeee211f8eabe3209be22aa22b1c410de48f1758480cf7729dc"
+          },
+          "protocol": "Same checkpoint, shared frozen evaluator, fresh search roots; 64 seeds in both seats for 128 games. Independent environment/action/search streams, same seed schedule at both budgets. Existing full-game evaluator. Pair bootstrap: 20,000 resamples, seed 20261011. CPU equal iterations, not equal time. No lazy probability-baseline estimator."
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/mcts-mixture-faceoff-20261011/analysis.json",
+      "sha256": "71010432b4854f3bf0f65d1265db87491988873c2841f3cf889dcd0fbdf87a83",
+      "selected": {
+        "": {
+          "runs": {
+            "32": {
+              "games": 128,
+              "seed_pairs": 64,
+              "new_wins": 58,
+              "ties": 1,
+              "old_wins": 69,
+              "new_win_credit": 0.45703125,
+              "paired_win_credit_ci95": [
+                0.3828125,
+                0.53125
+              ],
+              "old_minus_new_score": -3.2109375,
+              "paired_score_ci95": [
+                -9.4921875,
+                3.015625
+              ],
+              "work": {
+                "control": {
+                  "decisions": 19913,
+                  "search_seconds": 540.523706984939,
+                  "evaluated_states": 653631,
+                  "evaluator_calls": 653631
+                },
+                "variant": {
+                  "decisions": 19921,
+                  "search_seconds": 543.7870865778532,
+                  "evaluated_states": 653773,
+                  "evaluator_calls": 653773
+                }
+              },
+              "elapsed_seconds": 140.42010141699575,
+              "per_decision": {
+                "control": {
+                  "milliseconds": 27.144262892830767,
+                  "evaluated_states": 32.824335860995326
+                },
+                "variant": {
+                  "milliseconds": 27.297178182714383,
+                  "evaluated_states": 32.81828221474826
+                }
+              },
+              "new_to_old_time_per_decision": 1.0056334294464855
+            },
+            "128": {
+              "games": 128,
+              "seed_pairs": 64,
+              "new_wins": 62,
+              "ties": 1,
+              "old_wins": 65,
+              "new_win_credit": 0.48828125,
+              "paired_win_credit_ci95": [
+                0.4061523437500001,
+                0.57421875
+              ],
+              "old_minus_new_score": -0.3515625,
+              "paired_score_ci95": [
+                -6.7734375,
+                6.234375
+              ],
+              "work": {
+                "control": {
+                  "decisions": 21350,
+                  "search_seconds": 2225.3209322360344,
+                  "evaluated_states": 2736954,
+                  "evaluator_calls": 2736954
+                },
+                "variant": {
+                  "decisions": 21346,
+                  "search_seconds": 2252.710923167644,
+                  "evaluated_states": 2736925,
+                  "evaluator_calls": 2736925
+                }
+              },
+              "elapsed_seconds": 574.0488307091873,
+              "per_decision": {
+                "control": {
+                  "milliseconds": 104.23048862932245,
+                  "evaluated_states": 128.19456674473068
+                },
+                "variant": {
+                  "milliseconds": 105.53316420723527,
+                  "evaluated_states": 128.21723039445328
+                }
+              },
+              "new_to_old_time_per_decision": 1.0124980281205969
+            }
+          },
+          "128_minus_32_new_advantage": {
+            "win_credit_difference": 0.03125,
+            "win_credit_ci95": [
+              -0.0859375,
+              0.15234375
+            ],
+            "score_margin_difference": 2.859375,
+            "score_margin_ci95": [
+              -6.46875,
+              12.3828125
+            ],
+            "interpretation": "Difference in the new-versus-old advantage when both players receive a larger budget; not a direct 128-versus-32 contest."
+          },
+          "audit": "128 unique games per budget; 64 complete seat pairs; all checkpoint/source hashes match; same search configuration and seed schedule; root and action visits checked on every search."
+        }
+      }
+    },
+    {
+      "path": ".runs/diagnostics/mcts-mixture-faceoff-20261011/sampled-equivalence.json",
+      "sha256": "bb78f8380fb610b8636d7ff6a1c7f8eb7d437242a98a97e950a537090e0ca996",
+      "selected": {
+        "/settings": "25 saved positions, one seed each, budgets32/128; sampled chance; boundary_samples1; default symmetry/c_puct/FPU. Ablation only removes retained root NN weight; production unchanged.",
+        "/comparisons": 50,
+        "/current_same_root_action_visits": 40,
+        "/root_ablation_same_root_action_visits": 49
+      }
+    },
+    {
+      "path": ".runs/diagnostics/tactical-faceoff-20261011/exact-32-k10/plan.json",
+      "sha256": "efb2af278a0bea00e1820352b03853e2a44b290d914897f475dad0aab2025da7",
+      "selected": {
+        "/checkpoint": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "/iterations": 32,
+        "/games": 256,
+        "/seed_count": 128,
+        "/seed": 20261011,
+        "/workers": 8,
+        "/threads_per_worker": 1,
+        "/search": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true
+        },
+        "/temperature": 0.0,
+        "/control": "Current mixture backups, PUCT, most-visited final action",
+        "/variant": "All-decision action coverage, best searched-child backup retaining one NN, highest-Q final action among N >= 5% of maximum N",
+        "/protocol": "128 seeds in both seat assignments for 256 full games. Same checkpoint and chance/boundary settings. Fresh roots, no noise, existing independent environment/action/search random streams. Equal iterations, measured evaluator work and runtime. 20,000 bootstrap resamples of whole seed pairs. No retraining.",
+        "/hashes/~1Users~1urolyi1~1repos~1skyjo~1.runs~1boundary-overnight~1variant~120261007T033105Z-boundary-sample10-from109-10iter-f756db8442~1checkpoints~1checkpoint_000119.pth": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+        "/hashes/~1Users~1urolyi1~1repos~1skyjo~1.runs~1diagnostics~1tactical-faceoff-20261011~1faceoff.py": "1902ac53f0fe52a270ab7c8874e366e9c819f7b16476154fab62eda10685f2dc",
+        "/hashes/~1Users~1urolyi1~1repos~1skyjo~1.runs~1diagnostics~1mcts-mixture-faceoff-20261011~1faceoff.py": "b98324badb81cdeee211f8eabe3209be22aa22b1c410de48f1758480cf7729dc",
+        "/hashes/~1Users~1urolyi1~1repos~1skyjo~1.runs~1diagnostics~1tactical-faceoff-20261011~1baseline_mcts.py": "a215fc6921b77254da98df166ff7fe79b07c9f694e447703ac041f8b371795df",
+        "/hashes/~1Users~1urolyi1~1repos~1skyjo~1.runs~1diagnostics~1tactical-faceoff-20261011~1mixture_mcts.py": "a215fc6921b77254da98df166ff7fe79b07c9f694e447703ac041f8b371795df"
+      }
+    },
+    {
+      "path": ".runs/diagnostics/tactical-faceoff-20261011/exact-32-k10/summary.json",
+      "sha256": "561c0df13e1aac1bfe3b2fa2ce09bb6514d2e213c169d6b64bb3aec7e746ab81",
+      "selected": {
+        "": {
+          "games": 256,
+          "seed_pairs": 128,
+          "candidate_wins": 128,
+          "ties": 2,
+          "current_wins": 126,
+          "candidate_win_credit": 0.50390625,
+          "paired_win_credit_ci95": [
+            0.439453125,
+            0.56640625
+          ],
+          "current_minus_candidate_score": -5.63671875,
+          "paired_score_ci95": [
+            -10.89072265625,
+            -0.3827148437500085
+          ],
+          "work": {
+            "control": {
+              "decisions": 41427,
+              "search_seconds": 3745.492817415856,
+              "evaluated_states": 13556487,
+              "evaluator_calls": 1361232
+            },
+            "variant": {
+              "decisions": 41501,
+              "search_seconds": 3274.5540022784844,
+              "evaluated_states": 11705199,
+              "evaluator_calls": 1359835
+            }
+          },
+          "elapsed_seconds": 892.3678355000447,
+          "audit": "Complete seat pairs, unique games, score-derived outcomes, source/checkpoint hashes, and every root/action visit budget verified.",
+          "per_decision": {
+            "control": {
+              "milliseconds": 90.41187673294846,
+              "neural_states": 327.23796075023535
+            },
+            "variant": {
+              "milliseconds": 78.90301444009745,
+              "neural_states": 282.04619165803234
+            }
+          }
+        }
+      }
+    }
+  ]
+}
