@@ -1,0 +1,25 @@
+# Launch with: uv run python -m skyjo.ui --preset configs/interactive.toml
+version = 1
+seed = 0
+
+[[seats]]
+name = "You"
+kind = "human"
+
+[[seats]]
+name = "Random"
+kind = "random"
+
+# To use a model, change kind to "policy" or "search" and provide a checkpoint.
+# Paths are relative to this preset; the app's Save Preset writes absolute paths.
+# checkpoint = "../.runs/<run>/checkpoints/checkpoint_000001.pth"
+# iterations = 128
+# temperature = 0.0
+#
+# [seats.search]
+# c_puct = 1.5
+# fpu_reduction = 0.1
+# dirichlet_epsilon = 0.0
+# boundary_samples = 1
+# after_state_evaluate_all_children = false
+# merge_symmetric_actions = true
