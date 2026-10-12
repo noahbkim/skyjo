@@ -90,6 +90,7 @@ and repeated metrics. Update design rationale when an interface decision changes
 - [Score learning](findings/score-learning.md)
 - [Training progress and replay](findings/training-progress.md)
 - [Search budget](findings/search-budget.md)
+- [MCTS mixture backups](findings/mcts-mixture-backups.md)
 - [Round-boundary evaluation](findings/boundary-evaluation.md)
 - [Symmetric action grouping](findings/symmetry.md)
 - [Architecture performance](findings/architecture-performance.md)

@@ -297,7 +297,12 @@ def test_search_resamples_continuing_boundaries_in_fixed_order(
         == 100
     )
     expected = [0, 1, 0] if finishes_game else [0.7, 0.1, 0.2]
-    np.testing.assert_allclose(root.state_value, expected, atol=1e-6)
+    # The root retains its initial neural contribution in fixed seat order.
+    np.testing.assert_allclose(
+        root.state_value,
+        (np.array([0.1, 0.2, 0.7]) + 100 * np.array(expected)) / 101,
+        atol=1e-6,
+    )
     for child in root.children.values():
         np.testing.assert_allclose(child.state_value, expected, atol=1e-6)
     if not finishes_game:
