@@ -6,14 +6,43 @@ import threading
 from textual.widgets import Button, Input
 
 from skyjo.engine import game as sj
+from skyjo.search.configuration import preset
 from skyjo.simulation import recording
 from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
 from skyjo.simulation.player import RandomPlayer
 from skyjo.simulation.session import GameSession
 from skyjo.ui import render
 from skyjo.ui.app import SkyjoApp
+from skyjo.ui.config import MatchConfig, SeatConfig
 from skyjo.ui.setup import SetupScreen
 from skyjo.ui.table import TableScreen
+
+
+def test_setup_preserves_and_edits_strategy_configuration(tmp_path):
+    async def scenario():
+        search = preset("gumbel", gumbel_scale=0.0, dirichlet_alpha=0.4)
+        config = MatchConfig(
+            (
+                SeatConfig("Human", "human"),
+                SeatConfig(
+                    "Search", "search", str(tmp_path / "model.pth"), search=search
+                ),
+            )
+        )
+        app = SkyjoApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.push_screen(SetupScreen(config))
+            await pilot.pause()
+            assert app.screen.read() == config
+            app.screen.query_one("#seat-2 .gumbel_scale", Input).value = "0.5"
+            app.screen.query_one("#seat-2 .dirichlet_alpha", Input).value = ""
+            updated = app.screen.read().seats[1].search
+            assert updated.gumbel_scale == 0.5
+            assert updated.dirichlet_alpha is None
+            assert updated.root_strategy == "gumbel"
+            assert updated.target_strategy == "completed_q"
+
+    asyncio.run(scenario())
 
 
 def test_setup_human_action_and_replay_navigation(tmp_path, monkeypatch):

@@ -40,11 +40,14 @@ the actual decision evaluation, without additional searches or RNG consumption.
 Committed decisions are copied so subsequent player calls cannot alter history.
 
 The model-policy panel differs from the recorded action-selection distribution:
-a policy player chooses greedily, while search applies its configured temperature
-to visit counts. The MCTS panel leads with raw counts and visit fractions
-(`visits / total visits`), before temperature. Search rows describe symmetry groups,
-including grouped priors and visits;
-unevaluated action values are absent. Win estimates use fixed seat order.
+a policy player chooses greedily, while search uses its configured action strategy.
+The default applies temperature to visit counts; other strategies choose by values
+or a Gumbel winner. Acting and learning distributions have separate panels.
+The MCTS panel leads with raw counts and visit fractions (`visits / total visits`).
+Search rows describe symmetry groups, including grouped priors, visits, values,
+and optional replica standard errors. Unevaluated action values are absent.
+Win estimates use fixed seat order. See [search strategies](search-strategies.md)
+for composing these choices.
 Numeric diagnostics display nine significant digits, with horizontal scrolling
 for wide tables rather than truncating numbers. Player-supplied diagnostics take
 precedence over the generic action-selection panel.

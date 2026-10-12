@@ -88,7 +88,11 @@ def save_preset(config: MatchConfig, path: Path):
                     value = str(Path(value).expanduser().resolve())
                 lines.append(f"{key} = {json.dumps(value, allow_nan=False)}")
         lines.extend(("", "[seats.search]"))
-        lines.extend(f"{key} = {json.dumps(value)}" for key, value in search.items())
+        lines.extend(
+            f"{key} = {json.dumps(value)}"
+            for key, value in search.items()
+            if value is not None
+        )
     path = Path(path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
