@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import shutil
 from collections.abc import Iterable
+from typing import TextIO
 
 from . import CARD_VALUES, HAND_COLUMNS, HAND_ROWS, Finger, Game
 
@@ -13,11 +13,11 @@ def _lrjust(left: object, right: object, width: int) -> str:
     return f"{left}{space}{right}"
 
 
-def render_card(card_index: int) -> str:
+def _format_card(card_index: int) -> str:
     return str(CARD_VALUES[card_index])
 
 
-def render_finger(finger: Finger) -> str:
+def _format_finger(finger: Finger) -> str:
     if finger.is_hidden:
         return "[]"
     if finger.is_cleared:
@@ -25,16 +25,18 @@ def render_finger(finger: Finger) -> str:
     return str(CARD_VALUES[finger.card_index]).rjust(2)
 
 
-def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
+def format_game(game: Game) -> Iterable[str]:
     """Render the game as ASCII art."""
 
-    if column_max is None:
-        column_max = shutil.get_terminal_size((0, 0)).columns
-
     yield (
-        f"turn: {game.turn}  discard: {render_card(game.discarded_card_index)}"
+        f"turn: {game.turn_index}"
         + (
-            f"  draw: {render_card(game.drawn_card_index)}"
+            f"  discard: {_format_card(game.discarded_card_index)}"
+            if game.discarded_card_index is not None
+            else ""
+        )
+        + (
+            f"  draw: {_format_card(game.drawn_card_index)}"
             if game.drawn_card_index is not None
             else ""
         )
@@ -43,9 +45,11 @@ def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
     yield ""
 
     hand_width = HAND_COLUMNS * 2 + HAND_COLUMNS - 1
+    player_index = game.player_index
+    marker = "> "
 
     yield "  ".join(
-        _lrjust(f"p{(i + game.turn) % len(game.players)}:", player.score, hand_width)
+        _lrjust(f"{marker * (i == player_index)}p{i}:", player.score, hand_width)
         for i, player in enumerate(game.players)
     )
 
@@ -54,7 +58,14 @@ def render(game: Game, *, column_max: int | None = None) -> Iterable[str]:
     for row_index in range(HAND_ROWS):
         yield "  ".join(
             " ".join(
-                render_finger(finger) for finger in player.hand[row_index::HAND_ROWS]
+                _format_finger(finger) for finger in player.hand[row_index::HAND_ROWS]
             )
             for player in game.players
         )
+
+
+def print_game(game: Game, file: TextIO | None = None) -> None:
+    """Print the game to stdout."""
+
+    for line in format_game(game):
+        print(line, file=file)
