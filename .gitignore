@@ -2,6 +2,7 @@
 /experiments/
 .runs/
 /configs/local/
+.interactive/
 
 ## data
 data/
