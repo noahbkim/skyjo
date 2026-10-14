@@ -174,3 +174,40 @@ def test_public_runner_saves_replayable_inputs_and_a_complete_report(tmp_path):
     assert position.id in (output / "report.md").read_text()
     with pytest.raises(FileExistsError):
         run(weights, output, suite=suite, plan=plan, allow_dirty=True)
+
+
+@pytest.mark.parametrize("action_strategy", ["value", "gumbel"])
+def test_diagnostics_match_composed_runner_action_and_search(action_strategy):
+    from skyjo.search import runner
+    from skyjo.search.configuration import preset
+
+    position = next(p for p in load_suite(SUITE) if p.id == "clear-9-giveaway")
+    config = preset(
+        "gumbel" if action_strategy == "gumbel" else "legacy",
+        action_strategy=action_strategy,
+        merge_symmetric_actions=False,
+    )
+    evaluator = UniformEvaluator()
+    result = run_search(position, evaluator, 32, 71, config=config)
+    reference = runner.search(
+        position.state,
+        evaluator,
+        32,
+        config=config,
+        rng=np.random.default_rng(71),
+    )
+    assert result["action"] == reference.action_probabilities.argmax()
+    np.testing.assert_array_equal(result["value"], reference.summary.state_value)
+    np.testing.assert_array_equal(
+        [g["visits"] for g in result["groups"]],
+        reference.summary.visits,
+    )
+    assert result["trace"][-1]["action"] == result["action"]
+
+
+def test_traced_diagnostics_reject_unimplemented_replica_aggregation():
+    position = load_suite(SUITE)[0]
+    with pytest.raises(ValueError, match="replicas=1"):
+        run_search(
+            position, UniformEvaluator(), 32, 0, config=mcts.SearchConfig(replicas=2)
+        )

@@ -18,6 +18,7 @@ from skyjo.experiments import runs
 from skyjo.experiments.search_positions import Position, load_suite, witness_states
 from skyjo.search import mcts
 from skyjo.search.evaluator import NextDealEvaluator
+from skyjo.search.strategies import PolicyInput
 
 
 class CountingEvaluator:
@@ -78,10 +79,28 @@ def model_diagnostic(position: Position, evaluator) -> dict:
     }
 
 
+def selected_action(root) -> int:
+    """Use the configured acting policy, independently of learning targets."""
+    view = root.view()
+    context = root.context.root_session.finish(view)
+    probabilities = root.context.components.action_policy.probabilities(
+        PolicyInput(view, context), 0.0
+    )
+    return int(probabilities.argmax())
+
+
+def _validate_traced_config(config):
+    if config.replicas != 1:
+        raise ValueError(
+            "Per-iteration diagnostics require replicas=1; use "
+            "run_search_strategy_benchmark.py for replica comparisons"
+        )
+
+
 def root_snapshot(root) -> dict:
     seat = game.get_player(root.state)
     return {
-        "action": int(root.policy_targets(0).argmax()),
+        "action": selected_action(root),
         "value": root.state_value.tolist(),
         "groups": [
             {
@@ -143,6 +162,7 @@ def run_search(
     search=mcts.run_mcts,
 ) -> dict:
     """Run an MCTS-compatible search callable with read-only per-iteration tracing."""
+    _validate_traced_config(config)
     counted = CountingEvaluator(evaluator)
     boundary = CountingBoundary(boundary_evaluator or NextDealEvaluator(counted))
     first_evaluated = {line.name: None for line in position.witnesses}
@@ -158,7 +178,7 @@ def run_search(
         if iteration != observed_iterations + 1:
             raise ValueError("Search observer must receive every iteration in order")
         observed_iterations = iteration
-        selected = int(root.policy_targets(0).argmax())
+        selected = selected_action(root)
         accepted = position.expectation.accepts(selected)
         if accepted and first_accepted is None:
             first_accepted = iteration
@@ -336,6 +356,7 @@ def run_suite(
         options = dict(raw)
         name = options.pop("name")
         config = mcts.SearchConfig(**options.pop("search", {}))
+        _validate_traced_config(config)
         adapter = options.pop("adapter", "skyjo.search.mcts:run_mcts")
         module, function = adapter.split(":")
         search = getattr(importlib.import_module(module), function)

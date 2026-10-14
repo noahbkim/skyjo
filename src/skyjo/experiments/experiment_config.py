@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import math
 import pathlib
@@ -12,6 +13,9 @@ import torch
 
 from skyjo.engine import game
 from skyjo.learning import buffer, models, objectives, observations, replay_io
+from skyjo.search.configuration import DEFAULT_SEARCH_CONFIG, SearchConfig
+
+SEARCH_DEFAULTS = dataclasses.asdict(DEFAULT_SEARCH_CONFIG)
 
 DEFAULTS = {
     "name": "full-game-baseline",
@@ -44,15 +48,12 @@ DEFAULTS = {
         "start_state": "standard",
     },
     "search": {
+        **SEARCH_DEFAULTS,
         "iterations": 100,
         "dirichlet_epsilon": 0.25,
-        "after_state_evaluate_all_children": False,
         "c_puct": 1.0,
-        "fpu_reduction": 0.1,
         "action_softmax_temperature": 1.0,
-        "boundary_samples": 1,
         "boundary_value_checkpoint": None,
-        "merge_symmetric_actions": True,
     },
     "replay": {
         "capacity": 2_000_000,
@@ -213,7 +214,7 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
             "learn_rate",
         ),
         "selfplay": ("games_per_iteration", "games_per_task"),
-        "search": ("iterations", "boundary_samples"),
+        "search": ("iterations",),
         "replay": ("capacity",),
         "budget": ("checkpoint_interval",),
         "execution": ("workers", "threads_per_worker"),
@@ -253,15 +254,12 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         and not pathlib.Path(search["boundary_value_checkpoint"]).is_file()
     ):
         raise FileNotFoundError(search["boundary_value_checkpoint"])
-    if not 0 <= search["dirichlet_epsilon"] <= 1:
-        raise ValueError("search.dirichlet_epsilon must be between zero and one")
-    if search["c_puct"] <= 0:
-        raise ValueError("search.c_puct must be positive")
-    if any(
-        search[key] < 0
-        for key in ("c_puct", "fpu_reduction", "action_softmax_temperature")
-    ):
-        raise ValueError("Search constants and temperature cannot be negative")
+    try:
+        SearchConfig(**{key: search[key] for key in SEARCH_DEFAULTS})
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid search configuration: {error}") from error
+    if search["action_softmax_temperature"] < 0:
+        raise ValueError("Action temperature cannot be negative")
     if config["selfplay"]["start_state"] not in ("standard", "potential_clear"):
         raise ValueError("Unknown selfplay.start_state")
     if (

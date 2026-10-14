@@ -50,6 +50,18 @@ class ActionGroups:
             result[group[0]] = sum(float(action_values[action]) for action in group)
         return result
 
+    def distribute(
+        self, probabilities: np.ndarray, *, greedy: bool = False
+    ) -> np.ndarray:
+        """Expand group probabilities, choosing representatives for greedy play."""
+        result = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+        for group, probability in zip(self.members, probabilities, strict=True):
+            if greedy:
+                result[group[0]] = probability
+            else:
+                result[list(group)] = probability / len(group)
+        return result
+
     def policy_from_visits(
         self, visits: Mapping[int, int], temperature: float = 1.0
     ) -> np.ndarray:
@@ -62,20 +74,16 @@ class ActionGroups:
         visited = counts > 0
         if not visited.any():
             raise ValueError("policy requires at least one visited legal action")
-        probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+        probabilities = np.zeros(len(self.members), dtype=np.float64)
         if temperature == 0:
-            probabilities[self.members[int(counts.argmax())][0]] = 1
-            return probabilities
+            probabilities[int(counts.argmax())] = 1
+            return self.distribute(probabilities, greedy=True)
 
         logs = np.log(counts[visited])
         with np.errstate(over="ignore"):
             weights = np.exp((logs - logs.max()) / temperature)
-        for index, probability in zip(
-            np.flatnonzero(visited), weights / weights.sum(), strict=True
-        ):
-            group = self.members[index]
-            probabilities[list(group)] = probability / len(group)
-        return probabilities
+        probabilities[visited] = weights / weights.sum()
+        return self.distribute(probabilities)
 
 
 def safe_to_merge_actions(state: sj.Skyjo, budget: int) -> bool:

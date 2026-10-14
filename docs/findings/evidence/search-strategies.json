@@ -1,0 +1,5654 @@
+{
+  "date": "2026-10-12",
+  "primary_searches": 3264,
+  "synthetic_performance": {
+    "evaluator": "pure-NumPy UniformEvaluator",
+    "state": "game.start_round(game.new(players=2, top=game.CARD_0), rng=default_rng(1))",
+    "config": "default SearchConfig",
+    "iterations": 2048,
+    "search_seed": 4,
+    "evaluator_states_per_search": 2049,
+    "clock": "process_time",
+    "before_cpu_seconds": [
+      0.438383,
+      0.451291,
+      0.440614,
+      0.463973
+    ],
+    "after_cpu_seconds": [
+      0.630259,
+      0.61783,
+      0.665232,
+      0.632195
+    ],
+    "median_ratio_after_over_before": 1.41546,
+    "comparison": "HEAD baseline versus final modular search",
+    "baseline_commit": "fe7d4674c1b08462c59e3d259750881824de93b8",
+    "baseline_mcts_sha256": "8a64c54e8e75e533bc31b6479b37d5a1e369fd7c755999e209f86698b943f30f",
+    "caveat": "Four repeats during overlapping sweeps; isolates Python/NumPy search overhead, not neural-evaluator throughput."
+  },
+  "manifests": {
+    "tactical": {
+      "directory": ".runs/search-strategy-tactical",
+      "manifest": {
+        "status": "complete",
+        "source": {
+          "recording_name": "dont_give_clear_game.json",
+          "recording_sha256": "c4f4d4f25733883b6754fa1993efc76bdfb48820ba19a87bcd8cb47c26566017",
+          "frame_indexing": "zero-based",
+          "checkpoint_relative_path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+          "recorded_player": {
+            "name": "Iteration 119 (variant)",
+            "kind": "search",
+            "iterations": 2048,
+            "temperature": 0.0,
+            "search": {
+              "dirichlet_epsilon": 0.0,
+              "after_state_evaluate_all_children": true,
+              "c_puct": 1.5,
+              "fpu_reduction": 0.1,
+              "boundary_samples": 10,
+              "merge_symmetric_actions": true
+            },
+            "boundary_checkpoint": null
+          },
+          "controls": {
+            "source": ".runs/diagnostics/boundary-search-positions-20261010",
+            "plan_sha256": "53647aa8098c7eac9c20f501c7e5f3ad33197ee4fc90ee209409bfc84adc8179",
+            "states_sha256": "0f2736413f45bec25095396e9ce2f54e096784d1516dfbde06e7647be2ac95dd",
+            "selection": {
+              "last_turn_one_hidden_screened": 211,
+              "general_strata": {
+                "draw_early": 2,
+                "draw_late": 2,
+                "placement_early": 2,
+                "placement_late": 2
+              }
+            },
+            "notes": "Existing17 exact endgames and8 stratified controls from a preexisting uniform replay sample; not a population-rate estimate."
+          }
+        },
+        "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+        "fixture_sha256": "f23720809862131d9391d9d85253422498d5d80e1219464e98f6cc1403876046",
+        "git": {
+          "commit": "fe7d4674c1b08462c59e3d259750881824de93b8",
+          "dirty": true,
+          "allow_dirty": true
+        },
+        "search_sources": {
+          "__init__.py": "cea00d9c5dc579b6987c5ae4c960bc51485850c55a754a40a1e3793646ceebe2",
+          "configuration.py": "0ada45ef9abf7ac8e3d77f2f4a9af89d3eab97466b73ff3c4c8f563b019468f6",
+          "evaluator.py": "2a82953f342c8207b7d46289cae3918c0e141a72023652a39b5b07888f325374",
+          "mcts.py": "f46c89d0fd360c50983d76932a178d950d417c6299bd5099f273e5526961725d",
+          "player.py": "e47a016ab78881471c12bf8fb8064dd42751a89162aba718025162630e49bc1f",
+          "runner.py": "86bf96e998b156069cd84f8b46eb7284b267aacfb6dd438db3a7dd9357b0dab3",
+          "strategies.py": "eeaf57cb568834d45720488c1e3ace405cddcbf5f7c7c731a708007e7c275450",
+          "symmetry.py": "19abfcdc4bdb58e257b86a14eeeebd516ed94b91ce930c44ca59ab65db43e1eb"
+        },
+        "planned_searches": 1216,
+        "seeds": 8,
+        "base_seed": 20261012,
+        "budgets": [
+          256,
+          2048,
+          8192
+        ],
+        "ensemble_budget": 2048,
+        "chance": "both",
+        "cases": [
+          "giveaway_9",
+          "giveaway_12"
+        ],
+        "variants": {
+          "control": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "puct-current_mixture": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel0-current_mixture": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "current_mixture",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 0.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel1-current_mixture": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "current_mixture",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "puct-current_mixture-replicas8-z0": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 0.0
+          },
+          "puct-current_mixture-replicas8-z1": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 1.0
+          },
+          "puct-current_mixture-replicas8-z2": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 2.0
+          },
+          "gumbel-current_mixture-replicas8-z0": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "current_mixture",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 0.0
+          },
+          "gumbel-current_mixture-replicas8-z1": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "current_mixture",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 1.0
+          },
+          "gumbel-current_mixture-replicas8-z2": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "current_mixture",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 2.0
+          },
+          "puct-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "mean_return",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel0-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 0.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel1-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "puct-mean_return-replicas8-z0": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "mean_return",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 0.0
+          },
+          "puct-mean_return-replicas8-z1": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "mean_return",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 1.0
+          },
+          "puct-mean_return-replicas8-z2": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "mean_return",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 2.0
+          },
+          "gumbel-mean_return-replicas8-z0": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 0.0
+          },
+          "gumbel-mean_return-replicas8-z1": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 1.0
+          },
+          "gumbel-mean_return-replicas8-z2": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 2.0
+          },
+          "puct-best_response": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "best_response",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel0-best_response": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "best_response",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 0.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel1-best_response": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "best_response",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "puct-best_response-replicas8-z0": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "best_response",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 0.0
+          },
+          "puct-best_response-replicas8-z1": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "best_response",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 1.0
+          },
+          "puct-best_response-replicas8-z2": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "best_response",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 2.0
+          },
+          "gumbel-best_response-replicas8-z0": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "best_response",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 0.0
+          },
+          "gumbel-best_response-replicas8-z1": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "best_response",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 1.0
+          },
+          "gumbel-best_response-replicas8-z2": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "best_response",
+            "action_strategy": "lower_confidence",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 8,
+            "uncertainty_z": 2.0
+          }
+        },
+        "workers": 6,
+        "recorded_selection": [
+          {
+            "case": "giveaway_9",
+            "visit_choice": 18,
+            "value_choice": 21,
+            "value_advantage": 0.013392865657806396
+          },
+          {
+            "case": "giveaway_12",
+            "visit_choice": 27,
+            "value_choice": 27,
+            "value_advantage": 0.0
+          }
+        ],
+        "completed_searches": 1216
+      },
+      "searches_sha256": "b25ed7a5f048eb7b4f49c2722233da18e43e76f68c173bb6b6b0273777f4c0a6",
+      "benchmark_sha256": "90fa42e950c4f1b765a40057ea4236529484e5f5c6b287bddd134a23424ad9a8"
+    },
+    "controls": {
+      "directory": ".runs/search-strategy-controls",
+      "manifest": {
+        "status": "complete",
+        "source": {
+          "recording_name": "dont_give_clear_game.json",
+          "recording_sha256": "c4f4d4f25733883b6754fa1993efc76bdfb48820ba19a87bcd8cb47c26566017",
+          "frame_indexing": "zero-based",
+          "checkpoint_relative_path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+          "recorded_player": {
+            "name": "Iteration 119 (variant)",
+            "kind": "search",
+            "iterations": 2048,
+            "temperature": 0.0,
+            "search": {
+              "dirichlet_epsilon": 0.0,
+              "after_state_evaluate_all_children": true,
+              "c_puct": 1.5,
+              "fpu_reduction": 0.1,
+              "boundary_samples": 10,
+              "merge_symmetric_actions": true
+            },
+            "boundary_checkpoint": null
+          },
+          "controls": {
+            "source": ".runs/diagnostics/boundary-search-positions-20261010",
+            "plan_sha256": "53647aa8098c7eac9c20f501c7e5f3ad33197ee4fc90ee209409bfc84adc8179",
+            "states_sha256": "0f2736413f45bec25095396e9ce2f54e096784d1516dfbde06e7647be2ac95dd",
+            "selection": {
+              "last_turn_one_hidden_screened": 211,
+              "general_strata": {
+                "draw_early": 2,
+                "draw_late": 2,
+                "placement_early": 2,
+                "placement_late": 2
+              }
+            },
+            "notes": "Existing17 exact endgames and8 stratified controls from a preexisting uniform replay sample; not a population-rate estimate."
+          }
+        },
+        "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+        "fixture_sha256": "f23720809862131d9391d9d85253422498d5d80e1219464e98f6cc1403876046",
+        "git": {
+          "commit": "fe7d4674c1b08462c59e3d259750881824de93b8",
+          "dirty": true,
+          "allow_dirty": true
+        },
+        "search_sources": {
+          "__init__.py": "cea00d9c5dc579b6987c5ae4c960bc51485850c55a754a40a1e3793646ceebe2",
+          "configuration.py": "0ada45ef9abf7ac8e3d77f2f4a9af89d3eab97466b73ff3c4c8f563b019468f6",
+          "evaluator.py": "2a82953f342c8207b7d46289cae3918c0e141a72023652a39b5b07888f325374",
+          "mcts.py": "5c0c91defef5891cb04d556dbe3a8c151623d3672ce52e6da03a7b6e5310095a",
+          "player.py": "e47a016ab78881471c12bf8fb8064dd42751a89162aba718025162630e49bc1f",
+          "runner.py": "9bdaa8496136a79be4666a7897e360642b89f6bcfb8f2717553ffe35dacfa638",
+          "strategies.py": "9241c42b6cf8eb70ecf1e5a2f20fb298dd640f4ab7e031c84f1521675accbff4",
+          "symmetry.py": "19abfcdc4bdb58e257b86a14eeeebd516ed94b91ce930c44ca59ab65db43e1eb"
+        },
+        "planned_searches": 2000,
+        "seeds": 8,
+        "base_seed": 20261012,
+        "budgets": [
+          256,
+          2048
+        ],
+        "ensemble_budget": 2048,
+        "chance": "enumerated",
+        "cases": [
+          "terminal-174967",
+          "terminal-447965",
+          "terminal-183111",
+          "terminal-166481",
+          "terminal-78405",
+          "terminal-287391",
+          "terminal-232887",
+          "terminal-515119",
+          "terminal-330633",
+          "last-turn-310532",
+          "last-turn-1646642",
+          "last-turn-761880",
+          "last-turn-404012",
+          "last-turn-1650878",
+          "last-turn-762318",
+          "last-turn-1329924",
+          "last-turn-573370",
+          "general-997508",
+          "general-1409104",
+          "general-757187",
+          "general-727031",
+          "general-1421413",
+          "general-1546832",
+          "general-461284",
+          "general-1021591"
+        ],
+        "variants": {
+          "control": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "puct-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "mean_return",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel0-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 0.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel1-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "completed_q",
+            "valuation": "mean_return",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "puct-best_response": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "best_response",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          }
+        },
+        "workers": 2,
+        "recorded_selection": [
+          {
+            "case": "giveaway_9",
+            "visit_choice": 18,
+            "value_choice": 21,
+            "value_advantage": 0.013392865657806396
+          },
+          {
+            "case": "giveaway_12",
+            "visit_choice": 27,
+            "value_choice": 27,
+            "value_advantage": 0.0
+          }
+        ],
+        "completed_searches": 2000
+      },
+      "searches_sha256": "83809c618618b8ded1ec53e10d0dfdc33436d34828ca460003276d2df4a76643",
+      "benchmark_sha256": "90fa42e950c4f1b765a40057ea4236529484e5f5c6b287bddd134a23424ad9a8"
+    },
+    "hybrid": {
+      "directory": ".runs/search-strategy-hybrid",
+      "manifest": {
+        "status": "complete",
+        "source": {
+          "recording_name": "dont_give_clear_game.json",
+          "recording_sha256": "c4f4d4f25733883b6754fa1993efc76bdfb48820ba19a87bcd8cb47c26566017",
+          "frame_indexing": "zero-based",
+          "checkpoint_relative_path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+          "recorded_player": {
+            "name": "Iteration 119 (variant)",
+            "kind": "search",
+            "iterations": 2048,
+            "temperature": 0.0,
+            "search": {
+              "dirichlet_epsilon": 0.0,
+              "after_state_evaluate_all_children": true,
+              "c_puct": 1.5,
+              "fpu_reduction": 0.1,
+              "boundary_samples": 10,
+              "merge_symmetric_actions": true
+            },
+            "boundary_checkpoint": null
+          },
+          "controls": {
+            "source": ".runs/diagnostics/boundary-search-positions-20261010",
+            "plan_sha256": "53647aa8098c7eac9c20f501c7e5f3ad33197ee4fc90ee209409bfc84adc8179",
+            "states_sha256": "0f2736413f45bec25095396e9ce2f54e096784d1516dfbde06e7647be2ac95dd",
+            "selection": {
+              "last_turn_one_hidden_screened": 211,
+              "general_strata": {
+                "draw_early": 2,
+                "draw_late": 2,
+                "placement_early": 2,
+                "placement_late": 2
+              }
+            },
+            "notes": "Existing17 exact endgames and8 stratified controls from a preexisting uniform replay sample; not a population-rate estimate."
+          }
+        },
+        "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+        "fixture_sha256": "f23720809862131d9391d9d85253422498d5d80e1219464e98f6cc1403876046",
+        "benchmark_sha256": "90f5f1afc5f0ffa1b63c5057deb2d01f277cfe77bc6013a8afa8d695fb349942",
+        "git": {
+          "commit": "fe7d4674c1b08462c59e3d259750881824de93b8",
+          "dirty": true,
+          "allow_dirty": true
+        },
+        "search_sources": {
+          "__init__.py": "cea00d9c5dc579b6987c5ae4c960bc51485850c55a754a40a1e3793646ceebe2",
+          "configuration.py": "a8c48cc150f1ee0e2957f2380f09e262c86ce206a49b2d390aa6e4b4a613dd75",
+          "evaluator.py": "2a82953f342c8207b7d46289cae3918c0e141a72023652a39b5b07888f325374",
+          "mcts.py": "48debad767a23e5f761fff065f8c5375ec017346d3467f8fa231726a18c5ae18",
+          "player.py": "e47a016ab78881471c12bf8fb8064dd42751a89162aba718025162630e49bc1f",
+          "runner.py": "a6821ea790aefecdd37f0348aa6260c68153dd01d0596915e241dac6e968d614",
+          "strategies.py": "161130c6aff0d6e13c3b070bc7d915598a419633f943b0114733b5bacbf9fa98",
+          "symmetry.py": "777e143a0761cac2bf7b418b051b96382a0d2025a2b60a32008ffe4431f4edfe"
+        },
+        "planned_searches": 48,
+        "seeds": 8,
+        "base_seed": 20261012,
+        "budgets": [
+          2048
+        ],
+        "ensemble_budget": 2048,
+        "chance": "enumerated",
+        "cases": [
+          "giveaway_9",
+          "giveaway_12"
+        ],
+        "variants": {
+          "gumbel-puct-current_mixture": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel-puct-mean_return": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "puct",
+            "valuation": "mean_return",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "gumbel-puct-best_response": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "zero",
+            "root_strategy": "gumbel",
+            "interior_strategy": "puct",
+            "valuation": "best_response",
+            "action_strategy": "gumbel",
+            "target_strategy": "completed_q",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          }
+        },
+        "workers": 2,
+        "recorded_selection": [
+          {
+            "case": "giveaway_9",
+            "visit_choice": 18,
+            "value_choice": 21,
+            "value_advantage": 0.013392865657806396
+          },
+          {
+            "case": "giveaway_12",
+            "visit_choice": 27,
+            "value_choice": 27,
+            "value_advantage": 0.0
+          }
+        ],
+        "completed_searches": 48
+      },
+      "searches_sha256": "9f0b18d5ec86e34079f96208f1aa04a9b8c23eadb01ac0615c4fc3a27f0b1c2a",
+      "benchmark_sha256": "90f5f1afc5f0ffa1b63c5057deb2d01f277cfe77bc6013a8afa8d695fb349942"
+    }
+  },
+  "final_source_smoke": {
+    "manifest": {
+      "status": "complete",
+      "source": {
+        "recording_name": "dont_give_clear_game.json",
+        "recording_sha256": "c4f4d4f25733883b6754fa1993efc76bdfb48820ba19a87bcd8cb47c26566017",
+        "frame_indexing": "zero-based",
+        "checkpoint_relative_path": ".runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+        "recorded_player": {
+          "name": "Iteration 119 (variant)",
+          "kind": "search",
+          "iterations": 2048,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": true,
+            "c_puct": 1.5,
+            "fpu_reduction": 0.1,
+            "boundary_samples": 10,
+            "merge_symmetric_actions": true
+          },
+          "boundary_checkpoint": null
+        },
+        "controls": {
+          "source": ".runs/diagnostics/boundary-search-positions-20261010",
+          "plan_sha256": "53647aa8098c7eac9c20f501c7e5f3ad33197ee4fc90ee209409bfc84adc8179",
+          "states_sha256": "0f2736413f45bec25095396e9ce2f54e096784d1516dfbde06e7647be2ac95dd",
+          "selection": {
+            "last_turn_one_hidden_screened": 211,
+            "general_strata": {
+              "draw_early": 2,
+              "draw_late": 2,
+              "placement_early": 2,
+              "placement_late": 2
+            }
+          },
+          "notes": "Existing17 exact endgames and8 stratified controls from a preexisting uniform replay sample; not a population-rate estimate."
+        }
+      },
+      "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+      "fixture_sha256": "f23720809862131d9391d9d85253422498d5d80e1219464e98f6cc1403876046",
+      "benchmark_sha256": "ee152669f4305c9bd3d08a8a3c9bc5b9321ec984cafac2dab2a54deb56b6f980",
+      "git": {
+        "commit": "fe7d4674c1b08462c59e3d259750881824de93b8",
+        "dirty": true,
+        "allow_dirty": true
+      },
+      "search_sources": {
+        "__init__.py": "cea00d9c5dc579b6987c5ae4c960bc51485850c55a754a40a1e3793646ceebe2",
+        "configuration.py": "a8c48cc150f1ee0e2957f2380f09e262c86ce206a49b2d390aa6e4b4a613dd75",
+        "evaluator.py": "2a82953f342c8207b7d46289cae3918c0e141a72023652a39b5b07888f325374",
+        "mcts.py": "87573eff85af12b46d778c0893ba2bd15d016944d548bdf5276fdf3b064bb09a",
+        "player.py": "e47a016ab78881471c12bf8fb8064dd42751a89162aba718025162630e49bc1f",
+        "runner.py": "9bdaa8496136a79be4666a7897e360642b89f6bcfb8f2717553ffe35dacfa638",
+        "strategies.py": "fd66a5d05a3b9ef30db194b3582b166524700e302d820b5e2f40f93c2b4b0da0",
+        "symmetry.py": "777e143a0761cac2bf7b418b051b96382a0d2025a2b60a32008ffe4431f4edfe"
+      },
+      "planned_searches": 56,
+      "seeds": 1,
+      "base_seed": 20261012,
+      "budgets": [
+        256
+      ],
+      "ensemble_budget": 256,
+      "chance": "enumerated",
+      "cases": [
+        "giveaway_9",
+        "giveaway_12"
+      ],
+      "variants": {
+        "control": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "parent",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "current_mixture",
+          "action_strategy": "visits",
+          "target_strategy": "legacy",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "puct-current_mixture": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "current_mixture",
+          "action_strategy": "visits",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "gumbel0-current_mixture": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "current_mixture",
+          "action_strategy": "gumbel",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 0.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "gumbel1-current_mixture": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "current_mixture",
+          "action_strategy": "gumbel",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "puct-current_mixture-replicas8-z0": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "current_mixture",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 0.0
+        },
+        "puct-current_mixture-replicas8-z1": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "current_mixture",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 1.0
+        },
+        "puct-current_mixture-replicas8-z2": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "current_mixture",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 2.0
+        },
+        "gumbel-current_mixture-replicas8-z0": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "current_mixture",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 0.0
+        },
+        "gumbel-current_mixture-replicas8-z1": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "current_mixture",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 1.0
+        },
+        "gumbel-current_mixture-replicas8-z2": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "current_mixture",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 2.0
+        },
+        "puct-mean_return": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "mean_return",
+          "action_strategy": "visits",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "gumbel0-mean_return": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "mean_return",
+          "action_strategy": "gumbel",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 0.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "gumbel1-mean_return": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "mean_return",
+          "action_strategy": "gumbel",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "puct-mean_return-replicas8-z0": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "mean_return",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 0.0
+        },
+        "puct-mean_return-replicas8-z1": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "mean_return",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 1.0
+        },
+        "puct-mean_return-replicas8-z2": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "mean_return",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 2.0
+        },
+        "gumbel-mean_return-replicas8-z0": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "mean_return",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 0.0
+        },
+        "gumbel-mean_return-replicas8-z1": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "mean_return",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 1.0
+        },
+        "gumbel-mean_return-replicas8-z2": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "mean_return",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 2.0
+        },
+        "puct-best_response": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "best_response",
+          "action_strategy": "visits",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "gumbel0-best_response": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "best_response",
+          "action_strategy": "gumbel",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 0.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "gumbel1-best_response": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "best_response",
+          "action_strategy": "gumbel",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 1,
+          "uncertainty_z": 1.0
+        },
+        "puct-best_response-replicas8-z0": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "best_response",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 0.0
+        },
+        "puct-best_response-replicas8-z1": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "best_response",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 1.0
+        },
+        "puct-best_response-replicas8-z2": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "puct",
+          "interior_strategy": "puct",
+          "valuation": "best_response",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "visits",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 2.0
+        },
+        "gumbel-best_response-replicas8-z0": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "best_response",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 0.0
+        },
+        "gumbel-best_response-replicas8-z1": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "best_response",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 1.0
+        },
+        "gumbel-best_response-replicas8-z2": {
+          "dirichlet_epsilon": 0.0,
+          "after_state_evaluate_all_children": true,
+          "c_puct": 1.5,
+          "fpu_reduction": 0.1,
+          "boundary_samples": 10,
+          "merge_symmetric_actions": true,
+          "dirichlet_alpha": null,
+          "fpu_mode": "zero",
+          "root_strategy": "gumbel",
+          "interior_strategy": "completed_q",
+          "valuation": "best_response",
+          "action_strategy": "lower_confidence",
+          "target_strategy": "completed_q",
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "completed_q_rescale": true,
+          "replicas": 8,
+          "uncertainty_z": 2.0
+        }
+      },
+      "workers": 1,
+      "recorded_selection": [
+        {
+          "case": "giveaway_9",
+          "visit_choice": 18,
+          "value_choice": 21,
+          "value_advantage": 0.013392865657806396
+        },
+        {
+          "case": "giveaway_12",
+          "visit_choice": 27,
+          "value_choice": 27,
+          "value_advantage": 0.0
+        }
+      ],
+      "completed_searches": 56
+    },
+    "verification": {
+      "old_run": "search-strategy-all-smoke",
+      "new_run": "search-strategy-final-smoke",
+      "trials": 56,
+      "ignored_fields": [
+        "seconds"
+      ],
+      "identical": true
+    }
+  },
+  "timing_note": "Tactical workers retain pre-optimization code; controls use the later session-observation optimization. All56 original/final smoke trials agree exactly excluding seconds. Sweeps overlapped, so evaluator work is the preferred cross-run comparison; no claimed speedup follows from these timings.",
+  "tactical": [
+    {
+      "case": "giveaway_12",
+      "variant": "control",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1156.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.5818512238620315
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "control",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 5,
+      "clear_discovered": 8,
+      "mean_clear_visits": 132.875,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11002.875,
+      "mean_boundary_samples": 992,
+      "mean_seconds": 4.389661828143289
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "control",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 4,
+      "clear_discovered": 8,
+      "mean_clear_visits": 135.625,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2350.5,
+      "mean_boundary_samples": 337.25,
+      "mean_seconds": 2.328068426984828
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "control",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 481.25,
+      "choices": {
+        "23": 8
+      },
+      "mean_evaluator_states": 43703.5,
+      "mean_boundary_samples": 3559.25,
+      "mean_seconds": 19.628708124975674
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 13053,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.846560499863699
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4665737032482866
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 13053,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.891334630199708
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4413720049487893
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 13053,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.863391239399789
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.245054041792173
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12774.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.575527359411353
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 2,
+      "value_avoided": 2,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 6,
+        "18": 2
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.5770265315368306
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12774.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.388381473720074
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 2,
+      "value_avoided": 2,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 6,
+        "18": 2
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4375986562517937
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12774.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.677801739511779
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 3,
+      "value_avoided": 2,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "25": 1,
+        "27": 5,
+        "18": 2
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.2322022811567876
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12883.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.9747322444745805
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 2,
+      "value_avoided": 2,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 6,
+        "18": 2
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.313204687263351
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12883.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.205144786392339
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 2,
+      "value_avoided": 2,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 6,
+        "18": 2
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.451668125024298
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12883.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.177778213430429
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 3,
+      "value_avoided": 2,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "25": 1,
+        "18": 2,
+        "27": 5
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.364792057458544
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-best_response",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1664,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.7018655470164958
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12318,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.7209005782497115
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-best_response",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.6931187758455053
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-best_response",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 60745.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 30.178065947751747
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-current_mixture",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1622,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.9197431043721735
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12172.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.275689171772683
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-current_mixture",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.6114780886273365
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-current_mixture",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 54968.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 31.978363906091545
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1646.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.682835739775328
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12246.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.070843281282578
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4518239008903038
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel0-mean_return",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 1,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 57600.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 27.41677505709231
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-best_response",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 1,
+      "value_avoided": 1,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 7,
+        "26": 1
+      },
+      "mean_evaluator_states": 1637.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 1.2071208854031283
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12563,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.372853942652
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-best_response",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.8802390883502085
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-best_response",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 60628.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 30.76486133862636
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-current_mixture",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 1,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 7,
+        "26": 1
+      },
+      "mean_evaluator_states": 1588.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 1.6393984582391568
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12269,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 7.271474958281033
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-current_mixture",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 3.0085572082316503
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-current_mixture",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 54776.375,
+      "mean_boundary_samples": 13.75,
+      "mean_seconds": 33.874936343723675
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 1,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 7,
+        "26": 1
+      },
+      "mean_evaluator_states": 1599.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.8387964532303158
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12288.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.501412734593032
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4713589478633367
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel1-mean_return",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 57814.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 30.913169531646417
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1483.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.7576071719522588
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12773,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.617159489454934
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4017506613163278
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 1,
+      "choices": {
+        "23": 8
+      },
+      "mean_evaluator_states": 43984,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 22.96310834895121
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11362.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.657108838611748
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 1,
+      "value_avoided": 1,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "25": 1,
+        "27": 7
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.379320624982938
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11362.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.1298855780332815
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 1,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.1196092967584264
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11362.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.044440677243983
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 1,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4917232497537043
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1497.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.5976709740352817
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12381,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.7802829480788205
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.2265671770146582
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 474.625,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 44816,
+      "mean_boundary_samples": 2439.375,
+      "mean_seconds": 21.86514585412806
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11357.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.684356088371715
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.4708936924580485
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11357.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.774802437517792
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.1697184062213637
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11357.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.237668609683169
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.43435622411198
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 1508.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 0.7109705785114784
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 12286.5,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.3669800624775235
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2049,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.014320078131277
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 483.125,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 43826.625,
+      "mean_boundary_samples": 2464.75,
+      "mean_seconds": 20.552815062663285
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11583,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.848725036368705
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.01796297924011
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11583,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.058279880089685
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.3774379584065173
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 11583,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.421830099192448
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "puct-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 2056,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 2.152509046951309
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "control",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 8,
+      "mean_clear_visits": 6,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2033.625,
+      "mean_boundary_samples": 23.75,
+      "mean_seconds": 0.9272786299698055
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "control",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 468.125,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 14474.875,
+      "mean_boundary_samples": 3646.5,
+      "mean_seconds": 5.041971562517574
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "control",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 463.125,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 3841.125,
+      "mean_boundary_samples": 2106.25,
+      "mean_seconds": 2.753917192661902
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "control",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 1142.25,
+      "choices": {
+        "21": 8
+      },
+      "mean_evaluator_states": 48479.625,
+      "mean_boundary_samples": 8081.75,
+      "mean_seconds": 19.800885010365164
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13836.5,
+      "mean_boundary_samples": 626.75,
+      "mean_seconds": 5.922857129975455
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2151.625,
+      "mean_boundary_samples": 113.375,
+      "mean_seconds": 2.4779519426519983
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13836.5,
+      "mean_boundary_samples": 626.75,
+      "mean_seconds": 5.869416817789897
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2151.625,
+      "mean_boundary_samples": 113.375,
+      "mean_seconds": 2.4398059477389324
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13836.5,
+      "mean_boundary_samples": 626.75,
+      "mean_seconds": 5.511541187326657
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2151.625,
+      "mean_boundary_samples": 113.375,
+      "mean_seconds": 2.2742131719132885
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13272.5,
+      "mean_boundary_samples": 921.125,
+      "mean_seconds": 4.894417437521042
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2184.25,
+      "mean_boundary_samples": 155.375,
+      "mean_seconds": 2.0591802186099812
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13272.5,
+      "mean_boundary_samples": 921.125,
+      "mean_seconds": 4.889526796847349
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2184.25,
+      "mean_boundary_samples": 155.375,
+      "mean_seconds": 2.0708657446084544
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13272.5,
+      "mean_boundary_samples": 921.125,
+      "mean_seconds": 4.908750843635062
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2184.25,
+      "mean_boundary_samples": 155.375,
+      "mean_seconds": 2.116813348926371
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13454.125,
+      "mean_boundary_samples": 780.375,
+      "mean_seconds": 5.285681229113834
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2184.25,
+      "mean_boundary_samples": 154.5,
+      "mean_seconds": 2.24821227096254
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13454.125,
+      "mean_boundary_samples": 780.375,
+      "mean_seconds": 5.357654432213167
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2184.25,
+      "mean_boundary_samples": 154.5,
+      "mean_seconds": 2.243224416859448
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13454.125,
+      "mean_boundary_samples": 780.375,
+      "mean_seconds": 5.215826593484962
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2184.25,
+      "mean_boundary_samples": 154.5,
+      "mean_seconds": 2.137950838456163
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-best_response",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 1759.75,
+      "mean_boundary_samples": 140.375,
+      "mean_seconds": 0.9487013021716848
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 14439,
+      "mean_boundary_samples": 905.375,
+      "mean_seconds": 5.081777687475551
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-best_response",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2223.375,
+      "mean_boundary_samples": 219.75,
+      "mean_seconds": 2.535109130112687
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-best_response",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 57224.75,
+      "mean_boundary_samples": 5735.25,
+      "mean_seconds": 21.824102828191826
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-current_mixture",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 1689.75,
+      "mean_boundary_samples": 140.125,
+      "mean_seconds": 0.684701911493903
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13761.125,
+      "mean_boundary_samples": 875.25,
+      "mean_seconds": 4.836003291915404
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-current_mixture",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2252.625,
+      "mean_boundary_samples": 256.875,
+      "mean_seconds": 2.342389380239183
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-current_mixture",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 54609.375,
+      "mean_boundary_samples": 4807.75,
+      "mean_seconds": 19.588033953274135
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 1701.25,
+      "mean_boundary_samples": 127.375,
+      "mean_seconds": 0.5678631042828783
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 14064.875,
+      "mean_boundary_samples": 824.875,
+      "mean_seconds": 5.229713260661811
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2247,
+      "mean_boundary_samples": 249,
+      "mean_seconds": 2.2621930677851196
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel0-mean_return",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 2,
+      "value_avoided": 5,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 6,
+        "21": 2
+      },
+      "mean_evaluator_states": 57050.625,
+      "mean_boundary_samples": 4012.25,
+      "mean_seconds": 19.839966588508105
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-best_response",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 1729.25,
+      "mean_boundary_samples": 128.5,
+      "mean_seconds": 0.7982888852420729
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 14279.125,
+      "mean_boundary_samples": 680,
+      "mean_seconds": 5.72743375520804
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-best_response",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2170.5,
+      "mean_boundary_samples": 154.625,
+      "mean_seconds": 3.035990952834254
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-best_response",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 58024.5,
+      "mean_boundary_samples": 4894.75,
+      "mean_seconds": 22.855639781453647
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-current_mixture",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 1678.25,
+      "mean_boundary_samples": 195,
+      "mean_seconds": 0.6952666926663369
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13797.875,
+      "mean_boundary_samples": 828.25,
+      "mean_seconds": 4.895211760333041
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-current_mixture",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2305.5,
+      "mean_boundary_samples": 339.75,
+      "mean_seconds": 2.239449916756712
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-current_mixture",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 54807.75,
+      "mean_boundary_samples": 4677.25,
+      "mean_seconds": 19.48132518751663
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 1676,
+      "mean_boundary_samples": 134.875,
+      "mean_seconds": 0.7127065207459964
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13800.25,
+      "mean_boundary_samples": 632.125,
+      "mean_seconds": 4.961880843737163
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2253.75,
+      "mean_boundary_samples": 265.625,
+      "mean_seconds": 2.4519593801815063
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel1-mean_return",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 4,
+      "value_avoided": 4,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "21": 3,
+        "18": 4,
+        "27": 1
+      },
+      "mean_evaluator_states": 57303.5,
+      "mean_boundary_samples": 4096.75,
+      "mean_seconds": 22.634659453091444
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2424.125,
+      "mean_boundary_samples": 34.125,
+      "mean_seconds": 0.7398692707356531
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 1,
+      "choices": {
+        "21": 8
+      },
+      "mean_evaluator_states": 12323.375,
+      "mean_boundary_samples": 577.75,
+      "mean_seconds": 4.723491708369693
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 1,
+      "choices": {
+        "21": 8
+      },
+      "mean_evaluator_states": 2265,
+      "mean_boundary_samples": 256.5,
+      "mean_seconds": 2.152368291717721
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 662.375,
+      "choices": {
+        "21": 8
+      },
+      "mean_evaluator_states": 45028.25,
+      "mean_boundary_samples": 4926.25,
+      "mean_seconds": 20.042658119724365
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18271.125,
+      "mean_boundary_samples": 222.875,
+      "mean_seconds": 5.870590385311516
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2084.125,
+      "mean_boundary_samples": 31.5,
+      "mean_seconds": 2.34206154171261
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18271.125,
+      "mean_boundary_samples": 222.875,
+      "mean_seconds": 5.631948578025913
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2084.125,
+      "mean_boundary_samples": 31.5,
+      "mean_seconds": 2.197684145940002
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18271.125,
+      "mean_boundary_samples": 222.875,
+      "mean_seconds": 5.595521869894583
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-best_response-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2084.125,
+      "mean_boundary_samples": 31.5,
+      "mean_seconds": 2.312574666546425
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2414,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 0.8331792762328405
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 472.75,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 14204.375,
+      "mean_boundary_samples": 2998.375,
+      "mean_seconds": 5.172310849156929
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 468,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 3372,
+      "mean_boundary_samples": 1644.375,
+      "mean_seconds": 2.4583600727200974
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 1109,
+      "choices": {
+        "21": 8
+      },
+      "mean_evaluator_states": 48079.5,
+      "mean_boundary_samples": 6080.375,
+      "mean_seconds": 19.092508781381184
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18041.5,
+      "mean_boundary_samples": 252.375,
+      "mean_seconds": 5.1848925158556085
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2092,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 1.9856853281380609
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18041.5,
+      "mean_boundary_samples": 252.375,
+      "mean_seconds": 4.990887760272017
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2092,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 1.9626057498971932
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18041.5,
+      "mean_boundary_samples": 252.375,
+      "mean_seconds": 4.7797143176721875
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-current_mixture-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2092,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 1.933843661507126
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2386,
+      "mean_boundary_samples": 40.625,
+      "mean_seconds": 0.6215753959841095
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 367.375,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 14337.875,
+      "mean_boundary_samples": 2611.75,
+      "mean_seconds": 4.533943062502658
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 469.25,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 3384.375,
+      "mean_boundary_samples": 1658.375,
+      "mean_seconds": 2.370372380159097
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return",
+      "budget": 8192,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 990.75,
+      "choices": {
+        "21": 8
+      },
+      "mean_evaluator_states": 47389.5,
+      "mean_boundary_samples": 5675.125,
+      "mean_seconds": 18.695323447987903
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18154.125,
+      "mean_boundary_samples": 268.375,
+      "mean_seconds": 5.937782478897134
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return-replicas8-z0",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2092,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 2.1492606821411755
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18154.125,
+      "mean_boundary_samples": 268.375,
+      "mean_seconds": 5.388420520728687
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return-replicas8-z1",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2092,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 2.203018677450018
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 18154.125,
+      "mean_boundary_samples": 268.375,
+      "mean_seconds": 5.527244031283772
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "puct-mean_return-replicas8-z2",
+      "budget": 2048,
+      "chance": "sampled",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 2092,
+      "mean_boundary_samples": 40.25,
+      "mean_seconds": 2.1500235052371863
+    }
+  ],
+  "exact_controls": [
+    {
+      "variant": "control",
+      "budget": 256,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 7,
+      "mean_value_regret_pp": 0.4121415209872555,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.11389519949272439
+    },
+    {
+      "variant": "control",
+      "budget": 2048,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 0,
+      "mean_value_regret_pp": 0.0,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.5950240137651289
+    },
+    {
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 136,
+      "suboptimal": 1,
+      "mean_regret_pp": 0.052521008403361366,
+      "value_suboptimal": 1,
+      "mean_value_regret_pp": 0.052521008403361366,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.11806531429722193
+    },
+    {
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 0,
+      "mean_value_regret_pp": 0.0,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.6210966115211383
+    },
+    {
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 136,
+      "suboptimal": 5,
+      "mean_regret_pp": 0.3701123943338477,
+      "value_suboptimal": 1,
+      "mean_value_regret_pp": 0.052521008403361366,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.12041776933063589
+    },
+    {
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 0,
+      "mean_value_regret_pp": 0.0,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.6332625980173949
+    },
+    {
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 1,
+      "mean_value_regret_pp": 0.052521008403361366,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.09518831685486742
+    },
+    {
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 0,
+      "mean_value_regret_pp": 0.0,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.5743564295887208
+    },
+    {
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 1,
+      "mean_value_regret_pp": 0.052521008403361366,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.09204464940258357
+    },
+    {
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 136,
+      "suboptimal": 0,
+      "mean_regret_pp": 0.0,
+      "value_suboptimal": 0,
+      "mean_value_regret_pp": 0.0,
+      "mean_evaluator_states": 8.529411764705882,
+      "mean_seconds": 0.5368858679635998
+    }
+  ],
+  "replay_controls": [
+    {
+      "case": "general-1021591",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 2308,
+      "mean_seconds": 0.6671758747543208,
+      "mean_actor_value": 0.5503660966334176
+    },
+    {
+      "case": "general-1021591",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 18560.25,
+      "mean_seconds": 5.0538267448719125,
+      "mean_actor_value": 0.5559195077720359
+    },
+    {
+      "case": "general-1021591",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 2476,
+      "mean_seconds": 0.7841464894881938,
+      "mean_actor_value": 0.548132985830307
+    },
+    {
+      "case": "general-1021591",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 21089,
+      "mean_seconds": 5.932106979103992,
+      "mean_actor_value": 0.5549475699663162
+    },
+    {
+      "case": "general-1021591",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "17": 1,
+        "27": 2,
+        "25": 5
+      },
+      "mean_evaluator_states": 2490,
+      "mean_seconds": 0.757822546584066,
+      "mean_actor_value": 0.5440525934100151
+    },
+    {
+      "case": "general-1021591",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 21164.25,
+      "mean_seconds": 5.987111244758125,
+      "mean_actor_value": 0.5550056472420692
+    },
+    {
+      "case": "general-1021591",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 2390.25,
+      "mean_seconds": 0.7341357082477771,
+      "mean_actor_value": 0.5557670593261719
+    },
+    {
+      "case": "general-1021591",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 18310,
+      "mean_seconds": 5.19063039025059,
+      "mean_actor_value": 0.5599276795983315
+    },
+    {
+      "case": "general-1021591",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 2428.75,
+      "mean_seconds": 0.7177681509638205,
+      "mean_actor_value": 0.55353894084692
+    },
+    {
+      "case": "general-1021591",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 18633.75,
+      "mean_seconds": 5.236898385337554,
+      "mean_actor_value": 0.5589184910058975
+    },
+    {
+      "case": "general-1409104",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 1539.75,
+      "mean_seconds": 0.7542456145165488,
+      "mean_actor_value": 0.38901988351681355
+    },
+    {
+      "case": "general-1409104",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 12304.75,
+      "mean_seconds": 6.360910531249829,
+      "mean_actor_value": 0.3417247649693108
+    },
+    {
+      "case": "general-1409104",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "3": 8
+      },
+      "mean_evaluator_states": 1210.75,
+      "mean_seconds": 0.7174914636416361,
+      "mean_actor_value": 0.3534186966717243
+    },
+    {
+      "case": "general-1409104",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 14334.875,
+      "mean_seconds": 7.589748843718553,
+      "mean_actor_value": 0.35651779919862747
+    },
+    {
+      "case": "general-1409104",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "3": 8
+      },
+      "mean_evaluator_states": 1210.75,
+      "mean_seconds": 0.7767514165898319,
+      "mean_actor_value": 0.3534186966717243
+    },
+    {
+      "case": "general-1409104",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 14334.875,
+      "mean_seconds": 6.918634010158712,
+      "mean_actor_value": 0.35651779919862747
+    },
+    {
+      "case": "general-1409104",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 1633.875,
+      "mean_seconds": 0.7510278124827892,
+      "mean_actor_value": 0.41556115075945854
+    },
+    {
+      "case": "general-1409104",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 13338.25,
+      "mean_seconds": 5.657582213520072,
+      "mean_actor_value": 0.35313307866454124
+    },
+    {
+      "case": "general-1409104",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 1546.5,
+      "mean_seconds": 0.7597191875684075,
+      "mean_actor_value": 0.3531216084957123
+    },
+    {
+      "case": "general-1409104",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 13488.125,
+      "mean_seconds": 5.910988098796224,
+      "mean_actor_value": 0.3426310122013092
+    },
+    {
+      "case": "general-1421413",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "16": 7,
+        "20": 1
+      },
+      "mean_evaluator_states": 1331.5,
+      "mean_seconds": 0.632136088272091,
+      "mean_actor_value": 0.9189266458095744
+    },
+    {
+      "case": "general-1421413",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "16": 7,
+        "20": 1
+      },
+      "mean_evaluator_states": 9487.75,
+      "mean_seconds": 4.146804474235978,
+      "mean_actor_value": 0.9284344420142439
+    },
+    {
+      "case": "general-1421413",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "20": 4,
+        "16": 4
+      },
+      "mean_evaluator_states": 1496,
+      "mean_seconds": 0.706974072905723,
+      "mean_actor_value": 0.9163091704249382
+    },
+    {
+      "case": "general-1421413",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "16": 5,
+        "20": 3
+      },
+      "mean_evaluator_states": 11530.875,
+      "mean_seconds": 5.278182224021293,
+      "mean_actor_value": 0.919748917222023
+    },
+    {
+      "case": "general-1421413",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "22": 5,
+        "16": 2,
+        "20": 1
+      },
+      "mean_evaluator_states": 1502.5,
+      "mean_seconds": 0.6600567498826422,
+      "mean_actor_value": 0.9149787873029709
+    },
+    {
+      "case": "general-1421413",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "16": 3,
+        "20": 4,
+        "22": 1
+      },
+      "mean_evaluator_states": 11531.5,
+      "mean_seconds": 5.072196999855805,
+      "mean_actor_value": 0.9186969771981239
+    },
+    {
+      "case": "general-1421413",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "20": 3,
+        "16": 5
+      },
+      "mean_evaluator_states": 1254.5,
+      "mean_seconds": 0.5871739894791972,
+      "mean_actor_value": 0.9253476858139038
+    },
+    {
+      "case": "general-1421413",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "16": 5,
+        "20": 3
+      },
+      "mean_evaluator_states": 9583.375,
+      "mean_seconds": 4.355170546565205,
+      "mean_actor_value": 0.928010031580925
+    },
+    {
+      "case": "general-1421413",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "16": 5,
+        "20": 3
+      },
+      "mean_evaluator_states": 1298.25,
+      "mean_seconds": 0.614137948025018,
+      "mean_actor_value": 0.9276433363556862
+    },
+    {
+      "case": "general-1421413",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "20": 4,
+        "16": 4
+      },
+      "mean_evaluator_states": 9622.375,
+      "mean_seconds": 4.172915088478476,
+      "mean_actor_value": 0.9302635043859482
+    },
+    {
+      "case": "general-1546832",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 1224.75,
+      "mean_seconds": 0.656504817539826,
+      "mean_actor_value": 0.8411975489052353
+    },
+    {
+      "case": "general-1546832",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 10257,
+      "mean_seconds": 4.920065015758155,
+      "mean_actor_value": 0.8171884402080011
+    },
+    {
+      "case": "general-1546832",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "3": 8
+      },
+      "mean_evaluator_states": 1177.5,
+      "mean_seconds": 0.7002473128086422,
+      "mean_actor_value": 0.8316324055194855
+    },
+    {
+      "case": "general-1546832",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 10996.125,
+      "mean_seconds": 5.88674810907105,
+      "mean_actor_value": 0.8257518038153648
+    },
+    {
+      "case": "general-1546832",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "3": 8
+      },
+      "mean_evaluator_states": 1177.5,
+      "mean_seconds": 0.7216150781314354,
+      "mean_actor_value": 0.8316324055194855
+    },
+    {
+      "case": "general-1546832",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 10996.125,
+      "mean_seconds": 5.703615541773615,
+      "mean_actor_value": 0.8257518038153648
+    },
+    {
+      "case": "general-1546832",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 1179.25,
+      "mean_seconds": 0.643891947780503,
+      "mean_actor_value": 0.8339541405439377
+    },
+    {
+      "case": "general-1546832",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 3,
+        "3": 5
+      },
+      "mean_evaluator_states": 10511.75,
+      "mean_seconds": 4.981578999984777,
+      "mean_actor_value": 0.82660111784935
+    },
+    {
+      "case": "general-1546832",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 1205.5,
+      "mean_seconds": 0.6283618175075389,
+      "mean_actor_value": 0.8197226077318192
+    },
+    {
+      "case": "general-1546832",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 10873.5,
+      "mean_seconds": 5.3617042710247915,
+      "mean_actor_value": 0.8214413151144981
+    },
+    {
+      "case": "general-461284",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3151.5,
+      "mean_seconds": 0.8213645258801989,
+      "mean_actor_value": 0.40843405015041856
+    },
+    {
+      "case": "general-461284",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 22121.5,
+      "mean_seconds": 5.8359358907619026,
+      "mean_actor_value": 0.4015613446523935
+    },
+    {
+      "case": "general-461284",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3177.75,
+      "mean_seconds": 0.859229296882404,
+      "mean_actor_value": 0.39189519360661507
+    },
+    {
+      "case": "general-461284",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 23561.75,
+      "mean_seconds": 6.234173145639943,
+      "mean_actor_value": 0.39860595390200615
+    },
+    {
+      "case": "general-461284",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3177.75,
+      "mean_seconds": 0.8628651720355265,
+      "mean_actor_value": 0.39189519360661507
+    },
+    {
+      "case": "general-461284",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 23561.75,
+      "mean_seconds": 6.422235791484127,
+      "mean_actor_value": 0.39860595390200615
+    },
+    {
+      "case": "general-461284",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3137.5,
+      "mean_seconds": 0.8809897966857534,
+      "mean_actor_value": 0.4195045679807663
+    },
+    {
+      "case": "general-461284",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 24027.25,
+      "mean_seconds": 6.276807885325979,
+      "mean_actor_value": 0.41161970794200897
+    },
+    {
+      "case": "general-461284",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3125.25,
+      "mean_seconds": 0.8776495676138438,
+      "mean_actor_value": 0.39964811876416206
+    },
+    {
+      "case": "general-461284",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 24134,
+      "mean_seconds": 6.227679104020353,
+      "mean_actor_value": 0.3967411443591118
+    },
+    {
+      "case": "general-727031",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 1314,
+      "mean_seconds": 0.5914843177015428,
+      "mean_actor_value": 0.9337579679280403
+    },
+    {
+      "case": "general-727031",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 10699.25,
+      "mean_seconds": 4.173147520778002,
+      "mean_actor_value": 0.9409808076739952
+    },
+    {
+      "case": "general-727031",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 7,
+        "21": 1
+      },
+      "mean_evaluator_states": 1375.25,
+      "mean_seconds": 0.7570018697588239,
+      "mean_actor_value": 0.9351003840565681
+    },
+    {
+      "case": "general-727031",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 11229.5,
+      "mean_seconds": 5.052448468632065,
+      "mean_actor_value": 0.9359452277421951
+    },
+    {
+      "case": "general-727031",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 6,
+        "21": 2
+      },
+      "mean_evaluator_states": 1340.25,
+      "mean_seconds": 0.6980495833267923,
+      "mean_actor_value": 0.9338978976011276
+    },
+    {
+      "case": "general-727031",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 11210.25,
+      "mean_seconds": 5.0918039792450145,
+      "mean_actor_value": 0.9358813092112541
+    },
+    {
+      "case": "general-727031",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 1272,
+      "mean_seconds": 0.5852177030174062,
+      "mean_actor_value": 0.9418084025382996
+    },
+    {
+      "case": "general-727031",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 10197,
+      "mean_seconds": 4.648405401327182,
+      "mean_actor_value": 0.9473192617297173
+    },
+    {
+      "case": "general-727031",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 1287.75,
+      "mean_seconds": 0.6053865833382588,
+      "mean_actor_value": 0.9421245902776718
+    },
+    {
+      "case": "general-727031",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "25": 8
+      },
+      "mean_evaluator_states": 10139.25,
+      "mean_seconds": 4.975091442727717,
+      "mean_actor_value": 0.94192985445261
+    },
+    {
+      "case": "general-757187",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "17": 7,
+        "23": 1
+      },
+      "mean_evaluator_states": 2591.5,
+      "mean_seconds": 0.8196235520299524,
+      "mean_actor_value": 0.8836033623158236
+    },
+    {
+      "case": "general-757187",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "23": 3,
+        "17": 5
+      },
+      "mean_evaluator_states": 13354,
+      "mean_seconds": 4.372880739625543,
+      "mean_actor_value": 0.8889322795879265
+    },
+    {
+      "case": "general-757187",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "17": 4,
+        "23": 4
+      },
+      "mean_evaluator_states": 2654.5,
+      "mean_seconds": 0.6492391561332624,
+      "mean_actor_value": 0.8926836177706718
+    },
+    {
+      "case": "general-757187",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "14": 3,
+        "10": 3,
+        "6": 2
+      },
+      "mean_evaluator_states": 17618.75,
+      "mean_seconds": 4.399594140588306,
+      "mean_actor_value": 0.8970116600394249
+    },
+    {
+      "case": "general-757187",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "17": 3,
+        "23": 2,
+        "16": 1,
+        "14": 1,
+        "9": 1
+      },
+      "mean_evaluator_states": 2379.75,
+      "mean_seconds": 0.6223121872462798,
+      "mean_actor_value": 0.8910532668232918
+    },
+    {
+      "case": "general-757187",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "10": 5,
+        "14": 3
+      },
+      "mean_evaluator_states": 17162,
+      "mean_seconds": 4.332775239512557,
+      "mean_actor_value": 0.8961659744381905
+    },
+    {
+      "case": "general-757187",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "23": 6,
+        "17": 2
+      },
+      "mean_evaluator_states": 2500.5,
+      "mean_seconds": 0.7119702343770768,
+      "mean_actor_value": 0.896060399711132
+    },
+    {
+      "case": "general-757187",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "23": 5,
+        "17": 3
+      },
+      "mean_evaluator_states": 13201.75,
+      "mean_seconds": 4.421196567593142,
+      "mean_actor_value": 0.8953851088881493
+    },
+    {
+      "case": "general-757187",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "17": 2,
+        "23": 6
+      },
+      "mean_evaluator_states": 2512.75,
+      "mean_seconds": 0.7115872813446913,
+      "mean_actor_value": 0.8924935013055801
+    },
+    {
+      "case": "general-757187",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "17": 7,
+        "23": 1
+      },
+      "mean_evaluator_states": 12879.75,
+      "mean_seconds": 4.0042561615409795,
+      "mean_actor_value": 0.8924808576703072
+    },
+    {
+      "case": "general-997508",
+      "variant": "control",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3111.25,
+      "mean_seconds": 0.7276328333828133,
+      "mean_actor_value": 0.36668575099933937
+    },
+    {
+      "case": "general-997508",
+      "variant": "control",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 22079.5,
+      "mean_seconds": 5.967975453269901,
+      "mean_actor_value": 0.36307172944679267
+    },
+    {
+      "case": "general-997508",
+      "variant": "gumbel0-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3177.75,
+      "mean_seconds": 0.9165979582758155,
+      "mean_actor_value": 0.36200256273150444
+    },
+    {
+      "case": "general-997508",
+      "variant": "gumbel0-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 23911.75,
+      "mean_seconds": 6.129005104245152,
+      "mean_actor_value": 0.3586275428533554
+    },
+    {
+      "case": "general-997508",
+      "variant": "gumbel1-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 3177.75,
+      "mean_seconds": 0.9221279842604417,
+      "mean_actor_value": 0.36200256273150444
+    },
+    {
+      "case": "general-997508",
+      "variant": "gumbel1-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 23911.75,
+      "mean_seconds": 6.255875593662495,
+      "mean_actor_value": 0.3586275428533554
+    },
+    {
+      "case": "general-997508",
+      "variant": "puct-best_response",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 2915.25,
+      "mean_seconds": 0.7985772449756041,
+      "mean_actor_value": 0.3694430999457836
+    },
+    {
+      "case": "general-997508",
+      "variant": "puct-best_response",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 23735,
+      "mean_seconds": 6.178767979174154,
+      "mean_actor_value": 0.37062327191233635
+    },
+    {
+      "case": "general-997508",
+      "variant": "puct-mean_return",
+      "budget": 256,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 2908.25,
+      "mean_seconds": 0.8004506248689722,
+      "mean_actor_value": 0.3627351075410843
+    },
+    {
+      "case": "general-997508",
+      "variant": "puct-mean_return",
+      "budget": 2048,
+      "trials": 8,
+      "choices": {
+        "2": 8
+      },
+      "mean_evaluator_states": 23257.25,
+      "mean_seconds": 5.828777713351883,
+      "mean_actor_value": 0.3607567772269249
+    }
+  ],
+  "hybrid": [
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-puct-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 10783.25,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.577521901257569
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-puct-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 10653.75,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 6.061077802296495
+    },
+    {
+      "case": "giveaway_12",
+      "variant": "gumbel-puct-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 0,
+      "mean_clear_visits": 0,
+      "choices": {
+        "27": 8
+      },
+      "mean_evaluator_states": 10729,
+      "mean_boundary_samples": 0,
+      "mean_seconds": 5.765820953150978
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-puct-best_response",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 8,
+      "value_avoided": 8,
+      "clear_discovered": 8,
+      "mean_clear_visits": 89.875,
+      "choices": {
+        "21": 7,
+        "27": 1
+      },
+      "mean_evaluator_states": 12830.25,
+      "mean_boundary_samples": 1246.75,
+      "mean_seconds": 6.123302119871369
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-puct-current_mixture",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 8,
+      "mean_clear_visits": 77.625,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13015.875,
+      "mean_boundary_samples": 1428.875,
+      "mean_seconds": 6.54220077622449
+    },
+    {
+      "case": "giveaway_9",
+      "variant": "gumbel-puct-mean_return",
+      "budget": 2048,
+      "chance": "enumerated",
+      "trials": 8,
+      "avoided": 0,
+      "value_avoided": 0,
+      "clear_discovered": 8,
+      "mean_clear_visits": 38,
+      "choices": {
+        "18": 8
+      },
+      "mean_evaluator_states": 13161,
+      "mean_boundary_samples": 1040.375,
+      "mean_seconds": 5.987757052091183
+    }
+  ]
+}

@@ -39,9 +39,12 @@ a fresh root and RNG. Supply `--plan` for another grid, `--suite` for another se
 of JSON cases, or `--allow-dirty` while developing. Existing output directories
 are never overwritten. The checkpoint must match every case's player count.
 
-Method tables accept all existing `SearchConfig` fields, plus an optional
+Method tables accept single-tree `SearchConfig` settings, plus an optional
 `boundary_checkpoint` relative to the plan. Unspecified fields use the current
-search defaults, recorded in full in each trial. The standard plan disables
+search defaults, recorded in full in each trial. Per-iteration tracing requires
+`replicas = 1`; replica settings are rejected explicitly. Use the
+[search strategy benchmark](search-benchmarks.md) for independent-replica and
+exact-endgame comparisons. The standard plan disables
 symmetry merging to hold the partition fixed across budgets. If enabled, the
 engine's safety rule can change the partition at different budgets; inspect
 `effective_merge_symmetric_actions` before interpreting budget curves as prefixes.
@@ -133,9 +136,11 @@ not mutate it or consume search randomness. Custom code is trusted local Python,
 not a sandboxed plugin. Its module source is saved along with Skyjo's sources;
 external dependencies must be preserved by the experiment author.
 
-Final choice uses `root.policy_targets(0)`, matching the engine's greedy visit
-selection and tie handling. Alternative selection rules should be explicit in
-the adapter's returned node contract, never silently substituted by the report.
+Final choice uses the configured acting policy at temperature zero, matching
+`search.runner` for single-tree visit, value, and Gumbel selection. Learning
+target settings do not change the reported action. The observer reads the current
+allocation context through `root_session.finish(view)`; custom allocation
+sessions must make this accessor read-only and safe to call during tracing.
 For algorithms with a different tree representation, add an adapter for the
 root/witness snapshot contract rather than encoding algorithm-specific fields in
 position fixtures. Position curation remains independent of the search algorithm.

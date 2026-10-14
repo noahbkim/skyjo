@@ -3,47 +3,24 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+import itertools
+from collections.abc import Callable, Iterator
 
 import numpy as np
 
 from skyjo.engine import game as sj
 
 from . import symmetry
+from .configuration import DEFAULT_SEARCH_CONFIG, SearchConfig, resolve_components
 from .evaluator import BoundaryEvaluator, Evaluator, NextDealEvaluator, Prediction
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class SearchConfig:
-    """Search settings; boundary_samples controls the first visit's batch only."""
-
-    dirichlet_epsilon: float = 0.0
-    after_state_evaluate_all_children: bool = False
-    c_puct: float = 1.5
-    fpu_reduction: float = 0.1
-    boundary_samples: int = 1
-    merge_symmetric_actions: bool = True
-
-    def __post_init__(self):
-        if (
-            not np.isfinite(self.dirichlet_epsilon)
-            or not 0 <= self.dirichlet_epsilon <= 1
-        ):
-            raise ValueError("dirichlet_epsilon must be between zero and one")
-        if not np.isfinite(self.c_puct) or self.c_puct <= 0:
-            raise ValueError("c_puct must be finite and positive")
-        if not np.isfinite(self.fpu_reduction) or self.fpu_reduction < 0:
-            raise ValueError("fpu_reduction must be finite and nonnegative")
-        if type(self.boundary_samples) is not int or self.boundary_samples < 1:
-            raise ValueError("boundary_samples must be a positive integer")
-        if (
-            type(self.merge_symmetric_actions) is not bool
-            or type(self.after_state_evaluate_all_children) is not bool
-        ):
-            raise ValueError("chance and symmetry options must be boolean")
-
-
-DEFAULT_SEARCH_CONFIG = SearchConfig()
+from .strategies import (
+    AllocationSession,
+    Evidence,
+    NodeView,
+    SearchComponents,
+    ValueAccumulator,
+    frozen_array,
+)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -53,20 +30,39 @@ class SearchContext:
     config: SearchConfig = dataclasses.field(default_factory=SearchConfig)
     boundary_evaluator: BoundaryEvaluator | None = None
     rng: np.random.Generator = dataclasses.field(default_factory=np.random.default_rng)
+    components: SearchComponents | None = None
+    root_session: AllocationSession | None = None
+    interior_session: AllocationSession | None = None
+    node_ids: Iterator[int] = dataclasses.field(default_factory=itertools.count)
+
+    def __post_init__(self):
+        if self.components is None:
+            object.__setattr__(self, "components", resolve_components(self.config))
+        if self.root_session is None:
+            object.__setattr__(
+                self,
+                "root_session",
+                self.components.root_exploration.start(0, self.rng),
+            )
+        if self.interior_session is None:
+            object.__setattr__(
+                self,
+                "interior_session",
+                self.components.interior_exploration.start(0, self.rng),
+            )
 
 
 def ucb_score(child: MCTSNode, parent: DecisionStateNode) -> float:
+    """Compatibility accessor for the configured PUCT score."""
+    from .strategies import PUCT
+
     config = parent.context.config
-    player = sj.get_player(parent.state)
-    # FPU follows the parent's current mixture, initially just its neural value.
-    value = (
-        float(child.state_value[player])
-        if child.has_value_estimate
-        else float(parent.state_value[player]) - config.fpu_reduction
+    view = parent.view()
+    return float(
+        PUCT(config.c_puct, config.fpu_reduction, config.fpu_mode).scores(view)[
+            view.actions.index(child.action)
+        ]
     )
-    return value + config.c_puct * parent.action_probability(child.action) * np.sqrt(
-        parent.visit_count + 1
-    ) / (1 + child.visit_count)
 
 
 @dataclasses.dataclass(slots=True)
@@ -77,6 +73,10 @@ class DecisionStateNode:
     context: SearchContext | None = None
     effective_merge_symmetric_actions: bool = False
     _state_value: np.ndarray = dataclasses.field(init=False)
+    _valuation_state: ValueAccumulator | None = dataclasses.field(
+        init=False, default=None
+    )
+    _node_id: int = dataclasses.field(init=False)
     model_prediction: Prediction | None = None
     children: dict[int, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
@@ -91,6 +91,7 @@ class DecisionStateNode:
             self.context = (
                 self.parent.context if self.parent is not None else SearchContext()
             )
+        self._node_id = next(self.context.node_ids)
         self._state_value = np.zeros(self.state.players, dtype=np.float32)
         self.dirichlet_noise = np.zeros(sj.MASK_SIZE, dtype=np.float32)
 
@@ -102,21 +103,38 @@ class DecisionStateNode:
     def state_value(self):
         return self._state_value
 
-    def refresh_value(self):
-        """Mix one neural contribution with current action estimates."""
-        assert self.model_prediction is not None
-        total = self.model_prediction.value.copy()
-        weight = 1
-        for child in self.children.values():
-            if child.visit_count:
-                total += child.visit_count * child.state_value
-                weight += child.visit_count
-        self._state_value = total / weight
+    def view(self):
+        actions = tuple(self.children)
+        return NodeView(
+            self.action_groups,
+            actions,
+            frozen_array([self.action_priors[a] for a in actions]),
+            frozen_array([self.model_action_priors[a] for a in actions]),
+            frozen_array([self.children[a].visit_count for a in actions]),
+            frozen_array([self.children[a].state_value for a in actions]),
+            frozen_array([self.children[a].has_value_estimate for a in actions]),
+            sj.get_player(self.state),
+            frozen_array(self.state_value),
+            frozen_array(self.model_prediction.value),
+            self.visit_count,
+            self.parent is None,
+            node_id=self._node_id,
+        )
+
+    def refresh_value(self, evidence=None):
+        self._valuation_state.update(
+            self.view(),
+            evidence if evidence is not None else Evidence(self.state_value, "refresh"),
+        )
+        self._state_value = self._valuation_state.value
 
     def expand(self, model_prediction: Prediction):
         assert not self.is_expanded
         self.model_prediction = model_prediction
-        self._state_value = model_prediction.value.copy()
+        self._valuation_state = self.context.components.valuation.initialize(
+            frozen_array(model_prediction.value)
+        )
+        self._state_value = self._valuation_state.value
         self.action_groups = symmetry.ActionGroups.from_state(
             self.state, merge=self.effective_merge_symmetric_actions
         )
@@ -141,14 +159,15 @@ class DecisionStateNode:
         )
 
     def select_child(self, **kwargs):
-        scores = [(ucb_score(child, self), child) for child in self.children.values()]
-        maximum = max(score for score, _ in scores)
-        candidates = [child for score, child in scores if abs(maximum - score) < 1e-5]
-        return (
-            candidates[int(self.context.rng.integers(len(candidates)))]
-            if len(candidates) > 1
-            else candidates[0]
+        session = (
+            self.context.root_session
+            if self.parent is None
+            else self.context.interior_session
         )
+        action = session.select(self.view())
+        if action not in self.children:
+            raise ValueError("Exploration selected an illegal action group")
+        return self.children[action]
 
     def policy_targets(self, temperature=1.0):
         assert self.action_groups is not None
@@ -169,7 +188,10 @@ class DecisionStateNode:
         if epsilon:
             actions = np.flatnonzero(sj.actions(self.state))
             self.dirichlet_noise[actions] = self.context.rng.dirichlet(
-                np.full(len(actions), 10 / len(actions))
+                np.full(
+                    len(actions),
+                    self.context.config.dirichlet_alpha or 10 / len(actions),
+                )
             )
             self.action_priors = (
                 1 - epsilon
@@ -297,7 +319,7 @@ class RoundBoundaryNode:
         first = self.deterministic_completed_state
         if first is not None:
             if sj.get_game_over(first) and self.has_value_estimate:
-                return
+                return Evidence(self.state_value.copy(), "exact")
         else:
             deterministic = not self.state.table[
                 :, :, :, sj.FINGER_HIDDEN
@@ -322,6 +344,7 @@ class RoundBoundaryNode:
         self.sample_value_total += batch_total
         self.sample_count += len(completed)
         self.is_expanded = True
+        return Evidence(batch_total / len(completed))
 
 
 MCTSNode = DecisionStateNode | AfterStateNode | RoundBoundaryNode
@@ -336,11 +359,15 @@ def find_leaf(root: MCTSNode, update_after_state_child_weights=False):
     return path
 
 
-def backpropagate(search_path: list[MCTSNode]):
+def backpropagate(search_path: list[MCTSNode], evidence: Evidence | None = None):
     """Count one traversal and refresh mixtures from the updated descendants."""
+    if evidence is None:
+        evidence = Evidence(search_path[-1].state_value.copy())
     for node in reversed(search_path):
         node.visit_count += 1
-        if not isinstance(node, RoundBoundaryNode):
+        if isinstance(node, DecisionStateNode):
+            node.refresh_value(evidence)
+        elif isinstance(node, AfterStateNode):
             node.refresh_value()
 
 
@@ -352,6 +379,9 @@ def run_mcts(
     config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     boundary_evaluator: BoundaryEvaluator | None = None,
     rng: np.random.Generator | None = None,
+    components: SearchComponents | None = None,
+    cover_root: bool = False,
+    symmetry_budget: int | None = None,
     observer: Callable[[DecisionStateNode], None] | None = None,
 ) -> DecisionStateNode:
     """Build and search a fresh tree from game_state, using fixed-seat values.
@@ -361,31 +391,52 @@ def run_mcts(
     """
     if type(iterations) is not int or iterations < 0:
         raise ValueError("iterations must be a nonnegative integer")
+    components = components if components is not None else resolve_components(config)
+    rng = rng if rng is not None else np.random.default_rng()
+    merging = config.merge_symmetric_actions and symmetry.safe_to_merge_actions(
+        game_state, iterations if symmetry_budget is None else symmetry_budget
+    )
+    coverage = (
+        symmetry.ActionGroups.from_state(game_state, merge=merging).representatives
+        if cover_root
+        else ()
+    )
+    if len(coverage) > iterations:
+        raise ValueError("Budget is too small to cover every root action group")
     context = SearchContext(
         config=config,
         boundary_evaluator=boundary_evaluator
         if boundary_evaluator is not None
         else NextDealEvaluator(evaluator),
-        rng=rng if rng is not None else np.random.default_rng(),
+        rng=rng,
+        components=components,
+        root_session=components.root_exploration.start(iterations - len(coverage), rng),
+        interior_session=components.interior_exploration.start(iterations, rng),
     )
     root_node = DecisionStateNode(
         game_state,
         None,
         None,
         context,
-        effective_merge_symmetric_actions=config.merge_symmetric_actions
-        and symmetry.safe_to_merge_actions(game_state, iterations),
+        effective_merge_symmetric_actions=merging,
     )
     root_node.expand(evaluator.evaluate([game_state])[0])
     root_node.refresh_root_noise()
-    for _ in range(iterations):
+    for iteration in range(iterations):
+        start = (
+            root_node.children[coverage[iteration]]
+            if iteration < len(coverage)
+            else root_node
+        )
         path = find_leaf(
-            root_node,
+            start,
             update_after_state_child_weights=not config.after_state_evaluate_all_children,
         )
+        if start is not root_node:
+            path.insert(0, root_node)
         leaf = path[-1]
         if isinstance(leaf, RoundBoundaryNode):
-            leaf.evaluate()
+            evidence = leaf.evaluate()
         elif isinstance(leaf, AfterStateNode):
             leaf.discover(config.after_state_evaluate_all_children)
             children = list(leaf.children.values())
@@ -396,13 +447,24 @@ def run_mcts(
             ):
                 child.expand(prediction)
             leaf.expand()
+            evidence = Evidence(
+                leaf.state_value.copy(),
+                "expectation" if leaf.all_children_discovered else "sample",
+            )
             if not leaf.all_children_discovered:
                 # The first sampled outcome is part of this traversal, too.
                 leaf = children[0]
                 path.append(leaf)
         else:
             leaf.expand(evaluator.evaluate([leaf.state])[0])
-        backpropagate(path)
+            evidence = Evidence(leaf.model_prediction.value.copy())
+        backpropagate(path, evidence)
+        if context.root_session.observe is not None:
+            context.root_session.observe(root_node.view())
+        if context.interior_session.observe is not None:
+            for visited in path[1:]:
+                if isinstance(visited, DecisionStateNode):
+                    context.interior_session.observe(visited.view())
         if observer is not None:
             observer(root_node)
     return root_node

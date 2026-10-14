@@ -1,0 +1,16 @@
+# Contestant settings for run_checkpoint_comparison.py --variant-settings.
+# The checkpoint is supplied separately. Noise is disabled for evaluation;
+# enable dirichlet_epsilon and optionally dirichlet_alpha for self-play.
+mode = "search"
+iterations = 256
+temperature = 0.0
+
+[search]
+root_strategy = "puct"
+interior_strategy = "puct"
+valuation = "mean_return"
+action_strategy = "visits"
+target_strategy = "visits"
+fpu_mode = "zero"
+c_puct = 1.5
+dirichlet_epsilon = 0.0

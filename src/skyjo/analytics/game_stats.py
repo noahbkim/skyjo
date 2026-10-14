@@ -95,7 +95,7 @@ def analyze_round(result: RoundResult) -> RoundStats:
     slot_eligible = np.zeros(sj.MASK_SIZE, dtype=int)
     ending_reason = "unknown"  # A partial history may start after the countdown.
     for entry, following in pairwise(history):
-        state, action, _ = entry
+        state, action = entry.state, entry.action
         assert action is not None
         mask = sj.actions(state).astype(bool)
         hidden = sj.get_table(state)[0, :, :, sj.FINGER_HIDDEN].astype(bool).ravel()

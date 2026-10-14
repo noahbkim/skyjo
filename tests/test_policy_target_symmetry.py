@@ -10,6 +10,7 @@ from skyjo.engine import game as sj
 from skyjo.engine import symmetry
 from skyjo.learning import targets
 from skyjo.simulation import play
+from skyjo.simulation.decisions import PlayerDecision
 
 
 def state_with_symmetric_active_board() -> sj.Skyjo:
@@ -93,3 +94,34 @@ def test_full_game_conversion_symmetrizes_only_the_stored_target() -> None:
         symmetry.symmetrize_policy_target(state, posterior),
     )
     assert not np.array_equal(game_data.targets["policy"][0], posterior)
+
+
+def test_selfplay_plays_actions_but_learns_from_the_separate_target() -> None:
+    class SplitPolicyPlayer:
+        def get_decision(self, state, *, diagnostics=True):
+            probabilities = NaiveQuickFinishPlayer().get_action_probabilities(state)
+            target = sj.actions(state).astype(np.float32)
+            target /= target.sum()
+            return PlayerDecision(probabilities, training_policy=target)
+
+    result = play.play_game(
+        [SplitPolicyPlayer(), SplitPolicyPlayer()],
+        environment_rng=np.random.default_rng(71),
+        action_rng=np.random.default_rng(72),
+    )
+    entries = [entry for round_ in result.rounds for entry in round_.history[:-1]]
+    assert all(entry.action_probabilities[entry.action] == 1 for entry in entries)
+    assert any(
+        not np.array_equal(entry.action_probabilities, entry.training_policy)
+        for entry in entries
+    )
+    batch = targets.build_training_batch(result)
+    np.testing.assert_allclose(
+        batch.targets["policy"],
+        np.stack(
+            [
+                symmetry.symmetrize_policy_target(entry.state, entry.training_policy)
+                for entry in entries
+            ]
+        ),
+    )
