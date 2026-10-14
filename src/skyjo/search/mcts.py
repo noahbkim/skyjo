@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 import numpy as np
 
@@ -351,8 +352,13 @@ def run_mcts(
     config: SearchConfig = DEFAULT_SEARCH_CONFIG,
     boundary_evaluator: BoundaryEvaluator | None = None,
     rng: np.random.Generator | None = None,
+    observer: Callable[[DecisionStateNode], None] | None = None,
 ) -> DecisionStateNode:
-    """Build and search a fresh tree from game_state, using fixed-seat values."""
+    """Build and search a fresh tree from game_state, using fixed-seat values.
+
+    An optional observer reads the live root after every completed backup. It
+    must not mutate the tree or consume search RNG; no snapshots are copied here.
+    """
     if type(iterations) is not int or iterations < 0:
         raise ValueError("iterations must be a nonnegative integer")
     context = SearchContext(
@@ -397,6 +403,8 @@ def run_mcts(
         else:
             leaf.expand(evaluator.evaluate([leaf.state])[0])
         backpropagate(path)
+        if observer is not None:
+            observer(root_node)
     return root_node
 
 

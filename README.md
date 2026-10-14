@@ -24,6 +24,8 @@ research runs, commit first and omit `--allow-dirty`. Use each entry point's
 - [Architecture](docs/architecture.md): boundaries and the reasoning behind them.
 - [Experiments](docs/experiments.md): comparison methodology and preserving evidence.
 - [Findings](docs/experiments.md#findings): current research conclusions.
+- [Search diagnostics](docs/search-diagnostics.md): reusable positions, tactical discovery,
+  and paired search comparisons.
 
 ## Play, watch, and replay
 
