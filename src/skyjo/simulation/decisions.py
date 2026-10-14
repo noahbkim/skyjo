@@ -21,8 +21,11 @@ class DiagnosticSection:
 
 @dataclass(frozen=True)
 class PlayerDecision:
+    """A policy for playing, with an optional independently chosen learning target."""
+
     probabilities: np.ndarray
     diagnostics: tuple[DiagnosticSection, ...] = ()
+    training_policy: np.ndarray | None = None
 
 
 @runtime_checkable
@@ -53,8 +56,15 @@ def get_decision(player, state: sj.Skyjo, *, diagnostics=True) -> PlayerDecision
         if isinstance(player, DiagnosticPlayer)
         else PlayerDecision(player.get_action_probabilities(state))
     )
-    validate_probabilities(state, result.probabilities)
+    validate_decision(state, result)
     return result
+
+
+def validate_decision(state: sj.Skyjo, decision: PlayerDecision) -> None:
+    """Both policies must be legal; the played action need not occur in the target."""
+    validate_probabilities(state, decision.probabilities)
+    if decision.training_policy is not None:
+        validate_probabilities(state, decision.training_policy)
 
 
 def policy_section(state, probabilities, title="Action probabilities"):

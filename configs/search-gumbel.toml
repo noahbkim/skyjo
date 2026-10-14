@@ -1,0 +1,19 @@
+# Contestant settings for run_checkpoint_comparison.py --variant-settings.
+# Gumbel perturbations provide exploration; Dirichlet noise is disabled.
+# Set gumbel_scale = 0.0 for deterministic evaluation.
+mode = "search"
+iterations = 256
+temperature = 0.0
+
+[search]
+root_strategy = "gumbel"
+interior_strategy = "completed_q"
+valuation = "mean_return"
+action_strategy = "gumbel"
+target_strategy = "completed_q"
+dirichlet_epsilon = 0.0
+gumbel_candidates = 16
+gumbel_scale = 1.0
+completed_q_scale = 0.1
+completed_q_visit_offset = 50.0
+completed_q_rescale = true

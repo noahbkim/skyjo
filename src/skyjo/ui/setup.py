@@ -1,7 +1,8 @@
 """Matchup editing and recording selection."""
 
+from dataclasses import fields
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, get_args, get_type_hints
 
 from textual import on, work
 from textual.app import ComposeResult
@@ -23,6 +24,8 @@ from skyjo.search.mcts import SearchConfig
 from skyjo.simulation import recording
 
 from .config import MatchConfig, SeatConfig, load_preset, prepare_session, save_preset
+
+SEARCH_FIELD_TYPES = get_type_hints(SearchConfig)
 
 
 class SeatEditor(Vertical):
@@ -61,26 +64,17 @@ class SeatEditor(Vertical):
                             type="number",
                         )
                     with Collapsible(title="Advanced search settings", collapsed=True):
-                        for name in (
-                            "c_puct",
-                            "fpu_reduction",
-                            "dirichlet_epsilon",
-                            "boundary_samples",
-                        ):
-                            yield Label(name.replace("_", " "))
-                            yield Input(
-                                str(getattr(self.seat.search, name)), classes=name
-                            )
-                        yield Checkbox(
-                            "Merge symmetric actions",
-                            value=self.seat.search.merge_symmetric_actions,
-                            classes="merge_symmetric_actions",
-                        )
-                        yield Checkbox(
-                            "Evaluate all chance outcomes",
-                            value=self.seat.search.after_state_evaluate_all_children,
-                            classes="after_state_evaluate_all_children",
-                        )
+                        for field in fields(SearchConfig):
+                            name = field.name
+                            value = getattr(self.seat.search, name)
+                            label = name.replace("_", " ")
+                            if SEARCH_FIELD_TYPES[name] is bool:
+                                yield Checkbox(label, value=value, classes=name)
+                            else:
+                                yield Label(label)
+                                yield Input(
+                                    "" if value is None else str(value), classes=name
+                                )
                         yield Label("Optional boundary checkpoint")
                         yield Input(
                             self.seat.boundary_checkpoint or "",
@@ -110,20 +104,22 @@ class SeatEditor(Vertical):
         kind = self.query_one(".kind", Select).value
         search = SearchConfig()
         if kind == "search":
-            search = SearchConfig(
-                **{
-                    name: float(value(name))
-                    for name in ("c_puct", "fpu_reduction", "dirichlet_epsilon")
-                },
-                boundary_samples=int(value("boundary_samples")),
-                **{
-                    name: self.query_one(f".{name}", Checkbox).value
-                    for name in (
-                        "merge_symmetric_actions",
-                        "after_state_evaluate_all_children",
+            options = {}
+            for field in fields(SearchConfig):
+                name = field.name
+                field_type = SEARCH_FIELD_TYPES[name]
+                if field_type is bool:
+                    options[name] = self.query_one(f".{name}", Checkbox).value
+                    continue
+                choices = get_args(field_type)
+                if type(None) in choices:
+                    field_type = next(
+                        choice for choice in choices if choice is not type(None)
                     )
-                },
-            )
+                    options[name] = field_type(value(name)) if value(name) else None
+                else:
+                    options[name] = field_type(value(name))
+            search = SearchConfig(**options)
         return SeatConfig(
             name=value("name"),
             kind=kind,

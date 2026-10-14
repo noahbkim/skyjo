@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 import hashlib
 import json
 import subprocess
@@ -8,9 +9,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from skyjo.experiments import experiment_config, selfplay_training
+from skyjo.experiments import contestants, experiment_config, selfplay_training
 from skyjo.learning import checkpoint, replay_io, skynet
 from skyjo.learning.boundary_value import BoundaryValueModel
+from skyjo.search.configuration import preset
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 
@@ -31,10 +33,47 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
     assert config["selfplay"]["games_per_iteration"] == 256
     assert config["budget"]["iterations"] == 100
     assert config["search"]["merge_symmetric_actions"] is True
+    assert config["search"]["dirichlet_epsilon"] == 0.25
+    assert config["search"]["c_puct"] == 1.0
     assert config["replay"]["capacity"] == 524288
     assert config["logging"]["progress_interval_seconds"] == 0
     assert config["validation"]["concept_interval"] == 5
     assert config["derived"]["optimizer"]["weight_decay"] == 1e-4
+
+
+@pytest.mark.parametrize("name", ["alphazero", "gumbel"])
+def test_search_presets_flow_through_training_and_contestant_configuration(
+    tmp_path, name
+):
+    expected = preset(name)
+    config = experiment_config.resolve_configuration(
+        {"search": dataclasses.asdict(expected)}, base_directory=tmp_path
+    )
+    contestant = contestants.ContestantConfig.from_search_settings(config["search"])
+    assert contestant.search == expected
+    assert (
+        experiment_config.resolve_configuration(config, base_directory=tmp_path)
+        == config
+    )
+    example = contestants.from_file(
+        tmp_path / "model.pth", REPOSITORY / "configs" / f"search-{name}.toml"
+    )
+    assert example.search == expected
+
+
+@pytest.mark.parametrize("root_strategy", ["gumbel", "completed_q"])
+def test_training_noise_cannot_be_silently_ignored_by_another_root_strategy(
+    tmp_path, root_strategy
+):
+    with pytest.raises(ValueError, match="Dirichlet noise requires PUCT"):
+        experiment_config.resolve_configuration(
+            {"search": {"root_strategy": root_strategy}}, base_directory=tmp_path
+        )
+    config = experiment_config.resolve_configuration(
+        {"search": {"root_strategy": root_strategy, "dirichlet_epsilon": 0.0}},
+        base_directory=tmp_path,
+    )
+    assert config["search"]["root_strategy"] == root_strategy
 
 
 def test_invalid_config_fails_before_creating_run(tmp_path):
@@ -266,6 +305,8 @@ def test_continuous_training_records_exact_snapshots(
         {"search": {"action_softmax_temperature": float("nan")}},
         {"search": {"boundary_samples": 0}},
         {"search": {"merge_symmetric_actions": 1}},
+        {"search": {"action_strategy": "lower_confidence"}},
+        {"search": {"dirichlet_alpha": "invalid"}},
     ],
 )
 def test_invalid_domain_config_fails_before_creating_artifacts(tmp_path, settings):

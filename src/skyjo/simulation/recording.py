@@ -13,10 +13,10 @@ import numpy as np
 
 from skyjo.engine import game as sj
 
-from .decisions import DiagnosticSection, PlayerDecision, validate_probabilities
+from .decisions import DiagnosticSection, PlayerDecision, validate_decision
 
 FORMAT = "skyjo.game-recording"
-VERSION = 1
+VERSION = 2
 
 
 @dataclasses.dataclass(frozen=True)
@@ -85,6 +85,9 @@ def to_dict(recording: Recording) -> dict:
                 "action": frame.action,
                 "probabilities": frame.decision.probabilities.tolist()
                 if frame.decision
+                else None,
+                "training_policy": frame.decision.training_policy.tolist()
+                if frame.decision and frame.decision.training_policy is not None
                 else None,
                 "diagnostics": [
                     dataclasses.asdict(s) for s in frame.decision.diagnostics
@@ -199,7 +202,7 @@ def _section(data):
 def from_dict(data: dict) -> Recording:
     """Read snapshots, not regenerated transitions. Unknown versions fail explicitly."""
     try:
-        if data["format"] != FORMAT or data["version"] != VERSION:
+        if data["format"] != FORMAT or data["version"] not in (1, VERSION):
             raise RecordingError("Unsupported game recording format or version")
         players = data["players"]
         if not 2 <= len(players) <= sj.PLAYER_COUNT or any(
@@ -219,6 +222,7 @@ def from_dict(data: dict) -> Recording:
                     raise RecordingError(f"Invalid {key}")
             action = raw["action"]
             probabilities = raw["probabilities"]
+            training_policy = raw.get("training_policy") if data["version"] >= 2 else None
             if (action is None) != (probabilities is None):
                 raise RecordingError("Actions and probabilities must occur together")
             if action is not None:
@@ -230,19 +234,23 @@ def from_dict(data: dict) -> Recording:
                 ):
                     raise RecordingError("Illegal recorded action")
                 probabilities = np.asarray(probabilities, dtype=np.float32)
-                validate_probabilities(state, probabilities)
+                decision = PlayerDecision(
+                    probabilities,
+                    tuple(_section(s) for s in raw.get("diagnostics", ())),
+                    np.asarray(training_policy, dtype=np.float32)
+                    if training_policy is not None
+                    else None,
+                )
+                validate_decision(state, decision)
                 if probabilities[action] <= 0:
                     raise RecordingError("Recorded action has zero probability")
                 frame = dataclasses.replace(
                     frame,
                     action=action,
-                    decision=PlayerDecision(
-                        probabilities,
-                        tuple(_section(s) for s in raw.get("diagnostics", ())),
-                    ),
+                    decision=decision,
                 )
-            elif raw.get("diagnostics"):
-                raise RecordingError("Diagnostics require a recorded decision")
+            elif raw.get("diagnostics") or training_policy is not None:
+                raise RecordingError("Diagnostics and targets require a recorded decision")
             if frames:
                 previous = frames[-1]
                 expected_round = previous.round_number + (previous.event == "round_end")

@@ -32,6 +32,14 @@ diagnostics. This keeps evaluator bindings, chance modes, and symmetry safety
 local to one search. Iteration budgets and action temperature govern search effort
 and action selection separately.
 
+Allocation, valuation, action selection, and learning targets are independently
+composable. The runner exposes immutable statistics to strategy sessions and
+completed-result policies; it owns transitions, chance handling, evaluator calls,
+and budgets. Algorithm selection stays at the configuration boundary. See
+[search strategies](search-strategies.md) for the contracts, presets, and
+independent-replica uncertainty. The following mixture description specifies the
+compatibility default; other valuations deliberately use different backups.
+
 Visits count traversals, not evaluator calls or initialization samples. Root
 evaluation initializes priors and FPU without a visit; outgoing action children
 start at zero visits. PUCT allocates initial exploration using those priors and
@@ -46,6 +54,12 @@ the traversed path once, then refreshes cached mixtures bottom-up using the
 children's current estimates. It does not accumulate successive versions of a
 child's running mean as fresh returns. Refreshing a mixture reads only immediate
 children; it does not recursively recompute the whole tree.
+
+Mean-return valuation instead averages fresh simulation evidence without an
+additional neural contribution. Its initial estimate is the neural prediction
+until the first return arrives. Best-response valuation propagates the evaluated
+child that maximizes the acting player's component, preserving the full fixed-seat
+vector for its ancestors. Neither valuation selects a best chance outcome.
 
 Sampled chance nodes include their first realized decision child in the path,
 just like later new outcomes. Each realized outcome increments its frequency
@@ -68,6 +82,12 @@ of 1/3 after two visits. A parent with neural value 0.5 and only this action
 visited has value `(0.5 + 2 * (1/3)) / 3 = 7/18`. It retains one neural
 contribution but no historical versions of the boundary estimate. Later iterations
 continue sampling without repeating the initial batch.
+
+For mean-return backup, that boundary supplies the fresh batch mean as one
+simulation return: batches `[0, 0]` then `[1]` give the decision ancestor a mean
+of `1/2`, while the boundary's pooled outcome estimate remains `1/3`. The two
+quantities intentionally measure different evidence. A refreshed historical
+estimate is never counted as a fresh return.
 
 Even a deterministic round ending may lead to an uncertain next deal: its
 completed state can be reused, but the evaluator must run on each revisit. Only

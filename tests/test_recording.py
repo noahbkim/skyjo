@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from skyjo.engine import game as sj
+from skyjo.search.configuration import preset
 from skyjo.search.evaluator import Prediction
 from skyjo.search.player import SearchPlayer
 from skyjo.simulation import play, recording
@@ -99,6 +100,52 @@ def test_human_actions_and_legacy_player_distributions_are_checked():
         session.advance(PlayerDecision(np.zeros(sj.MASK_SIZE)))
 
 
+def test_independent_training_policy_survives_recording_and_legacy_loading():
+    session = random_session()
+    actions = np.flatnonzero(sj.actions(session.state))
+    acting = np.zeros(sj.MASK_SIZE, dtype=np.float32)
+    target = np.zeros_like(acting)
+    acting[actions[0]] = target[actions[-1]] = 1
+    session.advance(PlayerDecision(acting, training_policy=target))
+    assert session.recording.frames[0].action == actions[0]
+    data = recording.to_dict(session.recording)
+    restored = recording.from_dict(data)
+    np.testing.assert_array_equal(restored.frames[0].decision.probabilities, acting)
+    np.testing.assert_array_equal(restored.frames[0].decision.training_policy, target)
+    assert recording.to_dict(restored) == data
+
+    data["version"] = 1
+    for frame in data["frames"]:
+        frame.pop("training_policy")
+    legacy = recording.from_dict(data)
+    assert legacy.frames[0].decision.training_policy is None
+    np.testing.assert_array_equal(legacy.frames[0].decision.probabilities, acting)
+
+
+def test_invalid_training_policy_is_rejected_before_play_or_replay():
+    session = random_session()
+    decision = session.propose()
+    invalid = PlayerDecision(
+        decision.probabilities, training_policy=np.zeros(sj.MASK_SIZE)
+    )
+
+    class InvalidPlayer:
+        def get_decision(self, state, *, diagnostics=True):
+            return invalid
+
+    with pytest.raises(ValueError, match="normalized distribution"):
+        get_decision(InvalidPlayer(), session.state)
+    before = sj.hash_skyjo(session.state)
+    with pytest.raises(ValueError, match="normalized distribution"):
+        session.advance(invalid)
+    assert sj.hash_skyjo(session.state) == before
+    session.advance(decision)
+    data = recording.to_dict(session.recording)
+    data["frames"][0]["training_policy"] = invalid.training_policy.tolist()
+    with pytest.raises(recording.RecordingError, match="normalized distribution"):
+        recording.from_dict(data)
+
+
 class UniformEvaluator:
     def evaluate(self, states):
         return [
@@ -129,7 +176,7 @@ def test_search_diagnostics_share_the_same_search_and_rng():
     assert all(row[2] == row[1] / 12 for row in raw_visits.rows)
     assert sum(row[1] > 0 for row in raw_visits.rows) > 1
     assert np.count_nonzero(detailed.probabilities) == 1
-    groups = detailed.diagnostics[-1]
+    groups = next(s for s in detailed.diagnostics if s.title == "Search action groups")
     assert sum(row[3] for row in groups.rows) == 12
     assert sum(row[1] for row in groups.rows) == pytest.approx(1)
     # Exercise symmetry grouping at a card-position decision, not just initial flips.
@@ -138,7 +185,7 @@ def test_search_diagnostics_share_the_same_search_and_rng():
         action = int(np.flatnonzero(sj.actions(state))[0])
         state = sj.apply_action(state, action, rng=rng)
     detailed = a.get_decision(state)
-    groups = detailed.diagnostics[-1]
+    groups = next(s for s in detailed.diagnostics if s.title == "Search action groups")
     assert any(";" in row[0] for row in groups.rows)
     assert sum(row[3] for row in groups.rows) == 12
     assert [row[1] for row in detailed.diagnostics[0].rows] == [
@@ -158,6 +205,24 @@ def test_preset_paths_settings_and_seat_counts_round_trip(tmp_path):
     loaded = load_preset(path)
     assert loaded.seats[1].checkpoint == str(tmp_path / "model.pth")
     assert loaded.seats[1].search.fpu_reduction == 0.2
+
+
+@pytest.mark.parametrize("alpha", [None, 0.3])
+def test_strategy_presets_preserve_optional_parameters_in_toml(tmp_path, alpha):
+    config = MatchConfig(
+        (
+            SeatConfig("Human", "human"),
+            SeatConfig(
+                "Search",
+                "search",
+                str(tmp_path / "model.pth"),
+                search=preset("gumbel", dirichlet_alpha=alpha),
+            ),
+        )
+    )
+    path = tmp_path / "strategies.toml"
+    save_preset(config, path)
+    assert load_preset(path) == config
 
 
 @pytest.mark.parametrize("legacy_metadata", [False, True])
@@ -206,7 +271,7 @@ def test_model_seats_load_checkpoints_and_produce_distinct_diagnostics(
     assert policy_decision.diagnostics[0].title.startswith("Model policy")
     session.advance(policy_decision)
     search_decision = session.propose()
-    assert search_decision.diagnostics[-1].title == "Search action groups"
+    assert any(s.title == "Search action groups" for s in search_decision.diagnostics)
     assert (
         session.recording.players[0]["checkpoint_sha256"]
         == session.recording.players[1]["checkpoint_sha256"]
