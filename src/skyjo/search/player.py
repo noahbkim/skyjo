@@ -3,7 +3,7 @@
 import numpy as np
 
 from skyjo.engine import game as sj
-from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision, policy_section
+from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
 
 from .configuration import DEFAULT_SEARCH_CONFIG, SearchConfig
 from .evaluator import BoundaryEvaluator, Evaluator
@@ -52,23 +52,12 @@ class SearchPlayer:
         if not diagnostics:
             return PlayerDecision(probabilities, training_policy=result.training_policy)
         view = result.summary
-        labels = tuple(
-            "; ".join(sj.get_action_name(a) for a in group)
-            for group in view.groups.members
-        )
         sections = (
+            action_section(result, self.iterations, self.temperature),
             DiagnosticSection(
-                "MCTS raw visit distribution",
-                text="Visit fractions are counts / total visits, before action temperature. Each row represents a whole symmetry group.",
-                columns=("Actions", "Visits", "Fraction"),
-                rows=tuple(
-                    (label, int(n), float(n / view.visits.sum()))
-                    for label, n in zip(labels, view.visits, strict=True)
-                ),
-            ),
-            DiagnosticSection(
-                "Win estimates (fixed seat order)",
-                columns=("Seat", "Model", "Search"),
+                "Root win estimates",
+                text="Fixed seat order.",
+                columns=("Seat", "Initial model", "Search"),
                 rows=tuple(
                     (i + 1, float(model), float(value))
                     for i, (model, value) in enumerate(
@@ -76,50 +65,6 @@ class SearchPlayer:
                     )
                 ),
             ),
-            policy_section(
-                state, result.roots[0].model_prediction.policy, "Model policy"
-            ),
-            DiagnosticSection(
-                "Search action groups",
-                text="Visits and priors belong to each whole symmetry group. An unevaluated action has no value estimate. Replica standard errors measure search variability, not model bias.",
-                metrics={
-                    "Iterations": self.iterations,
-                    "Temperature": self.temperature,
-                    "Root exploration": self.config.root_strategy,
-                    "Interior exploration": self.config.interior_strategy,
-                    "Valuation": self.config.valuation,
-                    "Action selection": self.config.action_strategy,
-                    "Training target": self.config.target_strategy,
-                    "Replicas": self.config.replicas,
-                },
-                columns=(
-                    "Actions",
-                    "Model prior",
-                    "Search prior",
-                    "Visits",
-                    "Value",
-                    "Standard error",
-                    "Action probability",
-                    "Target probability",
-                ),
-                rows=tuple(
-                    (
-                        labels[i],
-                        float(view.model_priors[i]),
-                        float(view.priors[i]),
-                        int(view.visits[i]),
-                        float(view.q[i]) if view.available[i] else None,
-                        float(view.standard_error[i, view.player])
-                        if view.standard_error is not None
-                        else None,
-                        float(probabilities[list(group)].sum()),
-                        float(result.training_policy[list(group)].sum()),
-                    )
-                    for i, group in enumerate(view.groups.members)
-                ),
-            ),
-            policy_section(state, probabilities, "Action probabilities"),
-            policy_section(state, result.training_policy, "Training policy"),
         )
         return PlayerDecision(probabilities, sections, result.training_policy)
 
@@ -134,3 +79,82 @@ class SearchPlayer:
             rng=self.rng,
             components=self.components,
         )
+
+
+def action_section(result, iterations, temperature):
+    """Present group-owned statistics and distinct acting/training policies once."""
+    view = result.summary
+    root = result.roots[0]
+    config = root.context.config
+    total_visits = view.visits.sum()
+    columns = (
+        "Action",
+        "Model prior",
+        "Search prior",
+        "Visits",
+        "Visit share",
+        "Selection probability",
+        "Search value",
+        "Training probability",
+    )
+    if view.standard_error is not None:
+        columns += ("Standard error",)
+    rows = []
+    row_actions = []
+    for index, group in enumerate(view.groups.members):
+        singleton = len(group) == 1
+        row = (
+            sj.get_action_name(group[0])
+            if singleton
+            else f"Group {index + 1} ({len(group)} actions)",
+            float(view.model_priors[index]),
+            float(view.priors[index]),
+            int(view.visits[index]),
+            float(view.visits[index] / total_visits),
+            float(result.action_probabilities[list(group)].sum()),
+            float(view.q[index]) if view.available[index] else None,
+            float(result.training_policy[list(group)].sum()),
+        )
+        if view.standard_error is not None:
+            row += (float(view.standard_error[index, view.player]),)
+        rows.append(row)
+        row_actions.append(group[0] if singleton else None)
+        if not singleton:
+            for action in group:
+                row = (
+                    f"  {sj.get_action_name(action)}",
+                    float(root.model_prediction.policy[action]),
+                    "",
+                    "",
+                    "",
+                    float(result.action_probabilities[action]),
+                    "",
+                    float(result.training_policy[action]),
+                )
+                if view.standard_error is not None:
+                    row += ("",)
+                rows.append(row)
+                row_actions.append(action)
+    return DiagnosticSection(
+        "Search actions",
+        text="Visit share is raw; selection probability is the final action policy "
+        "(temperature applies to visits by default). Training probability is the "
+        "learning target. Search prior includes root noise. Visits and search values "
+        "belong to groups; values estimate the acting seat's win probability "
+        "(— = unevaluated). Replica standard errors measure search variability, "
+        "not model bias.",
+        metrics={
+            "Iterations": iterations,
+            "Temperature": temperature,
+            "Symmetry merging": root.effective_merge_symmetric_actions,
+            "Root exploration": config.root_strategy,
+            "Interior exploration": config.interior_strategy,
+            "Valuation": config.valuation,
+            "Action selection": config.action_strategy,
+            "Training target": config.target_strategy,
+            "Replicas": config.replicas,
+        },
+        columns=columns,
+        rows=tuple(rows),
+        row_actions=tuple(row_actions),
+    )

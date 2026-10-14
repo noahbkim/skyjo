@@ -50,8 +50,10 @@ does not undo moves. Escape returns to setup; `q` quits.
 Human actions are clickable. Use `d`/`t` to draw/take, `f`/`r` to select
 flip/replace, then `1`–`9`, `a`–`c` for the twelve slots in row order. Initial
 second-card choices are Below/Right buttons. Tab and Enter also operate controls.
-Boards stay in fixed seat order; `?` means hidden and `·` means cleared. Narrow
-terminals stack the scrollable boards and diagnostics vertically.
+Boards stay in fixed seat order; `?` means hidden and `·` means cleared. Boards
+sit above full-width diagnostics, with scrolling for larger tables. New search
+decisions show group totals and individual actions together, highlighting the
+exact selected action after it is committed.
 
 Games autosave after each transition under `.runs/interactive/`; **Save As**
 exports another copy. Both finished and unfinished recordings can be replayed

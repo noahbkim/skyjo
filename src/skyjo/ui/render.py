@@ -107,17 +107,18 @@ def diagnostics(frame, proposal=None):
         return Text(
             "No diagnostics at this position.\nStep back to inspect a completed decision."
         )
-    heading = (
-        "Proposed decision"
-        if proposal
-        else f"Chosen: {sj.get_action_name(frame.action)}"
-    )
-    output = [Text(heading, style="bold cyan")]
     sections = decision.diagnostics or (
         policy_section(
             frame.state, decision.probabilities, "Action selection probabilities"
         ),
     )
+    output = []
+    if proposal:
+        output.append(Text("Proposed decision", style="bold cyan"))
+    elif not any(section.row_actions for section in sections):
+        output.append(
+            Text(f"Chosen: {sj.get_action_name(frame.action)}", style="bold cyan")
+        )
     for section in sections:
         output.append(Text(section.title, style="bold"))
         if section.text:
@@ -125,33 +126,45 @@ def diagnostics(frame, proposal=None):
         for key, value in section.metrics.items():
             output.append(Text(f"{key}: {format_scalar(value)}"))
         if section.columns:
-            table = Table()
-            widths = []
-            for index, heading in enumerate(section.columns):
-                values = [row[index] for row in section.rows]
-                numeric = bool(values) and all(
-                    value is None or isinstance(value, (int, float)) for value in values
-                )
-                width = (
-                    max(len(heading), *(len(format_scalar(value)) for value in values))
-                    if values
-                    else len(heading)
-                )
-                if not numeric:
-                    width = min(width, 32)
-                widths.append(width)
-                table.add_column(
-                    heading,
-                    width=width,
-                    no_wrap=numeric,
-                    justify="right" if numeric else "left",
-                )
-            # Preserve complete numbers; the containing pane scrolls horizontally.
-            table.min_width = sum(widths) + 3 * len(widths) + 1
-            for row in section.rows:
-                table.add_row(*(Text(format_scalar(value)) for value in row))
-            output.append(table)
+            output.append(diagnostic_table(section, None if proposal else frame.action))
     return Group(*output)
+
+
+def diagnostic_table(section, selected_action):
+    table = Table()
+    widths = []
+    for index, heading in enumerate(section.columns):
+        values = [row[index] for row in section.rows]
+        numeric = bool(values) and all(
+            value is None or value == "" or isinstance(value, (int, float))
+            for value in values
+        )
+        width = max([len(heading), *(len(format_scalar(value)) for value in values)])
+        if not numeric:
+            width = min(width, 32)
+        if index == 0 and section.row_actions:
+            width += 2  # Reserve the selection marker without shifting row labels.
+        widths.append(width)
+        table.add_column(
+            heading,
+            width=width,
+            no_wrap=numeric,
+            justify="right" if numeric else "left",
+        )
+    # Preserve complete numbers; the containing pane scrolls horizontally.
+    table.min_width = sum(widths) + 3 * len(widths) + 1
+    for index, row in enumerate(section.rows):
+        cells = [Text(format_scalar(value)) for value in row]
+        style = None
+        if section.row_actions:
+            action = section.row_actions[index]
+            selected = action is not None and action == selected_action
+            cells[0] = Text("▶ " if selected else "  ") + cells[0]
+            style = (
+                "bold cyan reverse" if selected else "bold" if action is None else None
+            )
+        table.add_row(*cells, style=style)
+    return table
 
 
 def diagnostic_width(content):

@@ -14,8 +14,8 @@ Label { height: auto; margin-top: 1; }
 #current-card { width: 3fr; height: 4; border: round $accent; }
 #deck-summary { width: 2fr; height: 4; border: round $primary-muted; }
 #table-content { height: 1fr; }
-#boards-pane { width: 3fr; }
-#diagnostics-pane { width: 2fr; border-left: solid $primary-muted; padding: 0 1; overflow-x: auto; }
+#boards-pane { height: auto; max-height: 50%; }
+#diagnostics-pane { height: 1fr; border-top: solid $primary-muted; padding: 0 1; overflow-x: auto; }
 #diagnostics { width: auto; min-width: 100%; }
 #boards { grid-size: 2; grid-rows: 10; height: auto; }
 .board { height: 10; padding: 0 1; }
@@ -25,6 +25,3 @@ Label { height: auto; margin-top: 1; }
 #card-actions { grid-size: 4; grid-rows: 3; height: 9; }
 #card-actions Button { width: 1fr; min-width: 5; }
 #table-message { height: auto; max-height: 3; color: $warning; padding: 0 1; }
-TableScreen.narrow #table-content { layout: vertical; }
-TableScreen.narrow #boards-pane { width: 1fr; height: 2fr; }
-TableScreen.narrow #diagnostics-pane { width: 1fr; height: 1fr; border-left: none; border-top: solid $primary-muted; }

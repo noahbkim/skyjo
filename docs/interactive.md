@@ -38,19 +38,39 @@ table rows match their columns, and numbers must be finite. Players supply data,
 not Textual widgets. The app renders text literally. Diagnostics must come from
 the actual decision evaluation, without additional searches or RNG consumption.
 Committed decisions are copied so subsequent player calls cannot alter history.
+Sections may include `row_actions`, a tuple aligned with table rows: legal action
+indices identify individual action rows, while `None` identifies group summaries.
+Indices must be integers in the engine action range. Omit this metadata or leave
+it empty for ordinary tables. The renderer marks the exact committed action;
+pending proposals have no selected action until the session samples a move.
 
-The model-policy panel differs from the recorded action-selection distribution:
-a policy player chooses greedily, while search uses its configured action strategy.
-The default applies temperature to visit counts; other strategies choose by values
-or a Gumbel winner. Acting and learning distributions have separate panels.
-The MCTS panel leads with raw counts and visit fractions (`visits / total visits`).
-Search rows describe symmetry groups, including grouped priors, visits, values,
-and optional replica standard errors. Unevaluated action values are absent.
-Win estimates use fixed seat order. See [search strategies](search-strategies.md)
-for composing these choices.
+New search decisions use one action table with group totals followed by indented
+member actions; singleton groups occupy one row. Model prior is the original
+model policy (summed on group rows); search prior is the effective group prior,
+including configured root noise. Visits and visit share (`visits / total visits`)
+describe search usage before temperature. Selection probability is the actual
+distribution from the configured action strategy, summed on group rows. The
+default applies temperature to visits; other strategies select by value or a
+Gumbel winner. Training probability shows the separate learning target. Search
+value is the acting seat's estimated win probability; unevaluated groups display `—`. Group-only
+statistics are blank on member rows because search does not evaluate them
+independently. Root win estimates compare initial model and updated search values
+in fixed seat order. Iterations, temperature, and whether symmetry merging was
+actually enabled appear once above the action table.
+When replicas are enabled, a standard-error column measures search variability,
+not model bias. See [search strategies](search-strategies.md).
+
+Policy players show model prior alongside their greedy selection distribution.
+Probability-only and human decisions use a simple action/probability table.
 Numeric diagnostics display nine significant digits, with horizontal scrolling
 for wide tables rather than truncating numbers. Player-supplied diagnostics take
-precedence over the generic action-selection panel.
+precedence over the generic action-selection panel. Older recordings retain their
+saved diagnostic tables; their sections are not reconstructed or migrated.
+
+At every terminal width, boards sit above full-width diagnostics in a two-column
+grid. The board pane fits its content up to half the available content height,
+then scrolls to reach additional seats and human controls. Diagnostics take the
+remaining height.
 
 The highlighted card distinguishes the available discard, a drawn card, and a
 card taken from the discard. The draw-pile count excludes hidden board cards from
@@ -90,7 +110,9 @@ action distribution. Both distributions must be normalized over legal actions,
 but the chosen action may have zero probability in the training target. These
 describe the frame's pre-action state. The next frame stores the observed resulting state.
 An unfinished recording ends with an uncommitted decision snapshot, whose action
-and policies are null. Diagnostics default to an empty list.
+and probabilities are null. Diagnostics default to an empty list.
+Optional diagnostic `row_actions` metadata is supported in both recording versions;
+recordings without it continue to load and render their original sections.
 
 Round/game-end frames have null actions and probabilities, explicit fixed-seat
 `round_scores` and `cumulative_scores`, and `winners` (zero-based seat indices)

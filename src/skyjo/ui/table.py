@@ -72,7 +72,7 @@ class TableScreen(Screen):
             )
             yield Button("Live", id="live")
             yield Button("Setup", id="setup")
-        with Horizontal(id="table-content"):
+        with Vertical(id="table-content"):
             with VerticalScroll(id="boards-pane"):
                 with Grid(id="boards"):
                     for i in range(len(self.saved.players)):
@@ -113,9 +113,6 @@ class TableScreen(Screen):
         self.request_id += 1
         self.playing = False
         self.timer.stop()
-
-    def on_resize(self, event):
-        self.set_class(event.size.width < 110, "narrow")
 
     def refresh_table(self):
         frame = self.saved.frames[self.cursor]
