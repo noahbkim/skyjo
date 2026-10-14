@@ -138,6 +138,14 @@ existing `SearchConfig` fields. Paths loaded from presets resolve relative to th
 preset; saved presets use absolute paths. Model configuration is validated through
 the existing contestant factory, including incompatible policy/search options.
 
+`uniform_group_priors = true` replaces the policy prior with equal probability
+for every effective search group at every decision node. Model value estimates
+remain in use. Diagnostics retain the original **Model prior** and show the
+effective **Search prior**, with **Prior: Uniform groups** identifying the mode.
+Use `dirichlet_epsilon = 0` for strictly uniform search priors; configured root
+noise is otherwise mixed in as usual. If symmetry merging is disabled or falls
+back for recycling safety, each legal action forms its own singleton group.
+
 Checkpoint loading and player evaluation run in Textual thread workers. Each
 session allows one outstanding proposal. Pausing buffers a completed proposal;
 it does not apply a move. Leaving a table invalidates callbacks from that session.

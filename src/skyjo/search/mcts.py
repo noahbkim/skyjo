@@ -89,6 +89,7 @@ class DecisionStateNode:
     dirichlet_noise: np.ndarray = dataclasses.field(init=False)
     action_groups: symmetry.ActionGroups | None = None
     model_action_priors: np.ndarray | None = None
+    base_action_priors: np.ndarray | None = None
     action_priors: np.ndarray | None = None
 
     def __post_init__(self):
@@ -124,6 +125,7 @@ class DecisionStateNode:
             self.visit_count,
             self.parent is None,
             node_id=self._node_id,
+            base_priors=frozen_array([self.base_action_priors[a] for a in actions]),
         )
 
     def refresh_value(self, evidence=None):
@@ -149,7 +151,12 @@ class DecisionStateNode:
             self.state, merge=self.effective_merge_symmetric_actions
         )
         self.model_action_priors = self.action_groups.aggregate(model_prediction.policy)
-        self.action_priors = self.model_action_priors
+        self.base_action_priors = self.model_action_priors
+        if self.context.config.uniform_group_priors:
+            self.base_action_priors = np.zeros(sj.MASK_SIZE, dtype=np.float64)
+            representatives = self.action_groups.representatives
+            self.base_action_priors[list(representatives)] = 1 / len(representatives)
+        self.action_priors = self.base_action_priors
         self.is_expanded = True
         self.children = {
             action: self.create_child_node(action)
@@ -194,7 +201,7 @@ class DecisionStateNode:
         assert self.action_groups is not None
         self.dirichlet_noise.fill(0)
         epsilon = self.context.config.dirichlet_epsilon
-        self.action_priors = self.model_action_priors
+        self.action_priors = self.base_action_priors
         if epsilon:
             actions = np.flatnonzero(sj.actions(self.state))
             self.dirichlet_noise[actions] = self.context.rng.dirichlet(
@@ -205,7 +212,7 @@ class DecisionStateNode:
             )
             self.action_priors = (
                 1 - epsilon
-            ) * self.model_action_priors + epsilon * self.action_groups.aggregate(
+            ) * self.base_action_priors + epsilon * self.action_groups.aggregate(
                 self.dirichlet_noise
             )
 

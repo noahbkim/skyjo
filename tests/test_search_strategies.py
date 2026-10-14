@@ -47,6 +47,42 @@ def view(**changes):
     return NodeView(**values)
 
 
+@pytest.mark.parametrize("name", ["legacy", "alphazero", "gumbel"])
+def test_uniform_group_search_ignores_model_policy_for_all_strategies(name):
+    from skyjo.search.configuration import preset
+    from skyjo.search.runner import search
+
+    class SkewedEvaluator(UniformEvaluator):
+        def __init__(self, reverse):
+            self.reverse = reverse
+
+        def evaluate(self, states):
+            predictions = super().evaluate(states)
+            weights = np.arange(1, sj.MASK_SIZE + 1, dtype=np.float32)
+            if self.reverse:
+                weights = weights[::-1]
+            for state, prediction in zip(states, predictions, strict=True):
+                prediction.policy[:] = sj.actions(state) * weights
+                prediction.policy[:] /= prediction.policy.sum()
+            return predictions
+
+    results = [
+        search(
+            board_state(),
+            SkewedEvaluator(reverse),
+            16,
+            config=preset(name, uniform_group_priors=True),
+            rng=np.random.default_rng(4),
+        )
+        for reverse in (False, True)
+    ]
+    a, b = results
+    assert not np.allclose(a.summary.model_priors, b.summary.model_priors)
+    np.testing.assert_array_equal(a.summary.visits, b.summary.visits)
+    np.testing.assert_array_equal(a.action_probabilities, b.action_probabilities)
+    np.testing.assert_array_equal(a.training_policy, b.training_policy)
+
+
 @pytest.mark.parametrize(
     "strategy, expected",
     [(CurrentMixture(), 0.6), (MeanReturn(), 0.45), (BestResponse(), 0.1)],

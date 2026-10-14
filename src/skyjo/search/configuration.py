@@ -32,6 +32,7 @@ class SearchConfig:
     fpu_reduction: float = 0.1
     boundary_samples: int = 1
     merge_symmetric_actions: bool = True
+    uniform_group_priors: bool = False
     dirichlet_alpha: float | None = None
     fpu_mode: str = "parent"
     root_strategy: str = "puct"
@@ -73,6 +74,7 @@ class SearchConfig:
                 raise ValueError(f"{name} must be a positive integer")
         for name in (
             "merge_symmetric_actions",
+            "uniform_group_priors",
             "after_state_evaluate_all_children",
             "completed_q_rescale",
         ):

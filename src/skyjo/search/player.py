@@ -147,6 +147,7 @@ def action_section(result, iterations, temperature):
             "Iterations": iterations,
             "Temperature": temperature,
             "Symmetry merging": root.effective_merge_symmetric_actions,
+            "Prior": "Uniform groups" if config.uniform_group_priors else "Model",
             "Root exploration": config.root_strategy,
             "Interior exploration": config.interior_strategy,
             "Valuation": config.valuation,

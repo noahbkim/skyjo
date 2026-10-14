@@ -72,6 +72,46 @@ def test_expansion_aggregates_unequal_priors_and_root_noise():
     assert len(evaluator.states) == 1
 
 
+@pytest.mark.parametrize("merge", [False, True])
+@pytest.mark.parametrize("epsilon", [0.0, 0.25])
+def test_uniform_group_priors_apply_throughout_tree_without_replacing_model(
+    merge, epsilon
+):
+    root = mcts.run_mcts(
+        board_state(),
+        FixedEvaluator(),
+        32,
+        config=mcts.SearchConfig(
+            merge_symmetric_actions=merge,
+            uniform_group_priors=True,
+            dirichlet_epsilon=epsilon,
+        ),
+        rng=np.random.default_rng(4),
+    )
+    expanded = [node for node in decision_nodes(root) if node.is_expanded]
+    assert len(expanded) > 1
+    if merge:
+        assert len({len(group) for group in root.action_groups.members}) > 1
+    for node in expanded:
+        groups = node.action_groups.members
+        assert node.action_priors.sum() == pytest.approx(1)
+        original = sj.actions(node.state) * np.arange(1, sj.MASK_SIZE + 1)
+        np.testing.assert_allclose(
+            node.model_prediction.policy, original / original.sum()
+        )
+        np.testing.assert_array_equal(node.model_prediction.value, [0.5, 0.5])
+        for group in groups:
+            expected = 1 / len(groups)
+            if node is root:
+                expected = (1 - epsilon) * expected + epsilon * sum(
+                    node.dirichlet_noise[action] for action in group
+                )
+            assert node.action_probability(group[0]) == pytest.approx(expected)
+            assert node.model_action_priors[group[0]] == pytest.approx(
+                original[list(group)].sum() / original.sum()
+            )
+
+
 @pytest.mark.parametrize("exact_chance", [False, True])
 @pytest.mark.parametrize("merge", [False, True])
 def test_search_inherits_group_mode_and_conserves_visits(exact_chance, merge):

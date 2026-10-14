@@ -178,9 +178,10 @@ class UniformEvaluator:
         ]
 
 
-def test_search_diagnostics_share_the_same_search_and_rng():
+@pytest.mark.parametrize("uniform", [False, True])
+def test_search_diagnostics_share_the_same_search_and_rng(uniform):
     state = random_session().state
-    config = SearchConfig()
+    config = SearchConfig(uniform_group_priors=uniform)
     a = SearchPlayer(
         UniformEvaluator(),
         12,
@@ -214,7 +215,10 @@ def test_search_diagnostics_share_the_same_search_and_rng():
 
 
 @pytest.mark.parametrize("temperature", [0, 0.5])
-def test_grouped_diagnostics_preserve_model_search_and_selection_meanings(temperature):
+@pytest.mark.parametrize("uniform", [False, True])
+def test_grouped_diagnostics_preserve_model_search_and_selection_meanings(
+    temperature, uniform
+):
     class WeightedEvaluator:
         def evaluate(self, states):
             predictions = []
@@ -232,7 +236,7 @@ def test_grouped_diagnostics_preserve_model_search_and_selection_meanings(temper
     while sj.get_action(state) != sj.ACTION_FLIP_OR_REPLACE:
         action = int(np.flatnonzero(sj.actions(state))[0])
         state = sj.apply_action(state, action, rng=rng)
-    config = SearchConfig(dirichlet_epsilon=0.25)
+    config = SearchConfig(dirichlet_epsilon=0.25, uniform_group_priors=uniform)
     player = SearchPlayer(
         WeightedEvaluator(),
         2,
@@ -311,6 +315,12 @@ def test_preset_paths_settings_and_seat_counts_round_trip(tmp_path):
     loaded = load_preset(path)
     assert loaded.seats[1].checkpoint == str(tmp_path / "model.pth")
     assert loaded.seats[1].search.fpu_reduction == 0.2
+    assert not loaded.seats[1].search.uniform_group_priors
+    path.write_text(path.read_text() + "uniform_group_priors = true\n")
+    uniform = load_preset(path)
+    assert uniform.seats[1].search.uniform_group_priors
+    save_preset(uniform, path)
+    assert load_preset(path) == uniform
 
 
 @pytest.mark.parametrize("name", ["alphazero", "gumbel", "lower_confidence"])
