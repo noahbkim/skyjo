@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 from collections.abc import Iterator
+from copy import deepcopy
 
 import numpy as np
 
@@ -21,6 +22,10 @@ from .strategies import (
     ValueAccumulator,
     frozen_array,
 )
+
+
+class _SymmetryRecyclingRisk(Exception):
+    """An explored grouped path reached the reserve needed for final reveals."""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -130,6 +135,11 @@ class DecisionStateNode:
 
     def expand(self, model_prediction: Prediction):
         assert not self.is_expanded
+        if (
+            self.effective_merge_symmetric_actions
+            and not symmetry.safe_to_merge_actions(self.state, 0)
+        ):
+            raise _SymmetryRecyclingRisk
         self.model_prediction = model_prediction
         self._valuation_state = self.context.components.valuation.initialize(
             frozen_array(model_prediction.value)
@@ -389,10 +399,47 @@ def run_mcts(
     components = components if components is not None else resolve_components(config)
     rng = rng if rng is not None else np.random.default_rng()
     merging = config.merge_symmetric_actions and symmetry.safe_to_merge_actions(
-        game_state, iterations if symmetry_budget is None else symmetry_budget
+        game_state, 0 if symmetry_budget is None else symmetry_budget
     )
+
+    def build_tree(merge):
+        return _search_tree(
+            game_state,
+            evaluator,
+            iterations,
+            config=config,
+            boundary_evaluator=boundary_evaluator,
+            rng=rng,
+            components=components,
+            cover_root=cover_root,
+            merge=merge,
+        )
+
+    if merging and symmetry_budget is None:
+        rng_state = deepcopy(rng.bit_generator.state)
+        try:
+            return build_tree(True)
+        except _SymmetryRecyclingRisk:
+            # Discard all grouped values and allocation sessions before retrying.
+            rng.bit_generator.state = rng_state
+        return build_tree(False)
+    return build_tree(merging)
+
+
+def _search_tree(
+    game_state,
+    evaluator,
+    iterations,
+    *,
+    config,
+    boundary_evaluator,
+    rng,
+    components,
+    cover_root,
+    merge,
+):
     coverage = (
-        symmetry.ActionGroups.from_state(game_state, merge=merging).representatives
+        symmetry.ActionGroups.from_state(game_state, merge=merge).representatives
         if cover_root
         else ()
     )
@@ -413,7 +460,7 @@ def run_mcts(
         None,
         None,
         context,
-        effective_merge_symmetric_actions=merging,
+        effective_merge_symmetric_actions=merge,
     )
     root_node.expand(evaluator.evaluate([game_state])[0])
     root_node.refresh_root_noise()

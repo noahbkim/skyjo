@@ -79,7 +79,8 @@ def search(
             rng=generator,
             components=components,
             cover_root=replicas > 1,
-            symmetry_budget=iterations,
+            # Replicas need one conservative partition shared by every tree.
+            symmetry_budget=iterations if replicas > 1 else None,
         )
         for budget, generator in zip(budgets, generators, strict=True)
     )

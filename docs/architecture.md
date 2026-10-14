@@ -94,7 +94,15 @@ completed state can be reused, but the evaluator must run on each revisit. Only
 provably deterministic game-terminal boundaries cache their exact result without
 further samples. A sampled terminal result alone does not prove determinism.
 Symmetry grouping must respect deck-recycling safety, not just visible board
-equivalence.
+equivalence. Search checks the unseen-card reserve at each expanded decision
+state instead of disabling grouping solely because the requested budget is large.
+If an explored path loses the reserve needed to avoid recycling during final
+reveals, it discards the grouped tree, restores the search RNG, and rebuilds the
+full requested budget without grouping. No values from the discarded tree are
+reused. Evaluators are expected to predict from their inputs without depending
+on call history. Replica searches retain the conservative whole-budget check
+to guarantee identical action groups across all replicas; single-tree searches
+use the explored-path fallback. Allocation sessions are recreated on retry.
 
 Transitions perform cheap precondition checks; deep invariant validation is
 explicit. This keeps diagnostic cost out of the hot path while preserving a way

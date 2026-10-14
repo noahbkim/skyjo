@@ -56,7 +56,10 @@ value is the acting seat's estimated win probability; unevaluated groups display
 statistics are blank on member rows because search does not evaluate them
 independently. Root win estimates compare initial model and updated search values
 in fixed seat order. Iterations, temperature, and whether symmetry merging was
-actually enabled appear once above the action table.
+actually enabled appear once above the action table. Even at large search budgets,
+symmetry remains enabled unless an explored path encounters deck-recycling risk;
+that single-tree search restarts without grouping. Replica searches retain the
+conservative whole-budget safety check so every replica uses the same partition.
 When replicas are enabled, a standard-error column measures search variability,
 not model bias. See [search strategies](search-strategies.md).
 
