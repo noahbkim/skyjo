@@ -89,7 +89,9 @@ class ActionGroups:
 def safe_to_merge_actions(state: sj.Skyjo, budget: int) -> bool:
     """Conservatively exclude recycling anywhere below a search root.
 
-    ``budget`` includes existing root visits and the requested new iterations.
+    ``budget`` bounds additional traversals from this state. A zero budget
+    checks the reserve before expanding a node; live search uses this check on
+    every explored decision state and restarts ungrouped if the reserve is lost.
     Unseen deck counts include hidden cards on every player's board. Revealing
     a hidden card reduces both counts; only an ordinary draw consumes slack.
     After the first draw, every additional draw requires a card-slot expansion

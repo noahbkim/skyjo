@@ -10,6 +10,7 @@ import pytest
 from skyjo.engine import game as sj
 from skyjo.search.configuration import preset
 from skyjo.search.evaluator import Prediction
+from skyjo.search.mcts import SearchConfig
 from skyjo.search.player import SearchPlayer
 from skyjo.simulation import play, recording
 from skyjo.simulation.decisions import PlayerDecision, get_decision
@@ -146,6 +147,26 @@ def test_invalid_training_policy_is_rejected_before_play_or_replay():
         recording.from_dict(data)
 
 
+def test_diagnostic_action_metadata_round_trips_and_is_optional():
+    session = random_session()
+    session.advance(session.propose())
+    payload = recording.to_dict(session.recording)
+    restored = recording.from_dict(payload)
+    section = restored.frames[0].decision.diagnostics[0]
+    assert section.row_actions == (sj.MASK_FLIP_SECOND_BELOW, sj.MASK_FLIP_SECOND_RIGHT)
+    assert section == session.recording.frames[0].decision.diagnostics[0]
+
+    raw_section = payload["frames"][0]["diagnostics"][0]
+    del raw_section["row_actions"]
+    legacy = recording.from_dict(payload).frames[0].decision.diagnostics[0]
+    assert legacy.rows == section.rows
+    assert legacy.row_actions == ()
+    for invalid in ((0,), (0, sj.MASK_SIZE), (0, True)):
+        raw_section["row_actions"] = invalid
+        with pytest.raises(recording.RecordingError, match="diagnostic row actions"):
+            recording.from_dict(payload)
+
+
 class UniformEvaluator:
     def evaluate(self, states):
         return [
@@ -157,40 +178,129 @@ class UniformEvaluator:
         ]
 
 
-def test_search_diagnostics_share_the_same_search_and_rng():
+@pytest.mark.parametrize("uniform", [False, True])
+def test_search_diagnostics_share_the_same_search_and_rng(uniform):
     state = random_session().state
+    config = SearchConfig(uniform_group_priors=uniform)
     a = SearchPlayer(
-        UniformEvaluator(), 12, temperature=0, rng=np.random.default_rng(45)
+        UniformEvaluator(),
+        12,
+        config=config,
+        temperature=0,
+        rng=np.random.default_rng(45),
     )
     b = SearchPlayer(
-        UniformEvaluator(), 12, temperature=0, rng=np.random.default_rng(45)
+        UniformEvaluator(),
+        12,
+        config=config,
+        temperature=0,
+        rng=np.random.default_rng(45),
     )
     detailed = a.get_decision(state)
     plain = b.get_decision(state, diagnostics=False)
     np.testing.assert_array_equal(detailed.probabilities, plain.probabilities)
     assert a.rng.bit_generator.state == b.rng.bit_generator.state
-    raw_visits = detailed.diagnostics[0]
-    assert raw_visits.title == "MCTS raw visit distribution"
-    assert sum(row[1] for row in raw_visits.rows) == 12
-    assert sum(row[2] for row in raw_visits.rows) == pytest.approx(1)
-    assert all(row[2] == row[1] / 12 for row in raw_visits.rows)
-    assert sum(row[1] > 0 for row in raw_visits.rows) > 1
+    actions, values = detailed.diagnostics
+    assert sum(row[3] for row in actions.rows) == 12
+    assert sum(row[4] for row in actions.rows) == pytest.approx(1)
+    assert all(row[4] == row[3] / 12 for row in actions.rows)
+    assert sum(row[3] > 0 for row in actions.rows) > 1
     assert np.count_nonzero(detailed.probabilities) == 1
-    groups = next(s for s in detailed.diagnostics if s.title == "Search action groups")
-    assert sum(row[3] for row in groups.rows) == 12
-    assert sum(row[1] for row in groups.rows) == pytest.approx(1)
-    # Exercise symmetry grouping at a card-position decision, not just initial flips.
+    assert actions.row_actions == tuple(map(int, np.flatnonzero(sj.actions(state))))
+    assert [row[5] for row in actions.rows] == [
+        float(detailed.probabilities[action]) for action in actions.row_actions
+    ]
+    assert sum(row[1] for row in actions.rows) == pytest.approx(1)
+    assert values.title == "Root win estimates"
+
+
+@pytest.mark.parametrize("temperature", [0, 0.5])
+@pytest.mark.parametrize("uniform", [False, True])
+def test_grouped_diagnostics_preserve_model_search_and_selection_meanings(
+    temperature, uniform
+):
+    class WeightedEvaluator:
+        def evaluate(self, states):
+            predictions = []
+            for state in states:
+                policy = np.arange(1, sj.MASK_SIZE + 1, dtype=np.float32) * sj.actions(
+                    state
+                )
+                predictions.append(
+                    Prediction(np.array([0.3, 0.7]), policy / policy.sum())
+                )
+            return predictions
+
+    state = random_session().state
     rng = np.random.default_rng(2)
     while sj.get_action(state) != sj.ACTION_FLIP_OR_REPLACE:
         action = int(np.flatnonzero(sj.actions(state))[0])
         state = sj.apply_action(state, action, rng=rng)
-    detailed = a.get_decision(state)
-    groups = next(s for s in detailed.diagnostics if s.title == "Search action groups")
-    assert any(";" in row[0] for row in groups.rows)
-    assert sum(row[3] for row in groups.rows) == 12
-    assert [row[1] for row in detailed.diagnostics[0].rows] == [
-        row[3] for row in groups.rows
+    config = SearchConfig(dirichlet_epsilon=0.25, uniform_group_priors=uniform)
+    player = SearchPlayer(
+        WeightedEvaluator(),
+        2,
+        config=config,
+        temperature=temperature,
+        rng=np.random.default_rng(45),
+    )
+    reference = SearchPlayer(
+        WeightedEvaluator(),
+        2,
+        config=config,
+        temperature=temperature,
+        rng=np.random.default_rng(45),
+    ).run_mcts(state)
+    decision = player.get_decision(state)
+    actions, values = decision.diagnostics
+    summaries = [row for row in actions.rows if row[3] != ""]
+    assert len(summaries) == len(reference.action_groups.members)
+    assert sum(row[3] for row in summaries) == 2
+    assert any(row[6] is None for row in summaries)
+    assert sum(row[1] for row in summaries) == pytest.approx(1)
+    assert sum(row[2] for row in summaries) == pytest.approx(1)
+    assert sum(row[5] for row in summaries) == pytest.approx(1)
+    assert any(action is None for action in actions.row_actions)
+    for row, group in zip(summaries, reference.action_groups.members, strict=True):
+        representative = group[0]
+        child = reference.children[representative]
+        assert row[1] == pytest.approx(
+            reference.model_prediction.policy[list(group)].sum()
+        )
+        assert row[2] == reference.action_priors[representative]
+        assert row[3:5] == (child.visit_count, child.visit_count / 2)
+        assert row[5] == pytest.approx(decision.probabilities[list(group)].sum())
+        expected_value = (
+            child.state_value[sj.get_player(state)]
+            if child.has_value_estimate
+            else None
+        )
+        assert row[6] == expected_value
+    members = {
+        action: row
+        for action, row in zip(actions.row_actions, actions.rows, strict=True)
+        if action is not None
+    }
+    assert list(members) == [
+        action for group in reference.action_groups.members for action in group
     ]
+    for group in reference.action_groups.members:
+        for action in group:
+            row = members[action]
+            assert row[1] == reference.model_prediction.policy[action]
+            assert row[5] == decision.probabilities[action]
+            if len(group) > 1:
+                assert row[2:5] == ("", "", "")
+                assert row[6] == ""
+    assert values.rows == tuple(
+        (i + 1, float(model), float(search))
+        for i, (model, search) in enumerate(
+            zip(reference.model_prediction.value, reference.state_value, strict=True)
+        )
+    )
+    np.testing.assert_array_equal(
+        decision.probabilities, reference.policy_targets(temperature)
+    )
 
 
 def test_preset_paths_settings_and_seat_counts_round_trip(tmp_path):
@@ -205,6 +315,44 @@ def test_preset_paths_settings_and_seat_counts_round_trip(tmp_path):
     loaded = load_preset(path)
     assert loaded.seats[1].checkpoint == str(tmp_path / "model.pth")
     assert loaded.seats[1].search.fpu_reduction == 0.2
+    assert not loaded.seats[1].search.uniform_group_priors
+    path.write_text(path.read_text() + "uniform_group_priors = true\n")
+    uniform = load_preset(path)
+    assert uniform.seats[1].search.uniform_group_priors
+    save_preset(uniform, path)
+    assert load_preset(path) == uniform
+
+
+@pytest.mark.parametrize("name", ["alphazero", "gumbel", "lower_confidence"])
+def test_consolidated_diagnostics_preserve_strategy_targets_and_replica_estimates(name):
+    state = random_session().state
+    config = preset(name)
+
+    def player():
+        return SearchPlayer(
+            UniformEvaluator(),
+            32,
+            config=config,
+            temperature=0,
+            rng=np.random.default_rng(45),
+        )
+
+    result = player().search(state)
+    decision = player().get_decision(state)
+    actions, values = decision.diagnostics
+    view = result.summary
+    assert sum(row[3] for row in actions.rows) == 32
+    assert actions.columns[7] == "Training probability"
+    for index, group in enumerate(view.groups.members):
+        row = actions.rows[index]
+        assert row[5] == float(result.action_probabilities[list(group)].sum())
+        assert row[6] == float(view.q[index])
+        assert row[7] == float(result.training_policy[list(group)].sum())
+        if config.replicas > 1:
+            assert actions.columns[8] == "Standard error"
+            assert row[8] == float(view.standard_error[index, view.player])
+    assert [row[2] for row in values.rows] == list(view.state_value)
+    np.testing.assert_array_equal(decision.training_policy, result.training_policy)
 
 
 @pytest.mark.parametrize("alpha", [None, 0.3])
@@ -271,7 +419,7 @@ def test_model_seats_load_checkpoints_and_produce_distinct_diagnostics(
     assert policy_decision.diagnostics[0].title.startswith("Model policy")
     session.advance(policy_decision)
     search_decision = session.propose()
-    assert any(s.title == "Search action groups" for s in search_decision.diagnostics)
+    assert search_decision.diagnostics[0].title == "Search actions"
     assert (
         session.recording.players[0]["checkpoint_sha256"]
         == session.recording.players[1]["checkpoint_sha256"]

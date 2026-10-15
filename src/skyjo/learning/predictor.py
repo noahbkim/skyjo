@@ -7,7 +7,7 @@ import torch
 
 from skyjo.engine import game as sj
 from skyjo.search.evaluator import Evaluator, Prediction
-from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision, policy_section
+from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
 
 from . import batches, skynet
 
@@ -61,8 +61,18 @@ class PolicyPlayer:
         return PlayerDecision(
             probabilities,
             (
-                policy_section(
-                    state, prediction.policy, "Model policy (greedy selection)"
+                DiagnosticSection(
+                    "Model policy (greedy selection)",
+                    columns=("Action", "Model prior", "Selection probability"),
+                    rows=tuple(
+                        (
+                            sj.get_action_name(int(action)),
+                            float(prediction.policy[action]),
+                            float(probabilities[action]),
+                        )
+                        for action in legal
+                    ),
+                    row_actions=tuple(map(int, legal)),
                 ),
                 DiagnosticSection(
                     "Win estimates (fixed seat order)",

@@ -181,6 +181,7 @@ def _section(data):
         metrics=data.get("metrics", {}),
         columns=tuple(data.get("columns", ())),
         rows=tuple(tuple(row) for row in data.get("rows", ())),
+        row_actions=tuple(data.get("row_actions", ())),
     )
     if (
         not isinstance(section.title, str)
@@ -191,6 +192,15 @@ def _section(data):
         or any(len(row) != len(section.columns) for row in section.rows)
     ):
         raise RecordingError("Invalid diagnostic section")
+    if section.row_actions and (
+        len(section.row_actions) != len(section.rows)
+        or any(
+            action is not None
+            and (type(action) is not int or not 0 <= action < sj.MASK_SIZE)
+            for action in section.row_actions
+        )
+    ):
+        raise RecordingError("Invalid diagnostic row actions")
     for value in [*section.metrics.values(), *(v for r in section.rows for v in r)]:
         if value is not None and type(value) not in (str, int, float, bool):
             raise RecordingError("Diagnostic values must be JSON scalars")
@@ -222,7 +232,9 @@ def from_dict(data: dict) -> Recording:
                     raise RecordingError(f"Invalid {key}")
             action = raw["action"]
             probabilities = raw["probabilities"]
-            training_policy = raw.get("training_policy") if data["version"] >= 2 else None
+            training_policy = (
+                raw.get("training_policy") if data["version"] >= 2 else None
+            )
             if (action is None) != (probabilities is None):
                 raise RecordingError("Actions and probabilities must occur together")
             if action is not None:
@@ -250,7 +262,9 @@ def from_dict(data: dict) -> Recording:
                     decision=decision,
                 )
             elif raw.get("diagnostics") or training_policy is not None:
-                raise RecordingError("Diagnostics and targets require a recorded decision")
+                raise RecordingError(
+                    "Diagnostics and targets require a recorded decision"
+                )
             if frames:
                 previous = frames[-1]
                 expected_round = previous.round_number + (previous.event == "round_end")
