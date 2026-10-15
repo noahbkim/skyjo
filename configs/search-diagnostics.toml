@@ -1,0 +1,15 @@
+version = 1
+iterations = [32, 128, 512, 2048]
+seeds = [0, 1, 2, 3]
+
+[[methods]]
+name = "sampled"
+[methods.search]
+# Fixed partition across budgets, so within-run traces are easier to interpret.
+merge_symmetric_actions = false
+
+[[methods]]
+name = "exact-ordinary-chance"
+[methods.search]
+after_state_evaluate_all_children = true
+merge_symmetric_actions = false

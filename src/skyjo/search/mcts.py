@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from copy import deepcopy
 
 import numpy as np
@@ -399,8 +399,15 @@ def run_mcts(
     components: SearchComponents | None = None,
     cover_root: bool = False,
     symmetry_budget: int | None = None,
+    observer: Callable[[DecisionStateNode], None] | None = None,
 ) -> DecisionStateNode:
-    """Build and search a fresh tree from game_state, using fixed-seat values."""
+    """Build and search a fresh tree from game_state, using fixed-seat values.
+
+    An optional observer reads the live root after every completed backup. It
+    must not mutate the tree or consume search RNG; no snapshots are copied here.
+    A symmetry-safety retry supplies a new root starting at visit one; observers
+    must discard statistics from the abandoned root.
+    """
     if type(iterations) is not int or iterations < 0:
         raise ValueError("iterations must be a nonnegative integer")
     components = components if components is not None else resolve_components(config)
@@ -420,6 +427,7 @@ def run_mcts(
             components=components,
             cover_root=cover_root,
             merge=merge,
+            observer=observer,
         )
 
     if merging and symmetry_budget is None:
@@ -444,6 +452,7 @@ def _search_tree(
     components,
     cover_root,
     merge,
+    observer,
 ):
     coverage = (
         symmetry.ActionGroups.from_state(game_state, merge=merge).representatives
@@ -514,6 +523,8 @@ def _search_tree(
             for visited in path[1:]:
                 if isinstance(visited, DecisionStateNode):
                     context.interior_session.observe(visited.view())
+        if observer is not None:
+            observer(root_node)
     return root_node
 
 

@@ -6,6 +6,11 @@
 
 ## data
 data/
+!/data/
+/data/*
+!/data/search-positions/
+/data/search-positions/*
+!/data/search-positions/*.json
 
 ## models
 models/

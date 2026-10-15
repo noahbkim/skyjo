@@ -66,7 +66,8 @@ class RecordingError(ValueError):
     """An unsupported or malformed game recording."""
 
 
-def _state_dict(state):
+def state_to_dict(state: sj.Skyjo) -> dict:
+    """Serialize a public engine snapshot, including unknown-card counts."""
     return {
         field.name: value.tolist() if isinstance(value, np.ndarray) else value
         for field in dataclasses.fields(state)
@@ -79,7 +80,7 @@ def to_dict(recording: Recording) -> dict:
     for frame in recording.frames:
         frames.append(
             {
-                "state": _state_dict(frame.state),
+                "state": state_to_dict(frame.state),
                 "round_number": frame.round_number,
                 "event": frame.event,
                 "action": frame.action,
@@ -139,7 +140,8 @@ def _integer(value, minimum=0):
     return value
 
 
-def _state(data, players):
+def state_from_dict(data: dict, players: int) -> sj.Skyjo:
+    """Decode and validate the same snapshot format used by recordings."""
     arrays = {}
     for name, shape in (
         ("game", (sj.GAME_SIZE,)),
@@ -222,7 +224,7 @@ def from_dict(data: dict) -> Recording:
             raise RecordingError("Expected 2–8 named players")
         frames = []
         for raw in data["frames"]:
-            state = _state(raw["state"], len(players))
+            state = state_from_dict(raw["state"], len(players))
             frame = make_frame(state, _integer(raw["round_number"], 1))
             if raw["event"] != frame.event:
                 raise RecordingError("Frame event does not match state")

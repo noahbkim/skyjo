@@ -26,6 +26,8 @@ research runs, commit first and omit `--allow-dirty`. Use each entry point's
 - [Search benchmarks](docs/search-benchmarks.md): frozen tactical positions and exact-endgame comparisons.
 - [Experiments](docs/experiments.md): comparison methodology and preserving evidence.
 - [Findings](docs/experiments.md#findings): current research conclusions.
+- [Search diagnostics](docs/search-diagnostics.md): reusable positions, tactical discovery,
+  and paired search comparisons.
 
 ## Play, watch, and replay
 
