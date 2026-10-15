@@ -37,6 +37,12 @@ class NodeView:
     is_root: bool
     standard_error: np.ndarray | None = None
     node_id: int = 0
+    base_priors: np.ndarray | None = None
+
+    @property
+    def policy_priors(self):
+        """Configured priors before root noise; model priors remain diagnostic data."""
+        return self.model_priors if self.base_priors is None else self.base_priors
 
     @property
     def q(self):
@@ -204,7 +210,7 @@ class CompletedQ:
 
     def __call__(self, view):
         visited = view.visits > 0
-        weights = np.maximum(view.model_priors, np.finfo(np.float64).tiny)
+        weights = np.maximum(view.policy_priors, np.finfo(np.float64).tiny)
         weighted_q = (
             float(np.dot(weights[visited], view.q[visited]) / weights[visited].sum())
             if visited.any()
@@ -221,7 +227,7 @@ class CompletedQ:
 def prior_logits(view):
     # Evaluators expose probabilities, not logits. A floor handles underflow and
     # lets legal zero-prior actions participate without admitting illegal actions.
-    return np.log(np.maximum(view.model_priors, np.finfo(np.float64).tiny))
+    return np.log(np.maximum(view.policy_priors, np.finfo(np.float64).tiny))
 
 
 def softmax(scores, temperature=1.0):

@@ -17,6 +17,7 @@ class DiagnosticSection:
     metrics: dict[str, Scalar] = field(default_factory=dict)
     columns: tuple[str, ...] = ()
     rows: tuple[tuple[Scalar, ...], ...] = ()
+    row_actions: tuple[int | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,11 +69,13 @@ def validate_decision(state: sj.Skyjo, decision: PlayerDecision) -> None:
 
 
 def policy_section(state, probabilities, title="Action probabilities"):
+    actions = tuple(map(int, np.flatnonzero(sj.actions(state))))
     return DiagnosticSection(
         title,
         columns=("Action", "Probability"),
         rows=tuple(
             (sj.get_action_name(int(action)), float(probabilities[action]))
-            for action in np.flatnonzero(sj.actions(state))
+            for action in actions
         ),
+        row_actions=actions,
     )

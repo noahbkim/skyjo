@@ -2,7 +2,10 @@
 
 import asyncio
 import threading
+from dataclasses import replace
 
+import pytest
+from rich.console import Console
 from textual.widgets import Button, Input
 
 from skyjo.engine import game as sj
@@ -61,6 +64,9 @@ def test_setup_human_action_and_replay_navigation(tmp_path, monkeypatch):
             screen.playing = False
             assert screen.query_one("#action-0").display
             assert not screen.query_one("#action-2").display
+            screen.query_one("#action-1").scroll_visible(immediate=True)
+            await pilot.pause()
+            assert screen.query_one("#boards-pane").scroll_y > 0
             screen.query_one("#action-1", Button).press()
             await pilot.pause()
             assert len(screen.saved.frames) == 2
@@ -143,13 +149,17 @@ def test_pause_buffers_one_decision_and_late_results_cannot_advance_new_screen(
         ready.set()
 
 
-def test_eight_seat_narrow_table_has_scrollable_boards(tmp_path):
+@pytest.mark.parametrize("players", [2, 8])
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+def test_boards_stack_above_full_width_diagnostics_and_scroll(tmp_path, players, size):
     async def scenario():
         session = GameSession(
-            [RandomPlayer()] * 8, seed=0, metadata=[{"name": f"P{i}"} for i in range(8)]
+            [RandomPlayer()] * players,
+            seed=0,
+            metadata=[{"name": f"P{i}"} for i in range(players)],
         )
         app = SkyjoApp()
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with app.run_test(size=size) as pilot:
             app.push_screen(
                 TableScreen(
                     session.recording,
@@ -160,13 +170,23 @@ def test_eight_seat_narrow_table_has_scrollable_boards(tmp_path):
             )
             await pilot.pause()
             screen = app.screen
-            assert len(screen.query(".board")) == 8
+            assert len(screen.query(".board")) == players
             pane = screen.query_one("#boards-pane")
+            details = screen.query_one("#diagnostics-pane")
+            content = screen.query_one("#table-content")
             assert pane.region.height > 0
-            assert pane.max_scroll_y > 0
-            screen.query_one("#board-7").scroll_visible(immediate=True)
-            await pilot.pause()
-            assert pane.scroll_y > 0
+            assert pane.region.bottom == details.region.y
+            assert pane.region.width == details.region.width == content.region.width
+            assert pane.region.height <= content.region.height / 2
+            assert details.region.height > 0
+            if players == 2 and size[1] == 40:
+                assert pane.region.height == 10
+                assert pane.max_scroll_y == 0
+            else:
+                assert pane.max_scroll_y > 0
+                pane.scroll_to(y=pane.max_scroll_y, animate=False)
+                await pilot.pause()
+                assert pane.scroll_y > 0
 
     asyncio.run(scenario())
 
@@ -233,8 +253,10 @@ def test_wide_diagnostics_scroll_without_rounding_away_small_differences(tmp_pat
             (
                 DiagnosticSection(
                     "Precise values",
-                    columns=("A", "B", "C", "D"),
-                    rows=((0.99999994, 0.123456789, 0.0000000123456789, 0.999999999),),
+                    columns=tuple(f"Value {i}" for i in range(12)),
+                    rows=(
+                        (0.99999994, 0.123456789, 0.0000000123456789, 0.999999999) * 3,
+                    ),
                 ),
             ),
         )
@@ -258,3 +280,50 @@ def test_wide_diagnostics_scroll_without_rounding_away_small_differences(tmp_pat
             assert pane.scroll_x > 0
 
     asyncio.run(scenario())
+
+
+def test_action_highlighting_uses_exact_row_and_waits_for_commit():
+    session = GameSession([None, None], seed=0, metadata=[{"name": "A"}, {"name": "B"}])
+    probabilities = RandomPlayer().get_action_probabilities(session.state)
+    section = DiagnosticSection(
+        "Actions",
+        columns=("Action", "Probability", "Value"),
+        rows=(("Group", 1.0, None), ("  Below", 0.5, ""), ("  Right", 0.5, "")),
+        row_actions=(None, sj.MASK_FLIP_SECOND_BELOW, sj.MASK_FLIP_SECOND_RIGHT),
+    )
+    decision = PlayerDecision(probabilities, (section,))
+    frame = replace(
+        session.recording.frames[0], action=sj.MASK_FLIP_SECOND_RIGHT, decision=decision
+    )
+    console = Console(width=100)
+    segments = list(console.render(render.diagnostics(frame)))
+    text = "".join(segment.text for segment in segments)
+    assert text.count("▶") == 1
+    assert "▶   Right" in text
+    assert "Chosen:" not in text
+    assert "—" in text
+    assert any(
+        "Right" in segment.text and segment.style.reverse for segment in segments
+    )
+
+    pending = "".join(
+        segment.text for segment in console.render(render.diagnostics(frame, decision))
+    )
+    assert "Proposed decision" in pending
+    assert "▶" not in pending
+
+    legacy = replace(
+        frame,
+        decision=replace(decision, diagnostics=(replace(section, row_actions=()),)),
+    )
+    legacy_text = "".join(
+        segment.text for segment in console.render(render.diagnostics(legacy))
+    )
+    assert "Chosen:" in legacy_text
+    assert "▶" not in legacy_text
+
+    fallback = replace(frame, decision=replace(decision, diagnostics=()))
+    fallback_text = "".join(
+        segment.text for segment in console.render(render.diagnostics(fallback))
+    )
+    assert fallback_text.count("▶") == 1

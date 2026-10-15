@@ -170,10 +170,22 @@ def run_search(
     first_accepted = None
     last_failure = 0
     observed_iterations = 0
+    observed_root = None
     trace = []
 
     def observe(root):
         nonlocal first_accepted, last_failure, observed_iterations
+        nonlocal observed_root
+        if root is not observed_root:
+            # A symmetry-safety fallback discards the earlier tree. Keep actual
+            # evaluator work, but report discovery and recovery only for this tree.
+            observed_root = root
+            observed_iterations = 0
+            first_accepted = None
+            last_failure = 0
+            first_evaluated.update(dict.fromkeys(first_evaluated))
+            first_visited.update(dict.fromkeys(first_visited))
+            trace.clear()
         iteration = root.visit_count
         if iteration != observed_iterations + 1:
             raise ValueError("Search observer must receive every iteration in order")

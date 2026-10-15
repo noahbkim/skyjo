@@ -211,3 +211,49 @@ def test_traced_diagnostics_reject_unimplemented_replica_aggregation():
         run_search(
             position, UniformEvaluator(), 32, 0, config=mcts.SearchConfig(replicas=2)
         )
+
+
+@pytest.mark.parametrize("exact_chance", [False, True])
+def test_symmetry_restart_discards_abandoned_trace_but_counts_its_work(exact_chance):
+    from test_action_symmetry import board_state, with_slack
+    from test_mcts_symmetry import FixedEvaluator
+
+    from skyjo.experiments.search_positions import Position
+
+    board = (("H", 0, "X", "X"), (2, 2, "X", "X"), (3, 3, "X", "X"))
+    state = with_slack(board_state(board, phase=game.ACTION_DRAW_OR_TAKE), 2)
+    position = Position(
+        "recycling",
+        "Draw path triggers symmetry fallback",
+        (),
+        state,
+        Expectation("prefer", (game.MASK_DRAW,), "Exercise recovery tracing"),
+        (Witness("take", (game.MASK_TAKE,)),),
+    )
+    results = [
+        run_search(
+            position,
+            FixedEvaluator(force_draw_path=True),
+            16,
+            4,
+            config=mcts.SearchConfig(
+                merge_symmetric_actions=merge,
+                fpu_reduction=1,
+                after_state_evaluate_all_children=exact_chance,
+            ),
+        )
+        for merge in (True, False)
+    ]
+    fallback, ordinary = results
+    assert not fallback["effective_merge_symmetric_actions"]
+    assert fallback["evaluator_states"] > ordinary["evaluator_states"]
+    work_fields = {
+        "seconds",
+        "evaluator_calls",
+        "evaluator_states",
+        "boundary_calls",
+        "boundary_samples",
+    }
+    assert {k: v for k, v in fallback.items() if k not in work_fields} == {
+        k: v for k, v in ordinary.items() if k not in work_fields
+    }

@@ -46,8 +46,11 @@ search defaults, recorded in full in each trial. Per-iteration tracing requires
 [search strategy benchmark](search-benchmarks.md) for independent-replica and
 exact-endgame comparisons. The standard plan disables
 symmetry merging to hold the partition fixed across budgets. If enabled, the
-engine's safety rule can change the partition at different budgets; inspect
+engine starts with grouping when the root is safe and retries without grouping
+if an explored path reaches recycling risk. Inspect
 `effective_merge_symmetric_actions` before interpreting budget curves as prefixes.
+On a retry, traces and discovery/recovery iterations describe the final tree;
+evaluator work and elapsed time include the abandoned attempt.
 The same integer seed does not imply identical random outcomes across methods
 that consume randomness differently.
 
@@ -131,8 +134,9 @@ Changing parameters needs only another `[[methods]]` table. For a new
 MCTS-compatible implementation, set `adapter = "your.module:run_search"` in its
 method table. The callable accepts the same arguments as `mcts.run_mcts`, returns
 the existing decision-node contract, and calls `observer(root)` after every
-completed iteration and backup. Observers must only read the live tree; they must
-not mutate it or consume search randomness. Custom code is trusted local Python,
+completed iteration and backup. A symmetry retry supplies a new root at visit
+one, which resets the diagnostic history. Observers must only read the live tree;
+they must not mutate it or consume search randomness. Custom code is trusted local Python,
 not a sandboxed plugin. Its module source is saved along with Skyjo's sources;
 external dependencies must be preserved by the experiment author.
 

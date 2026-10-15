@@ -7,6 +7,7 @@ from test_action_symmetry import RECYCLING_BOARD, board_state, with_slack
 from skyjo.engine import game as sj
 from skyjo.search import mcts
 from skyjo.search.evaluator import Prediction
+from skyjo.search.player import SearchPlayer
 
 
 class FixedEvaluator:
@@ -71,6 +72,46 @@ def test_expansion_aggregates_unequal_priors_and_root_noise():
     assert len(evaluator.states) == 1
 
 
+@pytest.mark.parametrize("merge", [False, True])
+@pytest.mark.parametrize("epsilon", [0.0, 0.25])
+def test_uniform_group_priors_apply_throughout_tree_without_replacing_model(
+    merge, epsilon
+):
+    root = mcts.run_mcts(
+        board_state(),
+        FixedEvaluator(),
+        32,
+        config=mcts.SearchConfig(
+            merge_symmetric_actions=merge,
+            uniform_group_priors=True,
+            dirichlet_epsilon=epsilon,
+        ),
+        rng=np.random.default_rng(4),
+    )
+    expanded = [node for node in decision_nodes(root) if node.is_expanded]
+    assert len(expanded) > 1
+    if merge:
+        assert len({len(group) for group in root.action_groups.members}) > 1
+    for node in expanded:
+        groups = node.action_groups.members
+        assert node.action_priors.sum() == pytest.approx(1)
+        original = sj.actions(node.state) * np.arange(1, sj.MASK_SIZE + 1)
+        np.testing.assert_allclose(
+            node.model_prediction.policy, original / original.sum()
+        )
+        np.testing.assert_array_equal(node.model_prediction.value, [0.5, 0.5])
+        for group in groups:
+            expected = 1 / len(groups)
+            if node is root:
+                expected = (1 - epsilon) * expected + epsilon * sum(
+                    node.dirichlet_noise[action] for action in group
+                )
+            assert node.action_probability(group[0]) == pytest.approx(expected)
+            assert node.model_action_priors[group[0]] == pytest.approx(
+                original[list(group)].sum() / original.sum()
+            )
+
+
 @pytest.mark.parametrize("exact_chance", [False, True])
 @pytest.mark.parametrize("merge", [False, True])
 def test_search_inherits_group_mode_and_conserves_visits(exact_chance, merge):
@@ -132,16 +173,71 @@ def test_recycling_falls_back_to_ordinary_search():
     assert root.children[16] is not root.children[21]
 
 
-@pytest.mark.parametrize("iterations, merged", [(1, True), (3, False)])
-def test_full_search_budget_controls_inherited_symmetry_mode(iterations, merged):
-    state = with_slack(board_state(phase=sj.ACTION_REPLACE), 2)
-    root = mcts.run_mcts(
-        state, FixedEvaluator(), iterations, rng=np.random.default_rng(4)
+@pytest.mark.parametrize("exact_chance", [False, True])
+def test_large_budget_keeps_symmetry_when_explored_paths_do_not_recycle(
+    exact_chance, monkeypatch
+):
+    state = board_state()
+    prepare = sj.prepare_draw_pile
+
+    def no_recycling(observed):
+        assert observed.deck.sum() > 0
+        return prepare(observed)
+
+    monkeypatch.setattr(sj, "prepare_draw_pile", no_recycling)
+    result = SearchPlayer(
+        FixedEvaluator(),
+        2048,
+        config=mcts.SearchConfig(after_state_evaluate_all_children=exact_chance),
+        rng=np.random.default_rng(4),
+    ).search(state)
+    root = result.roots[0]
+    assert root.effective_merge_symmetric_actions
+    assert len(root.children) < sj.actions(state).sum()
+    assert (
+        root.visit_count
+        == sum(child.visit_count for child in root.children.values())
+        == 2048
     )
-    assert all(
-        node.effective_merge_symmetric_actions is merged
-        for node in decision_nodes(root)
-    )
+
+
+@pytest.mark.parametrize("exact_chance", [False, True])
+@pytest.mark.parametrize("root_strategy", ["puct", "gumbel"])
+def test_deep_recycling_risk_restarts_with_ordinary_search_and_original_rng(
+    exact_chance,
+    root_strategy,
+):
+    board = (("H", 0, "X", "X"), (2, 2, "X", "X"), (3, 3, "X", "X"))
+    state = with_slack(board_state(board, phase=sj.ACTION_DRAW_OR_TAKE), 2)
+    results, rngs, evaluators = [], [], []
+    for merge in (True, False):
+        rng = np.random.default_rng(4)
+        evaluator = FixedEvaluator(force_draw_path=True)
+        results.append(
+            mcts.run_mcts(
+                state,
+                evaluator,
+                16,
+                config=mcts.SearchConfig(
+                    merge_symmetric_actions=merge,
+                    fpu_reduction=1,
+                    after_state_evaluate_all_children=exact_chance,
+                    root_strategy=root_strategy,
+                    gumbel_candidates=1,
+                ),
+                rng=rng,
+            )
+        )
+        rngs.append(rng.bit_generator.state)
+        evaluators.append(evaluator)
+    fallback, ordinary = results
+    # It attempted grouping before encountering the risky descendant.
+    assert len(evaluators[0].states) > len(evaluators[1].states)
+    assert not fallback.effective_merge_symmetric_actions
+    assert fallback.visit_count == ordinary.visit_count == 16
+    np.testing.assert_array_equal(fallback.policy_targets(), ordinary.policy_targets())
+    np.testing.assert_array_equal(fallback.state_value, ordinary.state_value)
+    assert rngs[0] == rngs[1]
 
 
 @pytest.mark.parametrize("exact_chance", [False, True])
