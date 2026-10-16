@@ -1,0 +1,9 @@
+# Frozen-checkpoint contestant for run_checkpoint_comparison.py.
+mode = "search"
+iterations = 256
+temperature = 0.0
+
+[search]
+fpu_mode = "zero"
+valuation = "mean_return"
+target_strategy = "visits"

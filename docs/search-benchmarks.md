@@ -90,3 +90,73 @@ does not quantify shared model error. Likewise, simulation counts do not imply
 equal model work: chance enumeration and boundary sampling can evaluate many
 states in a single traversal, so compare evaluator-state counts and elapsed time
 alongside the fixed total budget.
+
+## Clearing-card AlphaZero baseline
+
+`configs/benchmarks/clearing-alphazero.toml` compares the named `alphazero`
+preset with uniform group priors, and repeats both with highest-estimated-Q
+final selection. Allocation stays PUCT, valuation stays `mean_return`, and
+learning targets stay visit-based in all four methods. Uniform priors apply at
+every decision node, equally across symmetry groups. Q selection considers only
+evaluated actions. All methods use sampled ordinary chance, one sample on the
+first boundary visit, zero FPU, c_puct=1.5, no root noise, and temperature zero.
+This is the named AlphaZero preset, **not** the historical recording's mixture
+backup / enumerated chance / ten boundary samples configuration.
+
+Run the existing per-iteration diagnostic runner on the two giveaway positions:
+
+```sh
+mkdir -p .runs/clearing-suite
+cp data/search-positions/clear-9-giveaway.json .runs/clearing-suite/
+cp data/search-positions/clear-12-giveaway.json .runs/clearing-suite/
+uv run python run_search_diagnostics.py run \
+  --checkpoint "$SEARCH_CHECKPOINT" \
+  --suite .runs/clearing-suite \
+  --plan configs/benchmarks/clearing-alphazero.toml \
+  --output .runs/clearing-alphazero-8192
+```
+
+Use an empty suite directory; the exported giveaway states and annotations match
+`giveaway_9` and `giveaway_12` in the benchmark exactly. The initial recorded run
+used those benchmark IDs in otherwise equivalent exported positions. The
+checkpoint must be the fixture's iteration 119 variant (SHA-256
+`dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f`).
+The diagnostic runner records but does not enforce that hash; verify it before
+comparing a later run with this baseline.
+
+The plan fixes seeds 0–3 and a maximum of 8,192 traversals per search. Inspect
+`first_accepted_iteration`, `stable_accepted_from`, and the witness discovery
+counts in `trials.jsonl`. “Stable from” means no later failure **within that
+run**, not convergence beyond the tested horizon. A null recovery is censored
+at the budget. Logarithmic trace snapshots show choices at smaller budgets on
+the same tree; they are not independent repeats. Read successful-only recovery
+medians alongside their success counts. Avoiding a labeled card is a diagnostic
+criterion, not proof of optimal play.
+
+### Frozen-evaluator faceoffs (next stage)
+
+The four matching contestant files are in `configs/search-strategies/`.
+For example, compare visits against Q selection at 256 traversals:
+
+```sh
+uv run python run_checkpoint_comparison.py \
+  --control "$SEARCH_CHECKPOINT" \
+  --control-settings configs/search-strategies/alphazero.toml \
+  --variant-settings configs/search-strategies/alphazero-q.toml \
+  --seed-count 32 --seed 20261016 --workers 4 --threads 1 \
+  --runs-dir .runs/clearing-faceoffs
+```
+
+Omitting `--variant` deliberately reuses the control checkpoint. Use
+`alphazero-uniform.toml` to isolate priors, or pair it with
+`alphazero-uniform-q.toml` to isolate final selection under uniform priors.
+All recipes fix the same mean-return valuation and next-deal evaluator; no
+training is involved. These contestant files explicitly set 256 iterations, so
+change both files to compare another budget (`--iterations` only supplies a
+default when a settings file omits it).
+
+Use both seats for every seed, report paired win credit and score-margin
+intervals, and keep the tactical tuning seeds separate from strength evaluation.
+Equal traversals need not mean equal evaluated states or elapsed time. Start
+with the 64-game screen, then choose a separate confirmation budget before
+claiming strength. These faceoffs have not yet been run for this baseline.
