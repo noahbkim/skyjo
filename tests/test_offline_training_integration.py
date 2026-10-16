@@ -124,7 +124,8 @@ def test_loaded_dataset_training_resume_matches_uninterrupted_and_evaluates(tmp_
     )
 
 
-def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path, legacy):
     make_dataset(tmp_path / "dataset")
     first_checkpoint = tmp_path / "step_1.pth"
     resumed_checkpoint = tmp_path / "step_2.pth"
@@ -152,12 +153,18 @@ def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
             "1",
             "--output-checkpoint",
             str(first_checkpoint),
+            *(["--policy-normalization", "actions"] if legacy else []),
         ],
     )
     assert first.exit_code == 0, first.output
     assert "optimizer_steps: 1" in first.output
     assert "train_total_loss:" in first.output
     assert "validation_total_loss:" in first.output
+
+    if legacy:
+        payload = torch.load(first_checkpoint, weights_only=False)
+        del payload["configuration"]["model"]["policy_normalization"]
+        torch.save(payload, first_checkpoint)
 
     resumed = CliRunner().invoke(
         app,
@@ -174,6 +181,9 @@ def test_offline_training_entrypoint_reports_losses_and_resumes(tmp_path):
     assert resumed.exit_code == 0, resumed.output
     assert "optimizer_steps: 2" in resumed.output
     payload = torch.load(resumed_checkpoint, weights_only=False)
+    assert payload["configuration"]["model"]["policy_normalization"] == (
+        "actions" if legacy else "groups"
+    )
     assert (
         payload["configuration"]["model"]["name"]
         == skynet.EQUIVARIANT_ARCHITECTURE_NAME

@@ -2,8 +2,8 @@
 
 Search separates simulation allocation, value estimation, the action played, and
 the policy used for learning. A preset assembles these choices; it does not add
-another branch to the tree traversal loop. The default composition preserves the
-existing search behavior.
+another branch to the tree traversal loop. The default composition uses PUCT and
+mixture backups; root exploration noise now defaults to effective action groups.
 
 ## Ownership and extension points
 

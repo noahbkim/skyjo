@@ -44,6 +44,7 @@ class ModelSettings:
     embedding_dimensions: int
     global_state_embedding_dimensions: int
     num_heads: int
+    policy_normalization: str = "groups"
 
 
 @dataclass(frozen=True)

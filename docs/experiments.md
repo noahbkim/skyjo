@@ -22,6 +22,27 @@ paths resolve relative to the file declaring them. Run records preserve the
 settings and source configs, including local overrides. Promote reusable changes
 back into the shared recipe.
 
+New runs use a group-normalized policy and group-level root exploration noise.
+To reproduce the old policy parameterization and noise distribution, set:
+
+```toml
+[model]
+policy_normalization = "actions" # default: "groups"
+
+[search]
+group_root_noise = false # default: true
+```
+
+Both settings are recorded in resolved run configurations. The model option
+controls training and inference together; it is not a uniform-prior override.
+Search still learns and uses nonuniform group probabilities. Targets retain the
+existing per-action representation, dividing each group's mass among its members.
+The offline CLI accepts `--policy-normalization groups` or `actions`; omitted,
+it uses groups for new training and preserves the checkpoint mode on exact resume.
+Old checkpoints without the field load as actions. An online continuation adopts
+the new run's settings, so specify actions explicitly to retain the old mode.
+See [policy normalization](architecture.md#boundaries-that-matter) for the math.
+
 ## Make comparisons interpretable
 
 Before an expensive run, state the question, control, changed factor, budget,

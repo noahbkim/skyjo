@@ -8,7 +8,38 @@ profiled and optimized without choosing a model or training backend.
 Simulation returns histories rather than training labels. This lets objectives
 change without changing gameplay, and lets diagnostics analyze the same observed
 games. Networks operate only on tensors; inference adapters handle encoding,
-legal-policy normalization, batching, and player perspective.
+policy softmax, batching, and player perspective. Models mask illegal logits and
+apply their configured policy normalization consistently for training and inference.
+
+New models default to `model.policy_normalization = "groups"`. Equivalent legal
+actions (matching finger states and column multisets, separately for flip and
+replace) share their mean raw logit. Softmax is over these group scores, then
+group mass is split evenly over members. The network implements this using
+`mean_group_logit - log(group_size)` at each member, preserving the 28-logit
+output, evaluator probabilities, replay layout, and learned parameter shapes.
+An ordinary action softmax and cross-entropy therefore work unchanged. Non-board
+actions remain singletons. Grouping is computed from tensor observations on the
+model device, without reconstructing engine states or importing Torch into search.
+
+Search sums these per-action probabilities into its effective action groups.
+Policy-only play also maximizes group probability for group-normalized models,
+choosing a representative; historical models retain individual-action argmax.
+Visit targets already split group probability uniformly; target symmetrization
+preserves that mass, so no additional target division is needed. Search safety
+may still disable shared tree nodes near deck recycling; the model's policy
+normalization remains an independent choice. `model.policy_normalization =
+"actions"` retains the historical per-action softmax.
+
+Root Dirichlet noise defaults to one component per effective search group, then
+is split for per-action diagnostics. Set `search.group_root_noise = false` for
+historical per-action noise. With no explicit alpha, either mode retains total
+concentration 10; explicit alpha is per component in the selected space. Noise
+is applied after learned group priors, independently of `uniform_group_priors`.
+
+Checkpoint metadata persists policy normalization. Evaluation and exact offline
+resume interpret checkpoints lacking this field as `actions`. Online continuation
+can deliberately change the mode without changing parameter or optimizer shapes;
+its new run configuration records the choice. Exact resume rejects mode changes.
 
 Search values use **fixed player order**, while network outputs and training
 targets use **current-player order**. Convert at the inference boundary: otherwise

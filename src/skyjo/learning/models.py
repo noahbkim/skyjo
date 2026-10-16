@@ -27,9 +27,16 @@ def _equivariant_settings(settings):
 def resolve(settings):
     settings = dict(settings)
     name = settings.pop("name", skynet.EQUIVARIANT_ARCHITECTURE_NAME)
+    policy_normalization = settings.pop("policy_normalization", "groups")
+    if policy_normalization not in ("groups", "actions"):
+        raise ValueError("model.policy_normalization must be groups or actions")
     if name != skynet.EQUIVARIANT_ARCHITECTURE_NAME:
         raise ValueError(f"Unsupported model architecture: {name}")
-    return {"name": name, **_equivariant_settings(settings)}
+    return {
+        "name": name,
+        **_equivariant_settings(settings),
+        "policy_normalization": policy_normalization,
+    }
 
 
 def build(settings, *, players, device, auxiliary_objectives=None):

@@ -203,13 +203,18 @@ class DecisionStateNode:
         epsilon = self.context.config.dirichlet_epsilon
         self.action_priors = self.base_action_priors
         if epsilon:
-            actions = np.flatnonzero(sj.actions(self.state))
-            self.dirichlet_noise[actions] = self.context.rng.dirichlet(
+            groups = (
+                self.action_groups
+                if self.context.config.group_root_noise
+                else symmetry.ActionGroups.from_state(self.state, merge=False)
+            )
+            noise = self.context.rng.dirichlet(
                 np.full(
-                    len(actions),
-                    self.context.config.dirichlet_alpha or 10 / len(actions),
+                    len(groups.members),
+                    self.context.config.dirichlet_alpha or 10 / len(groups.members),
                 )
             )
+            self.dirichlet_noise[:] = groups.distribute(noise)
             self.action_priors = (
                 1 - epsilon
             ) * self.base_action_priors + epsilon * self.action_groups.aggregate(

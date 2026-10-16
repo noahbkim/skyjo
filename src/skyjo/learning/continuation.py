@@ -89,7 +89,12 @@ def load(
         raise ValueError("Continuation seed must match the parent seed")
     if parent.get("players") != configuration["players"]:
         raise ValueError("Parent player count does not match")
-    if models.resolve(parent["model"]) != models.resolve(configuration["model"]):
+    parent_model = models.resolve(parent["model"])
+    child_model = models.resolve(configuration["model"])
+    # Normalization changes policy semantics but not parameters or Adam moments.
+    parent_model.pop("policy_normalization")
+    child_model.pop("policy_normalization")
+    if parent_model != child_model:
         raise ValueError("Parent model architecture/dimensions do not match")
     if (
         objectives.resolve(parent.get("auxiliary_objectives")).weights.keys()

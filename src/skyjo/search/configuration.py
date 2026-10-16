@@ -33,6 +33,7 @@ class SearchConfig:
     boundary_samples: int = 1
     merge_symmetric_actions: bool = True
     uniform_group_priors: bool = False
+    group_root_noise: bool = True
     dirichlet_alpha: float | None = None
     fpu_mode: str = "parent"
     root_strategy: str = "puct"
@@ -75,6 +76,7 @@ class SearchConfig:
         for name in (
             "merge_symmetric_actions",
             "uniform_group_priors",
+            "group_root_noise",
             "after_state_evaluate_all_children",
             "completed_q_rescale",
         ):

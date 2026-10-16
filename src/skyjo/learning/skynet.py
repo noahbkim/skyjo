@@ -6,6 +6,8 @@ import einops
 import torch
 from torch import nn
 
+from .policy import group_normalized_logits
+
 """
 einops and general dimension notation:
 
@@ -25,7 +27,7 @@ EQUIVARIANT_ARCHITECTURE_NAME = "hierarchical_equivariant_v2"
 
 @dataclasses.dataclass(slots=True)
 class ModelOutput:
-    """Tensor predictions in current-player order; inference owns conversion."""
+    """Current-player predictions; softmax(policy_logits) gives per-action mass."""
 
     value: torch.Tensor
     policy_logits: torch.Tensor
@@ -247,8 +249,12 @@ class EquivariantSkyNet(nn.Module):
         global_state_embedding_dimensions: int = 32,
         num_heads: int = 4,
         auxiliary_objectives: dict[str, float] | None = None,
+        policy_normalization: str = "groups",
     ):
         super().__init__()
+        if policy_normalization not in ("groups", "actions"):
+            raise ValueError("policy_normalization must be groups or actions")
+        self.policy_normalization = policy_normalization
         self.spatial_input_shape = spatial_input_shape
         self.non_spatial_input_shape = non_spatial_input_shape
         self.value_output_shape = value_output_shape
@@ -363,6 +369,8 @@ class EquivariantSkyNet(nn.Module):
         features = self._forward_features(spatial_tensor, non_spatial_tensor)
         value_out = self.value_tail(features.global_state_embedding)
         policy_out = self._forward_policy(features, mask)
+        if self.policy_normalization == "groups":
+            policy_out = group_normalized_logits(policy_out, spatial_tensor, mask)
         return ModelOutput(
             value_out,
             policy_out,

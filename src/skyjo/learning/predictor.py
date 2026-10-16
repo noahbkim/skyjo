@@ -7,6 +7,7 @@ import torch
 
 from skyjo.engine import game as sj
 from skyjo.search.evaluator import Evaluator, Prediction
+from skyjo.search.symmetry import ActionGroups
 from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
 
 from . import batches, skynet
@@ -45,10 +46,16 @@ class LocalPredictor:
 
 
 class PolicyPlayer:
-    """Choose the highest-probability legal action without search."""
+    """Greedy policy play in the model's action or group probability space."""
 
-    def __init__(self, evaluator: Evaluator):
+    def __init__(self, evaluator: Evaluator, *, group_actions: bool | None = None):
         self.evaluator = evaluator
+        if group_actions is None:
+            group_actions = (
+                isinstance(evaluator, LocalPredictor)
+                and evaluator.model.policy_normalization == "groups"
+            )
+        self.group_actions = group_actions
 
     def get_action_probabilities(self, state: sj.Skyjo) -> np.ndarray:
         return self.get_decision(state, diagnostics=False).probabilities
@@ -57,12 +64,18 @@ class PolicyPlayer:
         prediction = self.evaluator.evaluate([state])[0]
         legal = np.flatnonzero(sj.actions(state))
         probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
-        probabilities[legal[prediction.policy[legal].argmax()]] = 1
+        groups = ActionGroups.from_state(state, merge=self.group_actions)
+        priors = groups.aggregate(prediction.policy)
+        choices = np.asarray(groups.representatives)
+        probabilities[choices[priors[choices].argmax()]] = 1
         return PlayerDecision(
             probabilities,
             (
                 DiagnosticSection(
                     "Model policy (greedy selection)",
+                    text="Selection maximizes total probability per symmetry group."
+                    if self.group_actions
+                    else "Selection maximizes individual action probability.",
                     columns=("Action", "Model prior", "Selection probability"),
                     rows=tuple(
                         (

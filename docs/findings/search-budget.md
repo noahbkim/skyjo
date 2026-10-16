@@ -46,6 +46,17 @@ evaluation fixed; report win credit, score margin, paired uncertainty, and work.
 No faceoffs or training were run here. Two selected tactical positions and four
 seeds cannot establish general playing strength or model accuracy.
 
+**Implemented next step:** new training defaults to group-normalized learned
+policies and group-level Dirichlet noise. Symmetric logits are averaged before
+normalization, and group mass is split across the existing action interface.
+The same normalization is used in the training loss, inference, search priors,
+and policy-only selection; visit-target splitting already preserves group mass.
+`model.policy_normalization = "actions"` and `search.group_root_noise = false`
+retain the previous behavior. Old checkpoints load with their original policy
+semantics, so the measurements above remain a legacy-checkpoint baseline. This
+implementation has not yet been evaluated by training or playing-strength runs.
+See [configuration and continuation rules](../experiments.md#shared-and-local-configurations).
+
 [Reproduction and faceoff commands](../search-benchmarks.md#clearing-card-alphazero-baseline).
 [Compact evidence](evidence/clearing-alphazero.json) retains all 48 measured trials,
 per-seed thresholds, hashes, plans, model probes, and local run references.
