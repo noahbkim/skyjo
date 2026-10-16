@@ -68,6 +68,27 @@ supports claims only about its completed measurements.
 
 ## Continuation and recording
 
+Optional randomized self-play caps use `selfplay.fast_search_iterations` and
+`selfplay.full_search_probability` together. `search.iterations` remains the full
+cap. A per-game independent RNG selects each decision's cap. Fast searches disable
+root noise, act greedily, and contribute no training rows; full searches keep the
+configured exploration and targets. All played decisions remain in game histories,
+and retained rows receive the actual final game outcome and round auxiliaries.
+Replay ratio counts retained rows, not all played moves. Metrics distinguish
+`generation/positions`, `generation/training_positions`, and `generation/fast_positions`.
+Defaults disable randomization. Both new settings must be supplied to enable it.
+
+`run_randomized_budget_experiment.py` is an experimental two-arm continuation pilot:
+group-aware fixed32 versus 75% fast16 / 25% full128. It runs sequentially under soft
+time caps, then evaluates all three pairs including a historical control, plus
+each endpoint against its own initial normalization. The historical checkpoint is
+selected by elapsed time before faceoffs. Its code revision, replay sampler, and
+training cadence differ, so the historical contrast does not isolate grouping.
+The two new arms share all settings except the randomized-cap method. Parent119's
+legacy metadata is adapted into a separate file; missing replay-sampler state is
+explicitly initialized identically for both arms, never silently treated as exact
+resume. The pilot preserves original checkpoint and replay artifacts.
+
 Offline exact resume requires matching learning/data settings; `--steps` is the
 cumulative update target. Online continuation creates a new run from a parent
 checkpoint and replay, permits compatible setting changes, and counts additional

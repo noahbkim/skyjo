@@ -95,9 +95,21 @@ its score-margin interval was −1.22 to +15.10 points. Different seeds and uneq
 compute preclude a direct 32-versus-128 comparison; neither establishes a clear
 strength gain.
 
-**Deferred training question:** compare matched-start training under explicit budgets,
-tracking fresh games and optimizer work. Evaluate prespecified checkpoints with
-matched inference; one policy/search screen cannot explain a training plateau.
+**Next training experiment (October 16):** two matched-start continuations from119,
+group-aware fixed32 and randomized fast16/full128 (25% full searches, only those
+positions retained). Budget each arm at 3000 seconds with 256 games per iteration;
+finish the active iteration before saving. Keep inherited replay, Adam state,
+auxiliaries, replay ratio4, LR0.001 and mixture backups. Run six paired-seat64-game
+comparisons at common search32: all three endpoint pairs including the nearest-time
+historical LR0.001 control, plus each endpoint against its own initial policy mode.
+The historical grouping contrast is exploratory: code, sampling and update cadence
+differ. The two new arms isolate the randomized method as a package (caps, fast-move
+exploration and sample selection), not any one component. Inherited old targets
+can dilute the short experiment. No strength results are available yet.
+
+A 12-game-per-arm, six-worker preflight took19.27s for fixed32 (3186 retained
+positions) and35.71s for randomized (4518 played,1120 retained). This is a runtime
+screen only; different game lengths and tiny samples prevent a strength conclusion.
 
 [Evidence](evidence/search-budget.json): settings, checkpoints, run IDs,
 provenance and paired-bootstrap summaries for training and inference comparisons.

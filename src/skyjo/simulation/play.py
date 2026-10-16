@@ -33,6 +33,7 @@ class RoundHistoryEntry(typing.NamedTuple):
     action: sj.SkyjoAction | None
     action_probabilities: ActionProbabilities | None
     training_policy: ActionProbabilities | None = None
+    trainable: bool = True
 
 
 type RoundHistory = list[RoundHistoryEntry]
@@ -112,7 +113,11 @@ def play_round(
         assert sj.actions(game_state)[action]
         game_history.append(
             RoundHistoryEntry(
-                game_state, action, action_probabilities, decision.training_policy
+                game_state,
+                action,
+                action_probabilities,
+                decision.training_policy,
+                decision.trainable,
             )
         )
         game_state = sj.apply_action(game_state, action, rng=environment_rng)

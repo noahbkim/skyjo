@@ -22,6 +22,8 @@ class GenerationConfig:
     games_per_iteration: int
     games_per_task: int
     start_state: str
+    fast_search_iterations: int = 0
+    full_search_probability: float = 1.0
 
 
 @dataclass(frozen=True)

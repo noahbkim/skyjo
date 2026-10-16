@@ -46,6 +46,8 @@ DEFAULTS = {
         "games_per_iteration": 1024,
         "games_per_task": 8,
         "start_state": "standard",
+        "fast_search_iterations": 0,
+        "full_search_probability": 1.0,
     },
     "search": {
         **SEARCH_DEFAULTS,
@@ -262,6 +264,19 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
         raise ValueError("Action temperature cannot be negative")
     if config["selfplay"]["start_state"] not in ("standard", "potential_clear"):
         raise ValueError("Unknown selfplay.start_state")
+    generation = config["selfplay"]
+    fast = generation["fast_search_iterations"]
+    probability = generation["full_search_probability"]
+    if not 0 < probability <= 1 or fast < 0:
+        raise ValueError(
+            "Self-play requires 0 < full_search_probability <= 1 and nonnegative fast_search_iterations"
+        )
+    if (probability < 1) != (fast > 0):
+        raise ValueError(
+            "Randomized budgets require both fast_search_iterations and full_search_probability < 1"
+        )
+    if fast and fast >= search["iterations"]:
+        raise ValueError("Fast search must use fewer iterations than full search")
     if (
         config["selfplay"]["start_state"] == "potential_clear"
         and config["players"] != 2

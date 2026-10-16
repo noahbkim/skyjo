@@ -43,12 +43,14 @@ def _assert_same_games(expected, actual):
             for a, b in zip(left_round.history, right_round.history, strict=True):
                 assert sj.hash_skyjo(a.state) == sj.hash_skyjo(b.state)
                 assert a.action == b.action
+                assert a.trainable == b.trainable
                 np.testing.assert_array_equal(
                     a.action_probabilities, b.action_probabilities
                 )
 
 
-def test_real_games_are_independent_of_task_grouping_and_worker_count():
+@pytest.mark.parametrize("random_caps", [False, True])
+def test_real_games_are_independent_of_task_grouping_and_worker_count(random_caps):
     torch.set_num_threads(1)
     torch.manual_seed(1)
     model_settings = {
@@ -61,10 +63,14 @@ def test_real_games_are_independent_of_task_grouping_and_worker_count():
         "model_settings": model_settings,
         "model_state_dict": model.state_dict(),
         "model_player_config": ContestantConfig(
-            iterations=1, temperature=1, search=SearchConfig(dirichlet_epsilon=0.25)
+            iterations=2 if random_caps else 1,
+            temperature=1,
+            search=SearchConfig(dirichlet_epsilon=0.25),
         ),
         "players": 2,
         "run_seed": 31,
+        "fast_search_iterations": 1 if random_caps else 0,
+        "full_search_probability": 0.25 if random_caps else 1.0,
     }
     expected = generation.play_games_locally(
         **common, number_of_games=2, first_game_index=20

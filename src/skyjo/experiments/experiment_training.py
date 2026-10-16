@@ -81,6 +81,8 @@ class PreparedGames:
     provenance: list[tuple[int, int]]
     replay_before: tuple[int, int]
     seconds: float
+    training_positions: int = 0
+    training_games: int = 0
 
     @property
     def positions(self) -> int:
@@ -131,8 +133,10 @@ class RecipeRecording:
         mean_losses = {
             key: float(np.mean([d[key] for d in losses if key in d])) for key in keys
         }
-        ratio = result.sampled_positions / new_positions
-        passes = result.sampled_positions / replay_positions
+        ratio = result.sampled_positions / new_positions if new_positions else 0.0
+        passes = (
+            result.sampled_positions / replay_positions if replay_positions else 0.0
+        )
         rate = result.sampled_positions / result.seconds
         self.event(
             "training",
@@ -164,7 +168,7 @@ class RecipeRecording:
             ratio,
             passes,
             rate,
-            mean_losses["total_loss"],
+            mean_losses.get("total_loss", float("nan")),
         )
         logger.debug(
             "[TRAIN] Mean losses: %s",
@@ -195,6 +199,11 @@ class RecipeRecording:
             metrics={
                 "generation/games": len(games),
                 "generation/positions": new_positions,
+                "generation/training_positions": prepared.training_positions,
+                "generation/fast_positions": new_positions
+                - prepared.training_positions,
+                "generation/training_fraction": prepared.training_positions
+                / new_positions,
                 "generation/games_per_second": len(games) / timings["generation"],
                 "generation/decisions_per_second": new_positions
                 / timings["generation"],
@@ -202,10 +211,10 @@ class RecipeRecording:
                 "replay/games": replay.game_count,
                 "replay/positions": len(replay),
                 "replay/evicted_games": max(
-                    0, before[0] + len(games) - replay.game_count
+                    0, before[0] + prepared.training_games - replay.game_count
                 ),
                 "replay/evicted_positions": max(
-                    0, before[1] + new_positions - len(replay)
+                    0, before[1] + prepared.training_positions - len(replay)
                 ),
                 **{f"time/{key}_seconds": value for key, value in timings.items()},
                 **(budget_metrics or {}),

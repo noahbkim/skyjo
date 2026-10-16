@@ -12,6 +12,7 @@ import torch
 from skyjo.engine import game as sj
 from skyjo.experiments import contestants, experiment_training
 from skyjo.experiments.contestants import ContestantConfig
+from skyjo.experiments.playout_budget import BUDGET_SEED_STREAM, RandomizedBudgetPlayer
 from skyjo.learning import models
 from skyjo.simulation import play
 from skyjo.simulation.jobs import GameRandomStreams, GeneratedGame, derive_game_seed
@@ -36,6 +37,8 @@ def play_games_locally(
     first_game_index: int,
     start_state_generator: StartStateGenerator | None = None,
     auxiliary_objectives=None,
+    fast_search_iterations: int = 0,
+    full_search_probability: float = 1.0,
 ) -> list[GeneratedGame]:
     model = models.build(
         model_settings,
@@ -50,6 +53,16 @@ def play_games_locally(
         seed = derive_game_seed(run_seed, index)
         streams = GameRandomStreams.from_seed(seed)
         agent = prepared.player(streams.search)
+        if fast_search_iterations:
+            agent = RandomizedBudgetPlayer(
+                prepared,
+                fast_iterations=fast_search_iterations,
+                full_probability=full_search_probability,
+                search_rng=streams.search,
+                budget_rng=np.random.default_rng(
+                    derive_game_seed(run_seed, index, BUDGET_SEED_STREAM)
+                ),
+            )
         start = (
             None
             if start_state_generator is None
