@@ -1,0 +1,1400 @@
+{
+  "topic": "clearing-alphazero",
+  "date": "2026-10-16",
+  "fixture": "configs/benchmarks/search_positions.json",
+  "fixture_sha256": "f23720809862131d9391d9d85253422498d5d80e1219464e98f6cc1403876046",
+  "checkpoint_sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f",
+  "baseline_definition": "Named alphazero preset: PUCT, mean_return, zero FPU, visit selection, sampled chance, one boundary sample, grouped symmetry, no noise.",
+  "uniform_definition": "Equal probability per symmetry group at every decision node.",
+  "q_definition": "Highest estimated acting-seat Q among evaluated root actions; allocation and valuation unchanged.",
+  "stopping_rule": "Four paired seeds through 8192; exploratory extension of learned-prior methods to 32768 after visit selection failed giveaway_12 at 8192.",
+  "interpretation": "Stable-from is one plus the last violating iteration, conditional on avoiding at the horizon. Null is censored, not zero. Uniform methods were tested only through 8192. These are two selected tactics, not playing-strength evidence.",
+  "verification": {
+    "same_search_statistics_for_visit_and_q_pairs": true,
+    "extended_prefixes_match_8192_runs": true,
+    "checkpoint_hash_verified": true,
+    "focused_tests_passed": 45
+  },
+  "sources": [
+    {
+      "run": ".runs/clearing-alphazero-8192",
+      "manifest_sha256": "867b0d269f5ad9e3c766d004811dc9c4ca42f30128d6cb068ab9d401b5cbee4b",
+      "trials_sha256": "786a1a2510f0abab726ea92719c733cab7d6903b13a2808bbd7619798cc98a66",
+      "git": {
+        "commit": "16a6ec7d87850318ef9d4b8a6ed46cb0e452f710",
+        "dirty": true,
+        "allow_dirty": true
+      },
+      "checkpoint": {
+        "path": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+      },
+      "plan": {
+        "version": 1,
+        "iterations": [
+          8192
+        ],
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "methods": [
+          {
+            "name": "alphazero",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-q",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "action_strategy": "value",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-uniform",
+            "search": {
+              "uniform_group_priors": true,
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-uniform-q",
+            "search": {
+              "uniform_group_priors": true,
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "action_strategy": "value",
+              "target_strategy": "visits"
+            }
+          }
+        ]
+      },
+      "trials": 32
+    },
+    {
+      "run": ".runs/clearing-extended-0",
+      "manifest_sha256": "afa170eff3cb202624bdf264ade9473747bac7b7fc52641e39936ee83c0cca71",
+      "trials_sha256": "cbee964d10e727489972b32ffe2944d7c6270cca01bfec789094a9961a902256",
+      "git": {
+        "commit": "d9f401006be5ab007d81420a95c8e8087ec91111",
+        "dirty": false,
+        "allow_dirty": false
+      },
+      "checkpoint": {
+        "path": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+      },
+      "plan": {
+        "version": 1,
+        "iterations": [
+          32768
+        ],
+        "seeds": [
+          0
+        ],
+        "methods": [
+          {
+            "name": "alphazero",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-q",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "action_strategy": "value",
+              "target_strategy": "visits"
+            }
+          }
+        ]
+      },
+      "trials": 4
+    },
+    {
+      "run": ".runs/clearing-extended-1",
+      "manifest_sha256": "ef4363e6bf770fba2f2bf59fdb1d1634c4f0cf34c6193a0d453e579b123d20c2",
+      "trials_sha256": "71c061a3c9b429c7719e54290046d82b4f60b478457c1268df172bcf07b3ccb1",
+      "git": {
+        "commit": "d9f401006be5ab007d81420a95c8e8087ec91111",
+        "dirty": false,
+        "allow_dirty": false
+      },
+      "checkpoint": {
+        "path": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+      },
+      "plan": {
+        "version": 1,
+        "iterations": [
+          32768
+        ],
+        "seeds": [
+          1
+        ],
+        "methods": [
+          {
+            "name": "alphazero",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-q",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "action_strategy": "value",
+              "target_strategy": "visits"
+            }
+          }
+        ]
+      },
+      "trials": 4
+    },
+    {
+      "run": ".runs/clearing-extended-2",
+      "manifest_sha256": "a295cc62a3ee83003565d9ba9e6c8c2a593e306561329cea2a06319fdcf2dfd2",
+      "trials_sha256": "e08e07d6d72c09ad98563329e4c0ee49158931ee2cf0e25ef72b2ddc902f6cca",
+      "git": {
+        "commit": "d9f401006be5ab007d81420a95c8e8087ec91111",
+        "dirty": false,
+        "allow_dirty": false
+      },
+      "checkpoint": {
+        "path": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+      },
+      "plan": {
+        "version": 1,
+        "iterations": [
+          32768
+        ],
+        "seeds": [
+          2
+        ],
+        "methods": [
+          {
+            "name": "alphazero",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-q",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "action_strategy": "value",
+              "target_strategy": "visits"
+            }
+          }
+        ]
+      },
+      "trials": 4
+    },
+    {
+      "run": ".runs/clearing-extended-3",
+      "manifest_sha256": "caa8280ebcfbe08b02ca91427e8240c2b417622e02e869eab4cd1d1e0a9fca9e",
+      "trials_sha256": "6fa441b86261b1ac8fd17ef548cbbe5ea2b50aa50649124b16341ddb24b117d5",
+      "git": {
+        "commit": "d9f401006be5ab007d81420a95c8e8087ec91111",
+        "dirty": false,
+        "allow_dirty": false
+      },
+      "checkpoint": {
+        "path": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+        "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+      },
+      "plan": {
+        "version": 1,
+        "iterations": [
+          32768
+        ],
+        "seeds": [
+          3
+        ],
+        "methods": [
+          {
+            "name": "alphazero",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "target_strategy": "visits"
+            }
+          },
+          {
+            "name": "alphazero-q",
+            "search": {
+              "fpu_mode": "zero",
+              "valuation": "mean_return",
+              "action_strategy": "value",
+              "target_strategy": "visits"
+            }
+          }
+        ]
+      },
+      "trials": 4
+    }
+  ],
+  "summary": [
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 0,
+      "trials": 4,
+      "stable_from_range": null,
+      "median_stable_from": null,
+      "witness_discovery_range": [
+        3735,
+        4280
+      ]
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "horizon": 32768,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        11305,
+        13196
+      ],
+      "median_stable_from": 11749.5,
+      "witness_discovery_range": [
+        3735,
+        4280
+      ]
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        6211,
+        6687
+      ],
+      "median_stable_from": 6491.5,
+      "witness_discovery_range": [
+        3735,
+        4280
+      ]
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "horizon": 32768,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        6211,
+        6687
+      ],
+      "median_stable_from": 6491.5,
+      "witness_discovery_range": [
+        3735,
+        4280
+      ]
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        1,
+        188
+      ],
+      "median_stable_from": 1.0,
+      "witness_discovery_range": [
+        126,
+        503
+      ]
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform-q",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        39,
+        181
+      ],
+      "median_stable_from": 50.5,
+      "witness_discovery_range": [
+        126,
+        503
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        4514,
+        5171
+      ],
+      "median_stable_from": 4834.0,
+      "witness_discovery_range": [
+        620,
+        644
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "horizon": 32768,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        4514,
+        5171
+      ],
+      "median_stable_from": 4834.0,
+      "witness_discovery_range": [
+        620,
+        644
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        1275,
+        1467
+      ],
+      "median_stable_from": 1448.5,
+      "witness_discovery_range": [
+        620,
+        644
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "horizon": 32768,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        1275,
+        1467
+      ],
+      "median_stable_from": 1448.5,
+      "witness_discovery_range": [
+        620,
+        644
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        873,
+        1260
+      ],
+      "median_stable_from": 1070.0,
+      "witness_discovery_range": [
+        107,
+        213
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform-q",
+      "horizon": 8192,
+      "seeds": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "avoiding_at_horizon": 4,
+      "trials": 4,
+      "stable_from_range": [
+        1083,
+        1360
+      ],
+      "median_stable_from": 1181.0,
+      "witness_discovery_range": [
+        107,
+        213
+      ]
+    }
+  ],
+  "trials": [
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 27,
+      "accepted": false,
+      "first_accepted_iteration": null,
+      "stable_accepted_from": null,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 236,
+      "witness_first_evaluated_iteration": 4280,
+      "witness_first_visited_iteration": 4280
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 8,
+      "stable_accepted_from": 6211,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 236,
+      "witness_first_evaluated_iteration": 4280,
+      "witness_first_visited_iteration": 4280
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 5,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 30,
+      "witness_first_evaluated_iteration": 353,
+      "witness_first_visited_iteration": 353
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 17,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 39,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 30,
+      "witness_first_evaluated_iteration": 353,
+      "witness_first_visited_iteration": 353
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 27,
+      "accepted": false,
+      "first_accepted_iteration": null,
+      "stable_accepted_from": null,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 285,
+      "witness_first_evaluated_iteration": 3757,
+      "witness_first_visited_iteration": 3757
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 9,
+      "stable_accepted_from": 6488,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 285,
+      "witness_first_evaluated_iteration": 3757,
+      "witness_first_visited_iteration": 3757
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 5,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8191,
+      "boundary_samples": 47,
+      "witness_first_evaluated_iteration": 311,
+      "witness_first_visited_iteration": 311
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 5,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 47,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8191,
+      "boundary_samples": 47,
+      "witness_first_evaluated_iteration": 311,
+      "witness_first_visited_iteration": 311
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 27,
+      "accepted": false,
+      "first_accepted_iteration": null,
+      "stable_accepted_from": null,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 253,
+      "witness_first_evaluated_iteration": 4141,
+      "witness_first_visited_iteration": 4141
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 18,
+      "accepted": true,
+      "first_accepted_iteration": 9,
+      "stable_accepted_from": 6495,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 253,
+      "witness_first_evaluated_iteration": 4141,
+      "witness_first_visited_iteration": 4141
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 5,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8192,
+      "boundary_samples": 42,
+      "witness_first_evaluated_iteration": 503,
+      "witness_first_visited_iteration": 503
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 5,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 54,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8192,
+      "boundary_samples": 42,
+      "witness_first_evaluated_iteration": 503,
+      "witness_first_visited_iteration": 503
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 27,
+      "accepted": false,
+      "first_accepted_iteration": null,
+      "stable_accepted_from": null,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 263,
+      "witness_first_evaluated_iteration": 3735,
+      "witness_first_visited_iteration": 3735
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 9,
+      "stable_accepted_from": 6687,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 263,
+      "witness_first_evaluated_iteration": 3735,
+      "witness_first_visited_iteration": 3735
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 17,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 188,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8192,
+      "boundary_samples": 39,
+      "witness_first_evaluated_iteration": 126,
+      "witness_first_visited_iteration": 126
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 17,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 181,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8192,
+      "boundary_samples": 39,
+      "witness_first_evaluated_iteration": 126,
+      "witness_first_visited_iteration": 126
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 4896,
+      "stable_accepted_from": 4896,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1148,
+      "witness_first_evaluated_iteration": 638,
+      "witness_first_visited_iteration": 638
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 51,
+      "stable_accepted_from": 1451,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1148,
+      "witness_first_evaluated_iteration": 638,
+      "witness_first_visited_iteration": 638
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1053,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 478,
+      "witness_first_evaluated_iteration": 107,
+      "witness_first_visited_iteration": 107
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 0,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1360,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 478,
+      "witness_first_evaluated_iteration": 107,
+      "witness_first_visited_iteration": 107
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 5171,
+      "stable_accepted_from": 5171,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1096,
+      "witness_first_evaluated_iteration": 620,
+      "witness_first_visited_iteration": 620
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 52,
+      "stable_accepted_from": 1467,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1096,
+      "witness_first_evaluated_iteration": 620,
+      "witness_first_visited_iteration": 620
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 26,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1260,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1863,
+      "witness_first_evaluated_iteration": 174,
+      "witness_first_visited_iteration": 174
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 1,
+      "action": 26,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1258,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1863,
+      "witness_first_evaluated_iteration": 174,
+      "witness_first_visited_iteration": 174
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 4323,
+      "stable_accepted_from": 4514,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1021,
+      "witness_first_evaluated_iteration": 632,
+      "witness_first_visited_iteration": 632
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 52,
+      "stable_accepted_from": 1275,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1021,
+      "witness_first_evaluated_iteration": 632,
+      "witness_first_visited_iteration": 632
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 26,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 873,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 2670,
+      "witness_first_evaluated_iteration": 189,
+      "witness_first_visited_iteration": 189
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 2,
+      "action": 26,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1104,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 2670,
+      "witness_first_evaluated_iteration": 189,
+      "witness_first_visited_iteration": 189
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 4772,
+      "stable_accepted_from": 4772,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1047,
+      "witness_first_evaluated_iteration": 644,
+      "witness_first_visited_iteration": 644
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 1446,
+      "stable_accepted_from": 1446,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 1047,
+      "witness_first_evaluated_iteration": 644,
+      "witness_first_visited_iteration": 644
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 26,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1087,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 2448,
+      "witness_first_evaluated_iteration": 213,
+      "witness_first_visited_iteration": 213
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-uniform-q",
+      "iterations": 8192,
+      "seed": 3,
+      "action": 26,
+      "accepted": true,
+      "first_accepted_iteration": 1,
+      "stable_accepted_from": 1083,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 8193,
+      "boundary_samples": 2448,
+      "witness_first_evaluated_iteration": 213,
+      "witness_first_visited_iteration": 213
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 0,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 11599,
+      "stable_accepted_from": 11599,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 956,
+      "witness_first_evaluated_iteration": 4280,
+      "witness_first_visited_iteration": 4280
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 0,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 8,
+      "stable_accepted_from": 6211,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 956,
+      "witness_first_evaluated_iteration": 4280,
+      "witness_first_visited_iteration": 4280
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 0,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 4896,
+      "stable_accepted_from": 4896,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 3063,
+      "witness_first_evaluated_iteration": 638,
+      "witness_first_visited_iteration": 638
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 0,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 51,
+      "stable_accepted_from": 1451,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 3063,
+      "witness_first_evaluated_iteration": 638,
+      "witness_first_visited_iteration": 638
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 1,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 11305,
+      "stable_accepted_from": 11305,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 1041,
+      "witness_first_evaluated_iteration": 3757,
+      "witness_first_visited_iteration": 3757
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 1,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 9,
+      "stable_accepted_from": 6488,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 1041,
+      "witness_first_evaluated_iteration": 3757,
+      "witness_first_visited_iteration": 3757
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 1,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 5171,
+      "stable_accepted_from": 5171,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 3040,
+      "witness_first_evaluated_iteration": 620,
+      "witness_first_visited_iteration": 620
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 1,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 52,
+      "stable_accepted_from": 1467,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 3040,
+      "witness_first_evaluated_iteration": 620,
+      "witness_first_visited_iteration": 620
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 2,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 11900,
+      "stable_accepted_from": 11900,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32768,
+      "boundary_samples": 958,
+      "witness_first_evaluated_iteration": 4141,
+      "witness_first_visited_iteration": 4141
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 2,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 9,
+      "stable_accepted_from": 6495,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32768,
+      "boundary_samples": 958,
+      "witness_first_evaluated_iteration": 4141,
+      "witness_first_visited_iteration": 4141
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 2,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 4323,
+      "stable_accepted_from": 4514,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 2963,
+      "witness_first_evaluated_iteration": 632,
+      "witness_first_visited_iteration": 632
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 2,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 52,
+      "stable_accepted_from": 1275,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 2963,
+      "witness_first_evaluated_iteration": 632,
+      "witness_first_visited_iteration": 632
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 3,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 13196,
+      "stable_accepted_from": 13196,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 1000,
+      "witness_first_evaluated_iteration": 3735,
+      "witness_first_visited_iteration": 3735
+    },
+    {
+      "case": "giveaway_12",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 3,
+      "action": 23,
+      "accepted": true,
+      "first_accepted_iteration": 9,
+      "stable_accepted_from": 6687,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 1000,
+      "witness_first_evaluated_iteration": 3735,
+      "witness_first_visited_iteration": 3735
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero",
+      "iterations": 32768,
+      "seed": 3,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 4772,
+      "stable_accepted_from": 4772,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 3012,
+      "witness_first_evaluated_iteration": 644,
+      "witness_first_visited_iteration": 644
+    },
+    {
+      "case": "giveaway_9",
+      "method": "alphazero-q",
+      "iterations": 32768,
+      "seed": 3,
+      "action": 21,
+      "accepted": true,
+      "first_accepted_iteration": 1446,
+      "stable_accepted_from": 1446,
+      "effective_merge_symmetric_actions": true,
+      "evaluator_states": 32769,
+      "boundary_samples": 3012,
+      "witness_first_evaluated_iteration": 644,
+      "witness_first_visited_iteration": 644
+    }
+  ],
+  "model_diagnostics": [
+    {
+      "case": "giveaway_12",
+      "action": 27,
+      "accepted": false,
+      "policy": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.03909661993384361,
+        0.0,
+        0.0,
+        0.0,
+        0.03909661993384361,
+        0.0,
+        0.0,
+        0.0,
+        0.03909661993384361,
+        0.0,
+        0.0,
+        0.02213299833238125,
+        0.03934821859002113,
+        0.06836287677288055,
+        0.020408794283866882,
+        0.024713099002838135,
+        0.03934821859002113,
+        0.0243401899933815,
+        0.13193008303642273,
+        0.024713099002838135,
+        0.03934821859002113,
+        0.1538171023130417,
+        0.29424721002578735
+      ],
+      "value": [
+        0.4826558828353882,
+        0.5173441171646118
+      ],
+      "witnesses": [
+        {
+          "name": "give-take-clear",
+          "actions": [
+            27,
+            3,
+            27
+          ],
+          "actors": [
+            1,
+            0,
+            0
+          ],
+          "values": [
+            [
+              0.4826558828353882,
+              0.517344057559967
+            ],
+            [
+              0.4720114767551422,
+              0.5279885530471802
+            ],
+            [
+              0.4661591351032257,
+              0.5338408350944519
+            ]
+          ],
+          "action_priors": [
+            0.29424721002578735,
+            0.3653877377510071,
+            0.016545765101909637
+          ],
+          "after_value": [
+            0.63704913854599,
+            0.36295086145401
+          ],
+          "outcomes": 15
+        }
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "action": 18,
+      "accepted": false,
+      "policy": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.026333902031183243,
+        0.0,
+        0.019997945055365562,
+        0.01898142322897911,
+        0.5583570599555969,
+        0.019046906381845474,
+        0.022671503946185112,
+        0.09258128702640533,
+        0.02229984477162361,
+        0.025039682164788246,
+        0.03401962295174599,
+        0.04828299954533577,
+        0.06471576541662216,
+        0.04767214506864548
+      ],
+      "value": [
+        0.4192535877227783,
+        0.5807464122772217
+      ],
+      "witnesses": [
+        {
+          "name": "give-take-clear",
+          "actions": [
+            18,
+            3,
+            27
+          ],
+          "actors": [
+            1,
+            0,
+            0
+          ],
+          "values": [
+            [
+              0.41925355792045593,
+              0.5807464122772217
+            ],
+            [
+              0.4215644299983978,
+              0.5784355998039246
+            ],
+            [
+              0.422982782125473,
+              0.5770173072814941
+            ]
+          ],
+          "action_priors": [
+            0.5583570003509521,
+            0.31115996837615967,
+            0.033299338072538376
+          ],
+          "after_value": [
+            0.5630691647529602,
+            0.4369308054447174
+          ],
+          "outcomes": 15
+        }
+      ]
+    }
+  ]
+}

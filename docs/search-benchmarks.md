@@ -106,12 +106,12 @@ backup / enumerated chance / ten boundary samples configuration.
 Run the existing per-iteration diagnostic runner on the two giveaway positions:
 
 ```sh
-mkdir -p .runs/clearing-suite
-cp data/search-positions/clear-9-giveaway.json .runs/clearing-suite/
-cp data/search-positions/clear-12-giveaway.json .runs/clearing-suite/
+mkdir -p .runs/clearing-suite-from-exports
+cp data/search-positions/clear-9-giveaway.json .runs/clearing-suite-from-exports/
+cp data/search-positions/clear-12-giveaway.json .runs/clearing-suite-from-exports/
 uv run python run_search_diagnostics.py run \
   --checkpoint "$SEARCH_CHECKPOINT" \
-  --suite .runs/clearing-suite \
+  --suite .runs/clearing-suite-from-exports \
   --plan configs/benchmarks/clearing-alphazero.toml \
   --output .runs/clearing-alphazero-8192
 ```
