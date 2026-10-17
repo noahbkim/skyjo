@@ -169,13 +169,31 @@ Avoidance labels are tactical hypotheses, not oracle values, and two positions
 cannot establish broader strength. [Evidence](evidence/overnight-group256-giveaways.json)
 preserves checkpoint/source hashes, raw outcomes, neural probes and summaries.
 
-Queued faceoffs use 256 games each (128 paired environment seeds), eight workers,
+Completed faceoffs used 256 games each (128 paired environment seeds), eight workers,
 new model search256 versus opponent search32. Opponents are the actual
 group-normalized starting snapshot and historical iteration 44, the nearest saved
 checkpoint to matched additional wall time after 19: 12h28m versus 12h16m. Historical
 training used eight workers through 40 then four; code, replay and optimizer
 history also differ. These compare model-plus-search setups, not isolated weight
 quality or equal CPU work. Outputs: `.runs/overnight-group256-evaluation/`.
+
+The new model scored 54.10% win credit against historical44 (paired-seed bootstrap
+95% interval 48.05–59.96%), with a control-minus-new score margin of −5.47 points
+(−11.36 to +0.37). Against its group-aware initial19 snapshot it scored 78.13%
+(72.66–83.40%) and +23.77 points (+17.62 to +29.71). Thus the requested setup
+clearly beats its start but has not established better progress per hour than
+historical44, despite using eight times as many search iterations at evaluation.
+[Faceoff evidence](evidence/overnight-group256-faceoffs.json) retains the paired
+outcomes and checkpoint/settings provenance.
+
+Next experiment: 1,024 fresh first-round games (512 paired deals, seats swapped),
+historical44/search32 versus trained/search256, eight workers and one thread each.
+`run_checkpoint_comparison.py --first-round` stops at the first round boundary
+from zero cumulative scores; it retains normal scoring, including doubling, and
+leaves search's full-game value objective unchanged. Positive control-minus-new
+round score favors the new model. This measures opening-round performance without
+later-round score contexts or differing numbers of rounds. Outputs:
+`.runs/overnight-group256-evaluation/first-round/`.
 
 ## Earlier inference and training evidence
 
