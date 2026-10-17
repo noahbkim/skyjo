@@ -17,6 +17,7 @@ import platform
 import pstats
 import resource
 import shutil
+import statistics
 import subprocess
 import time
 import tracemalloc
@@ -273,6 +274,64 @@ def searches(output, inputs, variants, budgets, sweeps, seed, limit):
                     f"search {variant} budget={budget} sweep={sweep}: {time.perf_counter() - block_started:.2f}s including checks",
                     flush=True,
                 )
+    summarize_searches(output)
+
+
+def summarize_searches(output):
+    """Summarize completed paired blocks; also usable on an existing run folder."""
+    rows = [
+        json.loads(line)
+        for line in (output / "searches.jsonl").read_text().splitlines()
+    ]
+    groups = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+    case_sets = defaultdict(set)
+    signatures = {}
+    for row in rows:
+        identity = row["budget"], row["case"]
+        if identity in signatures and signatures[identity] != row["result_sha256"]:
+            raise ValueError("Cannot summarize mismatched search results")
+        signatures[identity] = row["result_sha256"]
+        case_sets[row["budget"], row["variant"], row["sweep"]].add(row["case"])
+        for metric in ("seconds", "cpu_seconds"):
+            if metric in row:
+                groups[row["budget"], row["variant"]][row["sweep"]][metric] += row[
+                    metric
+                ]
+    if not rows or any(
+        cases != next(iter(case_sets.values())) for cases in case_sets.values()
+    ):
+        raise ValueError("Cannot summarize empty or incompletely paired search blocks")
+    summaries = []
+    for (budget, variant), sweeps in sorted(groups.items()):
+        summary = {"budget": budget, "variant": variant, "sweeps": len(sweeps)}
+        for metric in next(iter(sweeps.values())):
+            totals = [values[metric] for _, values in sorted(sweeps.items())]
+            summary[metric] = {"totals": totals, "median": statistics.median(totals)}
+            if (budget, "baseline") in groups:
+                ratios = [
+                    groups[budget, "baseline"][sweep][metric] / values[metric]
+                    for sweep, values in sorted(sweeps.items())
+                ]
+                summary[metric]["paired_speedups"] = ratios
+                summary[metric]["median_paired_speedup"] = statistics.median(ratios)
+        summaries.append(summary)
+    save(
+        output / "summary.json",
+        {
+            "trials": len(rows),
+            "exact_parity": True,
+            "results": summaries,
+            "note": "Ratios above one favor the variant; load and short-sweep variation can dominate small effects.",
+        },
+    )
+    for row in summaries:
+        wall = row["seconds"].get("median_paired_speedup", float("nan"))
+        cpu = row.get("cpu_seconds", {}).get("median_paired_speedup", float("nan"))
+        print(
+            f"summary budget={row['budget']} {row['variant']}: wall {wall:.3f}x, CPU {cpu:.3f}x",
+            flush=True,
+        )
+    return summaries
 
 
 def profiles(output, inputs, variants, budget, seed, limit):

@@ -1,6 +1,7 @@
 """Experimental speedups must preserve results and ownership boundaries."""
 
 import dataclasses
+import json
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,7 @@ from test_action_symmetry import board_state, with_slack
 from test_mcts_symmetry import FixedEvaluator
 
 from skyjo.engine import game
-from skyjo.experiments.search_performance import result_digest
+from skyjo.experiments.search_performance import result_digest, summarize_searches
 from skyjo.experiments.search_performance_poc import (
     VARIANTS,
     CachedDecisionNode,
@@ -36,6 +37,28 @@ def small_model(players=2):
         players=players,
         device="cpu",
     )
+
+
+def test_summary_uses_paired_total_work_and_rejects_partial_blocks(tmp_path):
+    rows = [
+        {
+            "variant": variant,
+            "budget": 32,
+            "sweep": 0,
+            "case": case,
+            "seconds": seconds,
+            "result_sha256": str(case),
+        }
+        for variant, times in (("baseline", (1, 9)), ("inference", (1, 4)))
+        for case, seconds in enumerate(times)
+    ]
+    path = tmp_path / "searches.jsonl"
+    path.write_text("\n".join(map(json.dumps, rows)))
+    summary = summarize_searches(tmp_path)
+    assert summary[1]["seconds"]["median_paired_speedup"] == 2
+    path.write_text("\n".join(map(json.dumps, rows[:-1])))
+    with pytest.raises(ValueError, match="incompletely paired"):
+        summarize_searches(tmp_path)
 
 
 @pytest.mark.parametrize("players", [2, 4, 8])

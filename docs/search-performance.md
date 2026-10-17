@@ -43,6 +43,21 @@ the frozen inputs and verify their hashes.
 
 ## Run separately
 
+For a quick rerun against already-frozen inputs:
+
+```sh
+uv run python run_search_performance.py --stage searches --quick \
+  --output .runs/search-performance-quick-01
+```
+
+This uses the first 16 stratified positions, 128 traversals, and two alternating
+sweeps. Expect tens of seconds on the measured host, depending on contention.
+It still checks exact parity. Every new search run writes `summary.json` and
+prints paired wall/CPU speedup ratios, so a rerun needs no manual analysis.
+Use a fresh output directory each time. Omit `--quick` for the full comparison.
+Keep the overnight training running if desired, but compare contended and idle
+runs separately; worker-scaling measurements especially need an idle host.
+
 Each output directory must be new. Run on an idle machine for clean timing;
 avoid running these stages or another benchmark concurrently.
 

@@ -26,11 +26,20 @@ def benchmark(
     positions: int = 128,
     game_count: int = 8,
     seed: int = 20261017,
+    quick: Annotated[
+        bool,
+        typer.Option(help="Short search comparison on the first 16 frozen positions"),
+    ] = False,
 ) -> Path:
     from skyjo.experiments.search_performance import run
 
     if stage == "prepare" and any(p is None for p in (checkpoint, config, replay)):
         raise ValueError("prepare requires checkpoint, config, and replay")
+    if quick:
+        if stage != "searches":
+            raise ValueError("--quick is for the searches stage")
+        positions, sweeps = min(positions, 16), min(sweeps, 2)
+        budget = budget or [128]
     return run(
         stage=stage,
         output=output,
