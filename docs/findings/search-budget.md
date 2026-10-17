@@ -273,6 +273,28 @@ comparisons before changing the self-play recipe. No new training run launched.
 [Diagnostic evidence](evidence/learning-loop-20261017.json) preserves summaries,
 critical tactical traces, and raw-artifact hashes.
 
+**Next isolated comparisons, October 17:** run value-loss weights 0/.1/.3/1,
+with score/doubling auxiliaries off/on (weights1/.1 when enabled), policy weight1,
+and three paired minibatch seeds101/202/303. Every arm starts from generator3,
+with fresh Adam at LR.001, batch256, and checkpoints at0/64/256/1024 updates.
+Sample final-generation replay into256 fitting,64 validation,64 test games,
+capped at16384/8192/8192 positions; exclude all64 games from the earlier diagnostic.
+The source generator3 predates these final-generation targets. Select a step using
+validation policy KL only, including unchanged step0; evaluate the test set only
+after step selection, and report value MSE alongside policy KL. This is one data
+split and three minibatch seeds, not independent self-play training replications.
+
+Then compare visit-based acting against highest estimated Q using the same
+frozen overnight4 checkpoint, PUCT mixture search and256 iterations per player.
+Only `action_strategy` differs. Run256 full games and1024 fresh first-round games,
+paired seats, no root noise, eight workers with one thread each. The first-round
+seeds overlap the full-game starts, so these are complementary metrics rather
+than independent replications. These faceoffs use the existing frozen checkpoint;
+they do not evaluate the loss-sweep fitted copies. All work runs sequentially,
+with the eight-worker limit per active stage. Smoke tests completed four tiny loss
+ablations and both faceoff modes; six focused tests passed. Entrypoint:
+`run_search_followups.py`; plan/status/results: `.runs/search-followups-20261017/`.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
