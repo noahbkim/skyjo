@@ -140,6 +140,43 @@ the initial group-aware snapshot with matched inference settings before claiming
 progress. Recipe: `configs/overnight-group256.toml`; source checkpoint is supplied
 through a local override.
 
+**Overnight result and tactical check, October 17:** training completed four
+1,024-game iterations in 12h16m, generating 1,337,598 fresh targets and 20,902
+optimizer updates. Final checkpoint is `checkpoint_000004.pth` in
+`.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6`.
+
+The two giveaway cases regressed during this run. Below are avoidance counts out
+of four paired search seeds, using identical PUCT mixture backups, c_puct 1,
+parent FPU with zero reduction, sampled chance, boundary 1, no noise, visit-based
+greedy acting and symmetry merging. These settings differ from the earlier
+AlphaZero screen; do not directly compare its thresholds.
+
+| Case / budget | Original19 | Group-normalized19 | Trained group model |
+| --- | ---: | ---: | ---: |
+| Give9 /32 | 0/4 | 0/4 | 0/4 |
+| Give9 /256 | 0/4 | 0/4 | 0/4 |
+| Give9 /2048 | 4/4 | 4/4 | 0/4 |
+| Give12 /32 | 0/4 | 0/4 | 0/4 |
+| Give12 /256 | 2/4 | 4/4 | 1/4 |
+| Give12 /2048 | 4/4 | 4/4 | 4/4 |
+
+For Give9, the new model's median first clearing-witness evaluation was 113.5
+iterations, versus 108 for the group-normalized start and 220 for the original
+start. It still selected the giveaway in all four searches at 2048. Its raw
+giveaway prior fell from 39.1% to 30.9% versus the original start; failure therefore
+is not explained solely by a larger root prior or never exploring the reply.
+Avoidance labels are tactical hypotheses, not oracle values, and two positions
+cannot establish broader strength. [Evidence](evidence/overnight-group256-giveaways.json)
+preserves checkpoint/source hashes, raw outcomes, neural probes and summaries.
+
+Queued faceoffs use 256 games each (128 paired environment seeds), eight workers,
+new model search256 versus opponent search32. Opponents are the actual
+group-normalized starting snapshot and historical iteration 44, the nearest saved
+checkpoint to matched additional wall time after 19: 12h28m versus 12h16m. Historical
+training used eight workers through 40 then four; code, replay and optimizer
+history also differ. These compare model-plus-search setups, not isolated weight
+quality or equal CPU work. Outputs: `.runs/overnight-group256-evaluation/`.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
