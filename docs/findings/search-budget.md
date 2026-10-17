@@ -229,6 +229,50 @@ Eight workers, one thread each; source checkpoints and training replay remain in
 Entrypoint: `run_learning_loop_diagnostic.py`; plan and outputs:
 `.runs/learning-loop-20261017/`. All stages run sequentially in one detached job.
 
+**Diagnostic result:** completed in 11m50s, with 2,664 searches and 592 forced-action
+continuation games across 16 positions (two giveaways and 14 fresh disagreements).
+On the 17 exact endgame controls, new-model probability-distribution regret was
+0.10434 for raw policy, 0.04922 for search32 targets, 0.02383 for search256 targets,
+and 0.00894 for search2048 targets. Both larger budgets improved expected target
+value on all 17 cases, averaged over four seeds. Raw-policy regret was lower than
+initial19 (0.12600) and historical44 (0.13438) on these controls. This is expected
+win credit under a distribution, not greedy action error or a playing-strength rate.
+At search256, adding self-play root noise raised target regret slightly to 0.02633.
+
+The network can fit independently better exact-case targets: policy-only fitting
+on 14 improved search256 cases reduced target KL from 0.23366 to 0.00020 and exact
+expected regret from 0.12443 to 0.02700; on 15 search2048 cases, KL fell from 0.36154
+to 0.000058 and regret from 0.11782 to 0.00994. These same-example fits establish
+capacity/optimization on this small set, not unseen tactical generalization.
+
+On the final-generation replay sample, the real generator3-to-successor4 update
+barely changed policy KL (validation subset 0.11131 to 0.11048), while value MSE
+fell from 0.21487 to 0.18991. In disposable fresh-Adam fits from generator3, at64
+steps policy-only training reached train/validation KL 0.08495/0.10805; combined
+losses reached 0.10253/0.11642. At256 steps, policy-only validation KL was 0.11273
+and combined was 0.12487; combined value MSE overfit from train0.22393 to0.03333,
+while validation increased from0.21487 to0.33002. This supports investigating loss
+tradeoffs and overfitting on this subset, not a proven explanation of the full run.
+
+Give9 also exposes acting/target allocation: trained search2048 chose the giveaway
+in4/4 seeds even though another action had higher final Q in4/4. For seed0 the
+giveaway had711 visits/Q0.52315 versus action24's269 visits/Q0.53624. Mean-return
+backups still failed4/4; uniform priors avoided3/4. The highest-Q alternative had
+better continuation point estimates than the giveaway, but the paired16-seed
+intervals include zero. Avoidance itself is not proof of optimality: the initial
+model's avoidance move had worse point estimates here; the deep Give12 alternative
+also failed to establish a benefit. On the14 selected fresh disagreements, changes
+from raw policy had mean win-credit deltas +1.56pp/search32, −3.35pp/search256,
+−2.46pp/search2048. These correlated, selected, noisy comparisons do not establish
+that deeper search helps general positions. Exact-case success and ordinary-state
+value quality must remain separate conclusions.
+
+Next useful isolated checks: fixed-replay loss-weight sweep with a held-out
+validation criterion, and matched-weight/search-budget visit-versus-Q acting
+comparisons before changing the self-play recipe. No new training run launched.
+[Diagnostic evidence](evidence/learning-loop-20261017.json) preserves summaries,
+critical tactical traces, and raw-artifact hashes.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
