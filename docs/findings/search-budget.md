@@ -4,7 +4,9 @@
 frozen weights and valuation. On two selected clearing-card positions, uniform
 priors substantially reduce the iterations needed to stop handing the opponent
 a clearing card. Highest-Q final selection also helps the learned-prior
-AlphaZero preset. Playing-strength gains remain untested.
+AlphaZero preset. Playing-strength gains from those frozen-search changes remain
+untested. A separate group-aware/randomized-budget training pilot below found no
+clear strength improvement.
 
 The frozen iteration 119 variant checkpoint is shared across all methods.
 Here “AlphaZero” means the named preset: PUCT, mean-return backups, zero FPU,
@@ -43,7 +45,7 @@ improve median recovery over visits in the uniform-prior runs.
 [contestant recipes](../../configs/search-strategies/), first changing only
 priors and then only final selection. Keep mean-return valuation and boundary
 evaluation fixed; report win credit, score margin, paired uncertainty, and work.
-No faceoffs or training were run here. Two selected tactical positions and four
+No faceoffs or training were run in that tactical screen. Two selected positions and four
 seeds cannot establish general playing strength or model accuracy.
 
 **Implemented next step:** new training defaults to group-normalized learned
@@ -54,7 +56,8 @@ and policy-only selection; visit-target splitting already preserves group mass.
 `model.policy_normalization = "actions"` and `search.group_root_noise = false`
 retain the previous behavior. Old checkpoints load with their original policy
 semantics, so the measurements above remain a legacy-checkpoint baseline. This
-implementation has not yet been evaluated by training or playing-strength runs.
+implementation is used in the continuation pilot below; that small pilot does
+not establish a playing-strength gain from normalization.
 See [configuration and continuation rules](../experiments.md#shared-and-local-configurations).
 
 [Reproduction and faceoff commands](../search-benchmarks.md#clearing-card-alphazero-baseline).
@@ -64,6 +67,65 @@ Detailed traces and source snapshots remain under `.runs/clearing-*` in the
 `codex/search-clearing-cards` workspace. Recipes are committed in `d9f4010`.
 Validation: 45 focused tests passed, and the four faceoff configurations were
 checked against the measured diagnostic configurations.
+
+## Randomized-budget continuation pilot
+
+**Result, October 16:** both continuations and all six faceoffs completed in about
+1 h 55 m. Neither group-aware fixed32 nor randomized fast16/full 128 demonstrated an
+improvement over its starting model. The randomized method did not demonstrate
+an advantage over fixed32. This is one training seed and a small evaluation screen.
+
+Each row has 64 games (32 environment seeds, both seats), common search 32,
+mixture backups, no root noise and greedy acting. Win credit includes half a win
+for ties. Intervals bootstrap environment-seed pairs 20,000 times; they are
+conditional on these checkpoints and unadjusted for multiple comparisons.
+Positive score margin favors the first-named model.
+
+| Comparison | Win credit (95% interval) | Score margin (95% interval) |
+| --- | ---: | ---: |
+| Group fixed32 vs historical | 56.25% (43.75–68.75) | +6.88 (−3.69–17.33) |
+| Group randomized vs historical | 50.00% (39.06–60.94) | −1.19 (−9.48–7.12) |
+| Group randomized vs group fixed32 | 45.31% (34.38–57.81) | −8.38 (−18.11–1.19) |
+| Historical vs original 119 | 49.22% (37.50–60.94) | +0.34 (−11.66–13.08) |
+| Group fixed32 vs group-normalized 119 | 43.75% (29.69–57.81) | −7.59 (−18.80–3.27) |
+| Group randomized vs group-normalized 119 | 42.97% (32.03–54.69) | −5.48 (−14.77–4.53) |
+
+Both new arms retained learned priors, starting from 119 weights, Adam moments,
+the same 2,097,152-position replay capacity and explicitly initialized replay
+sampler. New training used group normalization and group-level root noise,
+LR 0.001, replay ratio 4, inherited auxiliaries and 256 games per iteration.
+The random arm selected full 128 searches independently with probability 0.25;
+other moves used greedy, noise-free search 16. Only full-search rows entered replay.
+
+| Arm | Actual training time | Fresh games | Retained positions | Optimizer updates |
+| --- | ---: | ---: | ---: | ---: |
+| Historical | 62.5 min | 2,048 | 534,918 | 8,359 |
+| Group fixed32 | 54.6 min | 2,560 | 693,606 | 10,842 |
+| Group randomized | 52.7 min | 1,792 | 138,549 | 2,169 |
+
+Randomized play generated 551,560 decisions and retained 25.12%. It produced
+fewer games than fixed32: its expected cap was 44 rather than 32, and games averaged
+307.8 rather than 270.9 decisions. This pilot therefore does not show the intended
+game-throughput advantage relative to this cheaper fixed baseline. Only 6.6% of
+its final replay was fresh versus 33.1% for fixed32, so most training still sampled
+inherited targets. The short trial confounds deeper target quality with slower
+replay refresh and fewer updates as components of the randomized method.
+
+The historical checkpoint 121 was selected nearest the new arms' mean elapsed
+time before faceoffs. It used older code, a different replay sampler and 1024-game
+updates, and had more elapsed training time. Its contrast cannot isolate grouping.
+Initial comparisons preserve each arm's normalization, separating training from
+the immediate policy transformation of the same 119 weights.
+
+**Decision:** do not select this randomized schedule for a large run based on
+these results. A follow-up should account for retained-sample rate when sizing
+replay and optimizer exposure, and use a fresh contemporaneous control if the
+goal is to isolate normalization. More evaluation games can narrow match
+uncertainty but cannot replace independent training seeds.
+
+[Compact evidence](evidence/randomized-search-budget.json) includes report hashes,
+checkpoint hashes, resolved settings, paired-seed statistics and bootstrap details.
+Full artifacts are in `.runs/randomized-budget-20261016`; code revision `5d79800`.
 
 ## Earlier inference and training evidence
 
@@ -94,22 +156,6 @@ At checkpoint 119, MCTS32 versus policy argmax scored 53.91% in 64 games (paired
 its score-margin interval was −1.22 to +15.10 points. Different seeds and unequal
 compute preclude a direct 32-versus-128 comparison; neither establishes a clear
 strength gain.
-
-**Next training experiment (October 16):** two matched-start continuations from119,
-group-aware fixed32 and randomized fast16/full128 (25% full searches, only those
-positions retained). Budget each arm at 3000 seconds with 256 games per iteration;
-finish the active iteration before saving. Keep inherited replay, Adam state,
-auxiliaries, replay ratio4, LR0.001 and mixture backups. Run six paired-seat64-game
-comparisons at common search32: all three endpoint pairs including the nearest-time
-historical LR0.001 control, plus each endpoint against its own initial policy mode.
-The historical grouping contrast is exploratory: code, sampling and update cadence
-differ. The two new arms isolate the randomized method as a package (caps, fast-move
-exploration and sample selection), not any one component. Inherited old targets
-can dilute the short experiment. No strength results are available yet.
-
-A 12-game-per-arm, six-worker preflight took19.27s for fixed32 (3186 retained
-positions) and35.71s for randomized (4518 played,1120 retained). This is a runtime
-screen only; different game lengths and tiny samples prevent a strength conclusion.
 
 [Evidence](evidence/search-budget.json): settings, checkpoints, run IDs,
 provenance and paired-bootstrap summaries for training and inference comparisons.

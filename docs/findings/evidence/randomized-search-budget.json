@@ -1,0 +1,1704 @@
+{
+  "date": "2026-10-16",
+  "plan_path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/plan.json",
+  "execution_commit": "5d79800317ad50047c66384d12a4d34d9e0325ba",
+  "bootstrap": {
+    "seed": 20261016,
+    "replicates": 20000,
+    "unit": "environment seed, both seat assignments together",
+    "interval": "percentile 95%, unadjusted for multiple comparisons; conditional on these checkpoints, not training seeds"
+  },
+  "limitations": [
+    "One continuation seed; historical arm differs in code revision and update cadence.",
+    "Historical checkpoint selected nearest mean actual elapsed time of the new arms, without strength results.",
+    "Time caps are soft: complete the active 256-game iteration and save.",
+    "Inherited replay contains old targets; randomized search refreshes fewer rows and receives fewer optimizer updates at replay ratio four.",
+    "Group-aware uses learned priors, not fully uniform search priors."
+  ],
+  "training": {
+    "fixed": {
+      "run_id": "20261016T222710Z-group-fixed-budget-from119-03d7fcb36b",
+      "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+      "seconds": 3278.4487912079785,
+      "fresh_games": 2560,
+      "played_positions": 693606,
+      "retained_positions": 693606,
+      "retained_fraction": 1.0,
+      "optimizer_steps": 10842,
+      "fresh_fraction_of_final_replay": 0.33076581925349435,
+      "configuration": {
+        "auxiliary_objectives": {
+          "round_doubled": 0.1,
+          "round_raw_score": 1.0
+        },
+        "auxiliary_targets": {
+          "mode": "observed",
+          "samples": 32
+        },
+        "budget": {
+          "checkpoint_interval": 1,
+          "iterations": 0,
+          "max_seconds": 3000.0
+        },
+        "derived": {
+          "action_mask_shape": [
+            28
+          ],
+          "non_spatial_input_shape": [
+            69
+          ],
+          "optimizer": {
+            "type": "adam",
+            "weight_decay": 0.0001
+          },
+          "spatial_input_shape": [
+            2,
+            3,
+            4,
+            17
+          ],
+          "target_specs": [
+            {
+              "name": "value",
+              "shape": [
+                2
+              ]
+            },
+            {
+              "name": "policy",
+              "shape": [
+                28
+              ]
+            },
+            {
+              "name": "round_doubled",
+              "shape": [
+                2
+              ]
+            },
+            {
+              "name": "round_raw_score",
+              "shape": [
+                2
+              ]
+            }
+          ]
+        },
+        "description": "Group-aware fixed search budget continuation.",
+        "execution": {
+          "debug": false,
+          "device": "cpu",
+          "threads_per_worker": 1,
+          "workers": 8
+        },
+        "experiment": {
+          "name": "",
+          "suite_run_id": "",
+          "variant": ""
+        },
+        "initial_checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/parent-adapted.pth",
+        "logging": {
+          "progress_interval_seconds": 60.0
+        },
+        "model": {
+          "embedding_dimensions": 16,
+          "global_state_embedding_dimensions": 32,
+          "name": "hierarchical_equivariant_v2",
+          "num_heads": 2,
+          "policy_normalization": "groups"
+        },
+        "name": "group-fixed-budget-from119",
+        "notes": "See parent experiment plan.json for historical-control limitations and RNG adaptation.",
+        "players": 2,
+        "replay": {
+          "capacity": 2097152,
+          "dataset_id": "7bb07721cf9f41d1846ad53cf5ae7d9d",
+          "initial_dataset": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/data/replay"
+        },
+        "search": {
+          "action_softmax_temperature": 1.0,
+          "action_strategy": "visits",
+          "after_state_evaluate_all_children": false,
+          "boundary_samples": 1,
+          "boundary_value_checkpoint": null,
+          "c_puct": 1.0,
+          "completed_q_rescale": true,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "dirichlet_alpha": null,
+          "dirichlet_epsilon": 0.25,
+          "fpu_mode": "parent",
+          "fpu_reduction": 0.0,
+          "group_root_noise": true,
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "interior_strategy": "puct",
+          "iterations": 32,
+          "merge_symmetric_actions": true,
+          "replicas": 1,
+          "root_strategy": "puct",
+          "target_strategy": "visits",
+          "uncertainty_z": 1.0,
+          "uniform_group_priors": false,
+          "valuation": "current_mixture"
+        },
+        "seed": 0,
+        "selfplay": {
+          "fast_search_iterations": 0,
+          "full_search_probability": 1.0,
+          "games_per_iteration": 256,
+          "games_per_task": 1,
+          "start_state": "standard"
+        },
+        "tags": [
+          "full-game",
+          "round-score",
+          "doubling"
+        ],
+        "training": {
+          "batch_size": 256,
+          "gradient_diagnostic": true,
+          "learn_rate": 0.001,
+          "policy_scale": 1.0,
+          "replay_ratio": 4.0,
+          "replay_ratio_after_fill": null,
+          "value_scale": 1.0
+        },
+        "validation": {
+          "concept_interval": 0
+        }
+      }
+    },
+    "randomized": {
+      "run_id": "20261016T232150Z-group-randomized-budget-from119-1f89008ea2",
+      "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+      "seconds": 3160.233541124966,
+      "fresh_games": 1792,
+      "played_positions": 551560,
+      "retained_positions": 138549,
+      "retained_fraction": 0.2511947929509029,
+      "optimizer_steps": 2169,
+      "fresh_fraction_of_final_replay": 0.06607113988918281,
+      "configuration": {
+        "auxiliary_objectives": {
+          "round_doubled": 0.1,
+          "round_raw_score": 1.0
+        },
+        "auxiliary_targets": {
+          "mode": "observed",
+          "samples": 32
+        },
+        "budget": {
+          "checkpoint_interval": 1,
+          "iterations": 0,
+          "max_seconds": 3000.0
+        },
+        "derived": {
+          "action_mask_shape": [
+            28
+          ],
+          "non_spatial_input_shape": [
+            69
+          ],
+          "optimizer": {
+            "type": "adam",
+            "weight_decay": 0.0001
+          },
+          "spatial_input_shape": [
+            2,
+            3,
+            4,
+            17
+          ],
+          "target_specs": [
+            {
+              "name": "value",
+              "shape": [
+                2
+              ]
+            },
+            {
+              "name": "policy",
+              "shape": [
+                28
+              ]
+            },
+            {
+              "name": "round_doubled",
+              "shape": [
+                2
+              ]
+            },
+            {
+              "name": "round_raw_score",
+              "shape": [
+                2
+              ]
+            }
+          ]
+        },
+        "description": "Group-aware randomized search budget continuation.",
+        "execution": {
+          "debug": false,
+          "device": "cpu",
+          "threads_per_worker": 1,
+          "workers": 8
+        },
+        "experiment": {
+          "name": "",
+          "suite_run_id": "",
+          "variant": ""
+        },
+        "initial_checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/parent-adapted.pth",
+        "logging": {
+          "progress_interval_seconds": 60.0
+        },
+        "model": {
+          "embedding_dimensions": 16,
+          "global_state_embedding_dimensions": 32,
+          "name": "hierarchical_equivariant_v2",
+          "num_heads": 2,
+          "policy_normalization": "groups"
+        },
+        "name": "group-randomized-budget-from119",
+        "notes": "See parent experiment plan.json for historical-control limitations and RNG adaptation.",
+        "players": 2,
+        "replay": {
+          "capacity": 2097152,
+          "dataset_id": "7bb07721cf9f41d1846ad53cf5ae7d9d",
+          "initial_dataset": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/data/replay"
+        },
+        "search": {
+          "action_softmax_temperature": 1.0,
+          "action_strategy": "visits",
+          "after_state_evaluate_all_children": false,
+          "boundary_samples": 1,
+          "boundary_value_checkpoint": null,
+          "c_puct": 1.0,
+          "completed_q_rescale": true,
+          "completed_q_scale": 0.1,
+          "completed_q_visit_offset": 50.0,
+          "dirichlet_alpha": null,
+          "dirichlet_epsilon": 0.25,
+          "fpu_mode": "parent",
+          "fpu_reduction": 0.0,
+          "group_root_noise": true,
+          "gumbel_candidates": 16,
+          "gumbel_scale": 1.0,
+          "interior_strategy": "puct",
+          "iterations": 128,
+          "merge_symmetric_actions": true,
+          "replicas": 1,
+          "root_strategy": "puct",
+          "target_strategy": "visits",
+          "uncertainty_z": 1.0,
+          "uniform_group_priors": false,
+          "valuation": "current_mixture"
+        },
+        "seed": 0,
+        "selfplay": {
+          "fast_search_iterations": 16,
+          "full_search_probability": 0.25,
+          "games_per_iteration": 256,
+          "games_per_task": 1,
+          "start_state": "standard"
+        },
+        "tags": [
+          "full-game",
+          "round-score",
+          "doubling"
+        ],
+        "training": {
+          "batch_size": 256,
+          "gradient_diagnostic": true,
+          "learn_rate": 0.001,
+          "policy_scale": 1.0,
+          "replay_ratio": 4.0,
+          "replay_ratio_after_fill": null,
+          "value_scale": 1.0
+        },
+        "validation": {
+          "concept_interval": 0
+        }
+      }
+    },
+    "historical": {
+      "checkpoint": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+      "progress": {
+        "additional_generated_games": 2048,
+        "additional_generated_positions": 534918,
+        "additional_iterations": 2,
+        "additional_optimizer_steps": 8359,
+        "additional_sampled_positions": 2139904,
+        "additional_trained_positions": 2139904,
+        "elapsed_seconds": 3752.381005875068,
+        "epoch": 0,
+        "generated_games": 123904,
+        "generated_positions": 31353002,
+        "iteration": 121,
+        "optimizer_steps": 489948,
+        "sampled_positions": 125426688,
+        "trained_positions": 125426688
+      },
+      "seconds": 3752.459174749907
+    }
+  },
+  "comparisons": [
+    {
+      "control": "historical",
+      "variant": "fixed",
+      "report": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/faceoffs/20261017T001430Z-experiment-37cde45708/comparison.json",
+      "report_sha256": "bb679db922300c9be75e265c43b44f255c874c51b6bb85530fc9ed69c163050d",
+      "games": 64,
+      "seed_pairs": 32,
+      "variant_win_fraction": 0.5625,
+      "variant_win_fraction_ci95": [
+        0.4375,
+        0.6875
+      ],
+      "control_minus_variant_margin": 6.875,
+      "margin_ci95": [
+        -3.6875,
+        17.328515624999966
+      ],
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+          "sha256": "5dd6983d7ff489203c901d9e0c510941200d8a1ea94cb8902ec42c636d8af9aa"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+          "sha256": "0ef851183afdf06dbad5ff2fb3a32ccd90289fa1c55de18c83dcfd1bbb79937e"
+        }
+      },
+      "evaluation_settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 32,
+        "seed": 20261016,
+        "workers": 8,
+        "threads": 1
+      },
+      "paired_seed_means": [
+        [
+          1.0,
+          35.0
+        ],
+        [
+          0.5,
+          2.0
+        ],
+        [
+          0.5,
+          -15.0
+        ],
+        [
+          0.5,
+          32.5
+        ],
+        [
+          1.0,
+          60.5
+        ],
+        [
+          1.0,
+          39.0
+        ],
+        [
+          0.0,
+          -15.5
+        ],
+        [
+          0.5,
+          36.5
+        ],
+        [
+          0.5,
+          1.0
+        ],
+        [
+          0.0,
+          -55.0
+        ],
+        [
+          0.5,
+          -26.5
+        ],
+        [
+          0.5,
+          -22.0
+        ],
+        [
+          1.0,
+          14.5
+        ],
+        [
+          1.0,
+          61.5
+        ],
+        [
+          1.0,
+          17.5
+        ],
+        [
+          0.0,
+          -6.5
+        ],
+        [
+          0.5,
+          14.0
+        ],
+        [
+          0.0,
+          -31.0
+        ],
+        [
+          0.0,
+          -14.5
+        ],
+        [
+          0.5,
+          -8.5
+        ],
+        [
+          0.5,
+          -48.0
+        ],
+        [
+          1.0,
+          18.0
+        ],
+        [
+          0.5,
+          5.5
+        ],
+        [
+          1.0,
+          18.0
+        ],
+        [
+          0.5,
+          21.5
+        ],
+        [
+          1.0,
+          51.5
+        ],
+        [
+          0.5,
+          -4.0
+        ],
+        [
+          0.0,
+          -20.0
+        ],
+        [
+          1.0,
+          27.5
+        ],
+        [
+          0.0,
+          -33.0
+        ],
+        [
+          0.5,
+          10.0
+        ],
+        [
+          1.0,
+          53.5
+        ]
+      ]
+    },
+    {
+      "control": "historical",
+      "variant": "randomized",
+      "report": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/faceoffs/20261017T001544Z-experiment-1b6027e1aa/comparison.json",
+      "report_sha256": "535d0650fa1233a4c53a16961bf9d64505fa522218ba425a499ac47ede96ff67",
+      "games": 64,
+      "seed_pairs": 32,
+      "variant_win_fraction": 0.5,
+      "variant_win_fraction_ci95": [
+        0.390625,
+        0.609375
+      ],
+      "control_minus_variant_margin": -1.1875,
+      "margin_ci95": [
+        -9.484375,
+        7.125
+      ],
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+          "sha256": "5dd6983d7ff489203c901d9e0c510941200d8a1ea94cb8902ec42c636d8af9aa"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+          "sha256": "e90a0501d5f1a90cd2fbe1ddcdb6dd0999e7bbef2e701a0ac0a4c87a57110e38"
+        }
+      },
+      "evaluation_settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 32,
+        "seed": 20261016,
+        "workers": 8,
+        "threads": 1
+      },
+      "paired_seed_means": [
+        [
+          0.0,
+          -27.5
+        ],
+        [
+          0.5,
+          5.0
+        ],
+        [
+          0.0,
+          -43.0
+        ],
+        [
+          1.0,
+          7.5
+        ],
+        [
+          0.5,
+          15.0
+        ],
+        [
+          0.5,
+          -17.5
+        ],
+        [
+          0.5,
+          -1.5
+        ],
+        [
+          0.5,
+          6.5
+        ],
+        [
+          0.0,
+          -31.0
+        ],
+        [
+          1.0,
+          32.0
+        ],
+        [
+          0.0,
+          -37.0
+        ],
+        [
+          1.0,
+          47.5
+        ],
+        [
+          1.0,
+          9.5
+        ],
+        [
+          0.0,
+          -43.0
+        ],
+        [
+          0.5,
+          16.5
+        ],
+        [
+          1.0,
+          39.5
+        ],
+        [
+          0.5,
+          31.0
+        ],
+        [
+          0.5,
+          -2.0
+        ],
+        [
+          0.5,
+          -17.5
+        ],
+        [
+          0.5,
+          -11.5
+        ],
+        [
+          0.0,
+          -46.5
+        ],
+        [
+          1.0,
+          15.5
+        ],
+        [
+          0.5,
+          0.5
+        ],
+        [
+          0.5,
+          6.0
+        ],
+        [
+          0.5,
+          6.5
+        ],
+        [
+          0.5,
+          -6.0
+        ],
+        [
+          0.5,
+          -1.0
+        ],
+        [
+          0.5,
+          24.0
+        ],
+        [
+          1.0,
+          29.0
+        ],
+        [
+          0.0,
+          -12.5
+        ],
+        [
+          0.5,
+          -14.5
+        ],
+        [
+          0.5,
+          -17.5
+        ]
+      ]
+    },
+    {
+      "control": "fixed",
+      "variant": "randomized",
+      "report": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/faceoffs/20261017T001653Z-experiment-d1b098681a/comparison.json",
+      "report_sha256": "03ff93eadfe3bd056f906bf16bd8c5f9ae4e86e5e0af745a74463598bf9bc78a",
+      "games": 64,
+      "seed_pairs": 32,
+      "variant_win_fraction": 0.453125,
+      "variant_win_fraction_ci95": [
+        0.34375,
+        0.578125
+      ],
+      "control_minus_variant_margin": -8.375,
+      "margin_ci95": [
+        -18.109375,
+        1.1875
+      ],
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+          "sha256": "0ef851183afdf06dbad5ff2fb3a32ccd90289fa1c55de18c83dcfd1bbb79937e"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+          "sha256": "e90a0501d5f1a90cd2fbe1ddcdb6dd0999e7bbef2e701a0ac0a4c87a57110e38"
+        }
+      },
+      "evaluation_settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 32,
+        "seed": 20261016,
+        "workers": 8,
+        "threads": 1
+      },
+      "paired_seed_means": [
+        [
+          1.0,
+          15.5
+        ],
+        [
+          0.5,
+          7.5
+        ],
+        [
+          0.0,
+          -44.5
+        ],
+        [
+          0.5,
+          15.0
+        ],
+        [
+          1.0,
+          28.0
+        ],
+        [
+          0.0,
+          -24.5
+        ],
+        [
+          0.5,
+          11.0
+        ],
+        [
+          1.0,
+          39.5
+        ],
+        [
+          0.5,
+          23.0
+        ],
+        [
+          0.5,
+          -35.0
+        ],
+        [
+          0.5,
+          -10.5
+        ],
+        [
+          0.5,
+          3.5
+        ],
+        [
+          1.0,
+          16.5
+        ],
+        [
+          0.0,
+          -54.0
+        ],
+        [
+          0.5,
+          -5.0
+        ],
+        [
+          0.5,
+          -38.5
+        ],
+        [
+          0.0,
+          -50.5
+        ],
+        [
+          0.5,
+          4.0
+        ],
+        [
+          0.0,
+          -36.0
+        ],
+        [
+          0.0,
+          -32.0
+        ],
+        [
+          0.5,
+          11.0
+        ],
+        [
+          0.5,
+          -4.0
+        ],
+        [
+          0.0,
+          -56.5
+        ],
+        [
+          0.0,
+          -22.5
+        ],
+        [
+          0.5,
+          -12.5
+        ],
+        [
+          1.0,
+          42.5
+        ],
+        [
+          0.5,
+          -17.0
+        ],
+        [
+          1.0,
+          18.5
+        ],
+        [
+          0.5,
+          20.0
+        ],
+        [
+          0.5,
+          -27.0
+        ],
+        [
+          0.5,
+          -1.0
+        ],
+        [
+          0.0,
+          -52.5
+        ]
+      ]
+    },
+    {
+      "control": "initial",
+      "variant": "historical",
+      "report": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/faceoffs/20261017T001810Z-experiment-2c9c2b957a/comparison.json",
+      "report_sha256": "31aabe471ad45cdb0bc9a0348a670399eefb632a4efc8cd7087528d46f400505",
+      "games": 64,
+      "seed_pairs": 32,
+      "variant_win_fraction": 0.4921875,
+      "variant_win_fraction_ci95": [
+        0.375,
+        0.609375
+      ],
+      "control_minus_variant_margin": 0.34375,
+      "margin_ci95": [
+        -11.656640625,
+        13.078515624999966
+      ],
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "sha256": "dcbe5ec51a529460de5c8f6ad91d37fcdef5e0e83f183474832976c3be5d976f"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+          "sha256": "5dd6983d7ff489203c901d9e0c510941200d8a1ea94cb8902ec42c636d8af9aa"
+        }
+      },
+      "evaluation_settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/repos/skyjo/.runs/boundary-overnight/variant/20261007T033105Z-boundary-sample10-from109-10iter-f756db8442/checkpoints/checkpoint_000119.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/repos/skyjo/.runs/lr-comparison/control/20261008T185439Z-lr-001-legacy-boundary-from119-4h-fa22c6d060/checkpoints/checkpoint_000121.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 32,
+        "seed": 20261016,
+        "workers": 8,
+        "threads": 1
+      },
+      "paired_seed_means": [
+        [
+          0.5,
+          -19.5
+        ],
+        [
+          0.5,
+          -4.0
+        ],
+        [
+          0.0,
+          -50.5
+        ],
+        [
+          0.0,
+          -58.0
+        ],
+        [
+          0.5,
+          -10.0
+        ],
+        [
+          0.5,
+          -1.5
+        ],
+        [
+          1.0,
+          71.5
+        ],
+        [
+          1.0,
+          32.0
+        ],
+        [
+          0.5,
+          7.5
+        ],
+        [
+          1.0,
+          45.0
+        ],
+        [
+          1.0,
+          37.0
+        ],
+        [
+          0.5,
+          10.0
+        ],
+        [
+          0.5,
+          6.5
+        ],
+        [
+          1.0,
+          8.0
+        ],
+        [
+          0.5,
+          -24.0
+        ],
+        [
+          0.5,
+          30.0
+        ],
+        [
+          0.5,
+          -5.0
+        ],
+        [
+          0.5,
+          9.5
+        ],
+        [
+          0.0,
+          -15.0
+        ],
+        [
+          0.5,
+          -12.0
+        ],
+        [
+          1.0,
+          65.5
+        ],
+        [
+          0.0,
+          -42.5
+        ],
+        [
+          0.0,
+          -67.5
+        ],
+        [
+          0.5,
+          -1.5
+        ],
+        [
+          0.0,
+          -38.0
+        ],
+        [
+          0.25,
+          -38.0
+        ],
+        [
+          0.0,
+          -21.5
+        ],
+        [
+          0.5,
+          1.5
+        ],
+        [
+          1.0,
+          81.0
+        ],
+        [
+          1.0,
+          39.5
+        ],
+        [
+          0.0,
+          -34.0
+        ],
+        [
+          0.5,
+          9.0
+        ]
+      ]
+    },
+    {
+      "control": "initial",
+      "variant": "fixed",
+      "report": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/faceoffs/20261017T001915Z-experiment-c8a2ff8191/comparison.json",
+      "report_sha256": "38b6529e3ede25ee1aa39ad7810a8485d754055231ed9f9bcf354afe0edfda19",
+      "games": 64,
+      "seed_pairs": 32,
+      "variant_win_fraction": 0.4375,
+      "variant_win_fraction_ci95": [
+        0.296875,
+        0.578125
+      ],
+      "control_minus_variant_margin": -7.59375,
+      "margin_ci95": [
+        -18.796875,
+        3.266015624999966
+      ],
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/initial-groups.pth",
+          "sha256": "c3a787e2a0f2ce2d29f888d3e1d91d207f36e41f4e42ee6a3c46b02dbb33740b"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+          "sha256": "0ef851183afdf06dbad5ff2fb3a32ccd90289fa1c55de18c83dcfd1bbb79937e"
+        }
+      },
+      "evaluation_settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/initial-groups.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/checkpoints/checkpoint_000129.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 32,
+        "seed": 20261016,
+        "workers": 8,
+        "threads": 1
+      },
+      "paired_seed_means": [
+        [
+          0.0,
+          -46.5
+        ],
+        [
+          0.5,
+          13.5
+        ],
+        [
+          0.5,
+          -6.5
+        ],
+        [
+          0.5,
+          -5.5
+        ],
+        [
+          0.0,
+          -15.0
+        ],
+        [
+          1.0,
+          33.5
+        ],
+        [
+          0.0,
+          -62.0
+        ],
+        [
+          0.0,
+          -34.5
+        ],
+        [
+          0.5,
+          -17.0
+        ],
+        [
+          0.5,
+          -7.5
+        ],
+        [
+          0.0,
+          -35.0
+        ],
+        [
+          1.0,
+          52.0
+        ],
+        [
+          0.0,
+          -18.5
+        ],
+        [
+          0.0,
+          -11.5
+        ],
+        [
+          1.0,
+          14.0
+        ],
+        [
+          0.5,
+          -5.5
+        ],
+        [
+          0.0,
+          -51.0
+        ],
+        [
+          1.0,
+          16.0
+        ],
+        [
+          0.0,
+          -22.5
+        ],
+        [
+          0.5,
+          4.0
+        ],
+        [
+          0.0,
+          -67.0
+        ],
+        [
+          1.0,
+          49.5
+        ],
+        [
+          0.0,
+          -70.0
+        ],
+        [
+          1.0,
+          31.0
+        ],
+        [
+          0.0,
+          -32.5
+        ],
+        [
+          0.5,
+          -13.5
+        ],
+        [
+          0.5,
+          -27.5
+        ],
+        [
+          0.5,
+          4.5
+        ],
+        [
+          0.5,
+          20.5
+        ],
+        [
+          0.5,
+          4.5
+        ],
+        [
+          1.0,
+          44.0
+        ],
+        [
+          1.0,
+          19.0
+        ]
+      ]
+    },
+    {
+      "control": "initial",
+      "variant": "randomized",
+      "report": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/faceoffs/20261017T002036Z-experiment-879fd9926d/comparison.json",
+      "report_sha256": "c8a6fcddcf11f98c235a5212f9c2615e062df7d6b7760ddae88b5bf188dfe0d8",
+      "games": 64,
+      "seed_pairs": 32,
+      "variant_win_fraction": 0.4296875,
+      "variant_win_fraction_ci95": [
+        0.3203125,
+        0.546875
+      ],
+      "control_minus_variant_margin": -5.484375,
+      "margin_ci95": [
+        -14.765625,
+        4.53125
+      ],
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/initial-groups.pth",
+          "sha256": "c3a787e2a0f2ce2d29f888d3e1d91d207f36e41f4e42ee6a3c46b02dbb33740b"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+          "sha256": "e90a0501d5f1a90cd2fbe1ddcdb6dd0999e7bbef2e701a0ac0a4c87a57110e38"
+        }
+      },
+      "evaluation_settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/initial-groups.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/randomized/20261016T232150Z-group-randomized-budget-from119-1f89008ea2/checkpoints/checkpoint_000126.pth",
+          "mode": "search",
+          "iterations": 32,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "legacy",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 32,
+        "seed": 20261016,
+        "workers": 8,
+        "threads": 1
+      },
+      "paired_seed_means": [
+        [
+          0.5,
+          9.0
+        ],
+        [
+          1.0,
+          48.0
+        ],
+        [
+          0.5,
+          -8.5
+        ],
+        [
+          0.0,
+          -51.0
+        ],
+        [
+          0.25,
+          -35.5
+        ],
+        [
+          0.5,
+          -3.0
+        ],
+        [
+          0.5,
+          -0.5
+        ],
+        [
+          1.0,
+          26.0
+        ],
+        [
+          0.5,
+          0.5
+        ],
+        [
+          0.5,
+          -17.0
+        ],
+        [
+          0.5,
+          6.5
+        ],
+        [
+          0.0,
+          -47.5
+        ],
+        [
+          1.0,
+          61.0
+        ],
+        [
+          0.5,
+          -18.5
+        ],
+        [
+          0.0,
+          -28.5
+        ],
+        [
+          0.5,
+          8.0
+        ],
+        [
+          1.0,
+          41.0
+        ],
+        [
+          0.0,
+          -40.0
+        ],
+        [
+          0.0,
+          -33.5
+        ],
+        [
+          0.0,
+          -17.5
+        ],
+        [
+          0.5,
+          -12.0
+        ],
+        [
+          0.5,
+          -28.0
+        ],
+        [
+          0.5,
+          -4.0
+        ],
+        [
+          0.5,
+          -16.0
+        ],
+        [
+          0.5,
+          -6.0
+        ],
+        [
+          1.0,
+          53.0
+        ],
+        [
+          0.0,
+          -30.5
+        ],
+        [
+          0.0,
+          -7.5
+        ],
+        [
+          0.5,
+          17.5
+        ],
+        [
+          0.5,
+          8.0
+        ],
+        [
+          0.0,
+          -32.5
+        ],
+        [
+          0.5,
+          -16.5
+        ]
+      ]
+    }
+  ]
+}
