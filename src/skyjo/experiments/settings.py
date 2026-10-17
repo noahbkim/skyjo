@@ -72,6 +72,7 @@ class SelfPlayRunConfig:
     auxiliary_targets: AuxiliaryTargetSettings
     initial_dataset: Path | None = None
     dataset_id: str | None = None
+    bootstrap_checkpoint: Path | None = None
 
     @classmethod
     def from_resolved(cls, config, *, search=None):
@@ -109,6 +110,9 @@ class SelfPlayRunConfig:
             if config["replay"]["initial_dataset"]
             else None,
             config["replay"]["dataset_id"],
+            Path(config["bootstrap_checkpoint"])
+            if config["bootstrap_checkpoint"]
+            else None,
         )
 
 

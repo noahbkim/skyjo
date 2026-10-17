@@ -199,6 +199,10 @@ def train_self_play(
         role="initial",
     )
     state = dataclasses.replace(state, snapshot=initial)
+    if "bootstrap" in run_configuration:
+        recording.event(
+            "bootstrap_started", state, context=run_configuration["bootstrap"]
+        )
     if parent is not None:
         recording.event(
             "continuation_started",

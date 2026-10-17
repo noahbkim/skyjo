@@ -25,6 +25,7 @@ DEFAULTS = {
     "seed": 0,
     "players": 2,
     "initial_checkpoint": None,
+    "bootstrap_checkpoint": None,
     "auxiliary_objectives": {name: 0.0 for name in objectives.OBJECTIVE_NAMES},
     "auxiliary_targets": {"mode": "observed", "samples": 32},
     "experiment": {"name": "", "variant": "", "suite_run_id": ""},
@@ -106,6 +107,11 @@ def _merge(defaults: dict, supplied: dict, prefix: str = "") -> dict:
 def resolve_paths(config: dict, directory: pathlib.Path) -> dict:
     """Resolve path-valued settings at their declaration, including partial overrides."""
     config = copy.deepcopy(config)
+    if config.get("bootstrap_checkpoint") is not None:
+        bootstrap = config["bootstrap_checkpoint"]
+        if not isinstance(bootstrap, str) or not bootstrap:
+            raise ValueError("bootstrap_checkpoint must be a nonempty path string")
+        config["bootstrap_checkpoint"] = str((directory / bootstrap).resolve())
     if config.get("initial_checkpoint") is not None:
         if (
             not isinstance(config["initial_checkpoint"], str)
@@ -227,6 +233,16 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
     from skyjo.experiments.training_budget import validate_limits
 
     validate_limits(config["budget"]["iterations"], config["budget"]["max_seconds"])
+    if config["bootstrap_checkpoint"] is not None:
+        if (
+            config["initial_checkpoint"] is not None
+            or replay["initial_dataset"] is not None
+        ):
+            raise ValueError(
+                "bootstrap_checkpoint requires fresh replay and cannot combine with initial_checkpoint"
+            )
+        if not pathlib.Path(config["bootstrap_checkpoint"]).is_file():
+            raise FileNotFoundError(config["bootstrap_checkpoint"])
     if config["initial_checkpoint"] is not None:
         if replay["initial_dataset"] is None:
             raise ValueError("initial_checkpoint requires replay.initial_dataset")

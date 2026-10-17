@@ -1,10 +1,19 @@
 """Construct a learner, replay and runtime state before the online loop starts."""
 
 import dataclasses
+import hashlib
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
-from skyjo.learning import buffer, checkpoint, continuation
+from skyjo.learning import (
+    buffer,
+    checkpoint,
+    continuation,
+    models,
+    objectives,
+    observations,
+)
 from skyjo.learning.learner import Learner
 
 from . import experiment_config
@@ -105,6 +114,46 @@ def prepare_training(
         policy_scale=policy_scale,
     )
     model, optimizer = learner.model, learner.optimizer
+    bootstrap = None
+    if settings.bootstrap_checkpoint is not None:
+        if parent is not None or initial_training_dataset_path is not None:
+            raise ValueError(
+                "Weights-only bootstrap requires fresh replay and optimizer"
+            )
+        raw = settings.bootstrap_checkpoint.read_bytes()
+        payload = checkpoint.decode_checkpoint(io.BytesIO(raw))
+        source = payload["configuration"]
+        source_model = dict(source["model"])
+        old_shape = source_model.pop("non_spatial_input_shape", None)
+        if old_shape is not None and tuple(
+            old_shape
+        ) != observations.get_non_spatial_input_shape(players):
+            raise ValueError("Bootstrap observation shape does not match")
+        if source.get("players", players) != players:
+            raise ValueError("Bootstrap player count does not match")
+        old_heads = source_model.pop("auxiliary_objectives", {})
+        source_heads = source.get("auxiliary_objectives", old_heads)
+        if old_heads and old_heads != source_heads:
+            raise ValueError("Bootstrap contains conflicting auxiliary heads")
+        source_model = models.resolve(source_model)
+        current_model = models.resolve(model_settings)
+        source_model.pop("policy_normalization")
+        current_model.pop("policy_normalization")
+        if (
+            source_model != current_model
+            or objectives.resolve(source_heads).weights.keys()
+            != auxiliary_objectives.keys()
+        ):
+            raise ValueError(
+                "Bootstrap model architecture or auxiliary heads do not match"
+            )
+        checkpoint.restore_checkpoint(payload, model=model, restore_rng=False)
+        bootstrap = {
+            "path": str(settings.bootstrap_checkpoint),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "source_progress": payload["progress"],
+            "mode": "weights_only_fresh_replay_optimizer_rng_and_counters",
+        }
     active_replay_ratio = training_config.replay_ratio
     replay_ratio_before_fill = training_config.replay_ratio
     # Retain an activated schedule only when its settings and capacity match.
@@ -150,6 +199,8 @@ def prepare_training(
         },
         "replay": {"capacity": training_data_buffer_config.max_size},
     }
+    if bootstrap is not None:
+        run_configuration["bootstrap"] = bootstrap
     if parent is not None:
         if initial_training_dataset_path is None:
             raise ValueError("Continuation requires initial replay")

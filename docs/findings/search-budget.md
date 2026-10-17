@@ -127,6 +127,19 @@ uncertainty but cannot replace independent training seeds.
 checkpoint hashes, resolved settings, paired-seed statistics and bootstrap details.
 Full artifacts are in `.runs/randomized-budget-20261016`; code revision `5d79800`.
 
+**Next run:** twelve-hour weights-only bootstrap from the long-selfplay run's
+iteration 19 (19,456 games; checkpoint `checkpoint_20261003_125640_381463.pth`).
+Use fresh replay and Adam state, learned group-normalized priors, group-level root
+noise, fixed 256 search iterations, mixture backups and sampled chance. Preserve
+the 16/32-dimensional model and score/doubling auxiliaries. Generate 1,024 games per
+training iteration, replay ratio 4, LR 0.001, capacity 1,048,576 positions, eight CPU
+workers. Save every iteration and finish the active batch after the 12-hour soft
+cap. This tests sustained learning from deeper fresh targets; it is not an
+equal-compute ablation establishing the optimal search budget. Compare against
+the initial group-aware snapshot with matched inference settings before claiming
+progress. Recipe: `configs/overnight-group256.toml`; source checkpoint is supplied
+through a local override.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the

@@ -68,6 +68,16 @@ supports claims only about its completed measurements.
 
 ## Continuation and recording
 
+For a weights-only restart, set `bootstrap_checkpoint` instead of
+`initial_checkpoint`. This copies compatible model weights, permits changing
+policy normalization, and starts with fresh replay, Adam state, RNGs and counters.
+It rejects an initial replay dataset or simultaneous continuation checkpoint.
+The initial saved checkpoint records the source hash and source progress.
+`configs/overnight-group256.toml` supplies a twelve-hour fixed 256 recipe; extend it
+locally with the early checkpoint path. It generates 1,024 games per iteration
+and saves after each update cycle. The time cap is soft: finishing a large active
+iteration can produce substantial overrun, which is recorded in the results.
+
 Optional randomized self-play caps use `selfplay.fast_search_iterations` and
 `selfplay.full_search_probability` together. `search.iterations` remains the full
 cap. A per-game independent RNG selects each decision's cap. Fast searches disable
