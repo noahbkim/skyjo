@@ -186,7 +186,7 @@ historical44, despite using eight times as many search iterations at evaluation.
 [Faceoff evidence](evidence/overnight-group256-faceoffs.json) retains the paired
 outcomes and checkpoint/settings provenance.
 
-Next experiment: 1,024 fresh first-round games (512 paired deals, seats swapped),
+Completed follow-up: 1,024 fresh first-round games (512 paired deals, seats swapped),
 historical44/search32 versus trained/search256, eight workers and one thread each.
 `run_checkpoint_comparison.py --first-round` stops at the first round boundary
 from zero cumulative scores; it retains normal scoring, including doubling, and
@@ -194,6 +194,40 @@ leaves search's full-game value objective unchanged. Positive control-minus-new
 round score favors the new model. This measures opening-round performance without
 later-round score contexts or differing numbers of rounds. Outputs:
 `.runs/overnight-group256-evaluation/first-round/`.
+
+The first-round comparison favored historical44: mean round scores 18.585 versus
+20.056 for the new model, a new-model disadvantage of 1.471 points (paired-deal
+bootstrap 95% interval 0.146–2.810). New-model win credit was 42.33%
+(39.16–45.46%), with 433 wins, 590 losses and one draw. These are opening-round
+scores, whereas the principal training/search value objective is full-game wins.
+
+**Learning-loop diagnostic, October 17:** before another self-play run, compare
+initial group-aware19, historical44, and overnight4 on matched search budgets
+32/256/2048 with four search seeds. Reuse six tactical states and 17 exact endgames
+plus eight old general controls; generate up to 32 fresh decisions from eight
+new first rounds using frozen initial19/search32. Old controls have been inspected
+before and are not a held-out validation set. Probe uniform priors and mean-return
+backups on tactical states at 2048; measure training-noise targets at 256 for the
+new model. Record root priors, visits, Q, highest-Q alternatives, witness values,
+raw policy and symmetrized visit targets. Exact action values distinguish target
+quality from merely changing a decision.
+
+Use a saved final-generation replay subset split into 48 fitting and 16 validation
+games, capped at 4096/2048 positions. Compare original generator3 and successor4,
+then fit disposable copies of generator3 with policy-only versus combined losses,
+fresh Adam at LR .001, batch256, at 16/64/256 steps. The split is held out only
+from this diagnostic fitting, not from the original training. Separately fit
+search targets that improve exact expected win credit by >.01; this deliberately
+tests fitting capacity on the same examples, not generalization or playing strength.
+
+Finally evaluate up to 16 disagreement positions, prioritizing the two giveaways,
+with 16 paired continuation seeds and frozen historical44/search32 in both seats.
+Force candidate actions, record remaining-round and full-game score margins and
+full-game win credit. These are noisy, policy-dependent action estimates; selecting
+positions where methods disagree is not a population performance estimate.
+Eight workers, one thread each; source checkpoints and training replay remain intact.
+Entrypoint: `run_learning_loop_diagnostic.py`; plan and outputs:
+`.runs/learning-loop-20261017/`. All stages run sequentially in one detached job.
 
 ## Earlier inference and training evidence
 

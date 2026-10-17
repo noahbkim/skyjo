@@ -1,0 +1,60 @@
+{
+  "games": 1024,
+  "paired_deals": 512,
+  "win_credit": 0.42333984375,
+  "wins": 433,
+  "losses": 590,
+  "draws": 1,
+  "win_credit_95ci": [
+    0.3916015625,
+    0.45458984375
+  ],
+  "control_minus_variant_mean": -1.470703125,
+  "margin_95ci": [
+    -2.8095703125,
+    -0.1455078125
+  ],
+  "mean_scores": {
+    "control": 18.5849609375,
+    "variant": 20.0556640625
+  },
+  "median_differential": -5.0,
+  "differential_quantiles_05_25_50_75_95": [
+    -32.0,
+    -17.0,
+    -5.0,
+    16.0,
+    33.0
+  ],
+  "mean_margin_when_new_wins": 19.187066974595844,
+  "mean_margin_when_new_loses": -16.633898305084745,
+  "evaluation_seconds": 1673.8818366249907,
+  "execution": {
+    "requested_workers": 8,
+    "effective_workers": 8,
+    "threads_per_worker": 1
+  },
+  "first_round": true,
+  "iterations": {
+    "control": 32,
+    "variant": 256
+  },
+  "bootstrap": {
+    "samples": 20000,
+    "seed": 20261017,
+    "unit": "paired deal; both seats resampled together",
+    "interval": "95% percentile"
+  },
+  "source_report": ".runs/overnight-group256-evaluation/first-round/runs/20261017T162410Z-experiment-e1612e2e55/comparison.json",
+  "checkpoints": {
+    "control": {
+      "path": "/Users/urolyi1/repos/skyjo/.runs/20261004T023958Z-continue-search32-31b456dd3e/checkpoints/checkpoint_000044.pth",
+      "sha256": "3a47989020295b5af3033966001d69ee1df7099250a0ae24aa5cbebeca1723d7"
+    },
+    "variant": {
+      "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+      "sha256": "1381e44fdbfb3c44d8c8d0e2aea77ed3caa307c5b095d9fa1f3839fb3ad77c70"
+    }
+  },
+  "report_sha256": "36a2057a89ea8bf7a12ddea19e890a5a0c15be12b7279e13cf3a6bf2a967b1ac"
+}
