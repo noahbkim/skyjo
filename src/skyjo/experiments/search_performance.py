@@ -32,7 +32,11 @@ from skyjo.engine import game
 from skyjo.experiments.contestants import ContestantConfig, load_model
 from skyjo.experiments.generation import configure_torch_worker
 from skyjo.experiments.runs import file_digest
-from skyjo.experiments.search_performance_poc import make_predictor, snapshot_variant
+from skyjo.experiments.search_performance_poc import (
+    CachedDecisionNode,
+    make_predictor,
+    snapshot_variant,
+)
 from skyjo.experiments.terminal_benchmark import reconstruct
 from skyjo.learning import checkpoint as checkpoint_io
 from skyjo.search import runner
@@ -416,6 +420,26 @@ def profiles(output, inputs, variants, budget, seed, limit):
                 },
             )
             del retained
+            if variant in {"snapshots", "combined"}:
+                # Separate diagnostic: do not charge instrumentation to timings.
+                original_view = CachedDecisionNode.view
+                counts = Counter()
+
+                def observed_view(node, original_view=original_view, counts=counts):
+                    previous = getattr(node, "_cached_view", None)
+                    previous_static = getattr(node, "_static", None)
+                    view = original_view(node)
+                    counts["view_calls"] += 1
+                    counts["snapshot_reuses"] += view is previous
+                    counts["static_array_reuses"] += node._static is previous_static
+                    return view
+
+                try:
+                    CachedDecisionNode.view = observed_view
+                    work()
+                finally:
+                    CachedDecisionNode.view = original_view
+                save(output / f"{variant}-cache.json", dict(counts))
         print(f"profile {variant} complete", flush=True)
 
 

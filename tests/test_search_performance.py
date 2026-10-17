@@ -93,7 +93,9 @@ def test_packing_and_predictions_preserve_inputs_and_retained_results(players):
         np.testing.assert_array_equal(state.table, table)
 
 
-@pytest.mark.parametrize("strategy", ["legacy", "alphazero", "gumbel"])
+@pytest.mark.parametrize(
+    "strategy", ["legacy", "alphazero", "gumbel", "best_response", "replicas"]
+)
 @pytest.mark.parametrize("exact_chance", [False, True])
 def test_search_variants_preserve_results_and_random_streams(strategy, exact_chance):
     _, cases = load_cases(Path("configs/benchmarks/search_positions.json"))
@@ -105,8 +107,16 @@ def test_search_variants_preserve_results_and_random_streams(strategy, exact_cha
     ]
     states[-1].game[game.GAME_SCORES : game.GAME_SCORES + 2] = 0
     config = preset(
-        strategy, after_state_evaluate_all_children=exact_chance, boundary_samples=3
+        "alphazero" if strategy in {"best_response", "replicas"} else strategy,
+        after_state_evaluate_all_children=exact_chance,
+        boundary_samples=3,
     )
+    if strategy == "best_response":
+        config = dataclasses.replace(config, valuation="best_response")
+    if strategy == "replicas":
+        config = dataclasses.replace(
+            config, replicas=2, action_strategy="lower_confidence"
+        )
     model = small_model()
     for state in states:
         signatures = []
@@ -114,7 +124,13 @@ def test_search_variants_preserve_results_and_random_streams(strategy, exact_cha
             evaluator = make_predictor(model, variant)
             rng = np.random.default_rng(41)
             with snapshot_variant(variant):
-                result = runner.search(state, evaluator, 16, config=config, rng=rng)
+                result = runner.search(
+                    state,
+                    evaluator,
+                    64 if strategy == "replicas" else 16,
+                    config=config,
+                    rng=rng,
+                )
                 signatures.append(result_digest(result, rng.bit_generator.state))
         assert len(set(signatures)) == 1
 

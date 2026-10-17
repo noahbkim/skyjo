@@ -1,0 +1,2777 @@
+{
+  "ablation_results": [
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 15.650275999999906,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          15.380237999999991,
+          15.650275999999906,
+          15.90730900000014
+        ]
+      },
+      "seconds": {
+        "median": 16.31282200932037,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          16.103892164246645,
+          16.31282200932037,
+          16.583271705836523
+        ]
+      },
+      "sweeps": 3,
+      "variant": "baseline"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 14.105947999999998,
+        "median_paired_speedup": 1.0911920669155875,
+        "paired_speedups": [
+          1.0903370691569254,
+          1.0911920669155875,
+          1.1480749782976876
+        ],
+        "totals": [
+          14.105947999999998,
+          14.342366000000055,
+          13.85563599999955
+        ]
+      },
+      "seconds": {
+        "median": 14.846000036573969,
+        "median_paired_speedup": 1.0847293630994064,
+        "paired_speedups": [
+          1.0847293630994064,
+          1.0698170475115105,
+          1.1497604548406324
+        ],
+        "totals": [
+          14.846000036573969,
+          15.248235244769603,
+          14.423240628966596
+        ]
+      },
+      "sweeps": 3,
+      "variant": "inference"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 13.850205000000003,
+        "median_paired_speedup": 1.110470061634466,
+        "paired_speedups": [
+          1.110470061634466,
+          1.0763276869651448,
+          1.255741112845898
+        ],
+        "totals": [
+          13.850205000000003,
+          14.540437999999824,
+          12.667665999999997
+        ]
+      },
+      "seconds": {
+        "median": 14.273602381057572,
+        "median_paired_speedup": 1.128229001644185,
+        "paired_speedups": [
+          1.128229001644185,
+          1.076540860815973,
+          1.3010780445749857
+        ],
+        "totals": [
+          14.273602381057572,
+          15.152998463017866,
+          12.745793209702242
+        ]
+      },
+      "sweeps": 3,
+      "variant": "mode"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 15.574730999999986,
+        "median_paired_speedup": 1.0048504850581317,
+        "paired_speedups": [
+          0.985808676853713,
+          1.0048504850581317,
+          1.1527712133828263
+        ],
+        "totals": [
+          15.601645999999967,
+          15.574730999999986,
+          13.799189999999982
+        ]
+      },
+      "seconds": {
+        "median": 16.275951410876587,
+        "median_paired_speedup": 1.0022653421304235,
+        "paired_speedups": [
+          0.9793039843684231,
+          1.0022653421304235,
+          1.1759784897000978
+        ],
+        "totals": [
+          16.444222040649038,
+          16.275951410876587,
+          14.101679453393444
+        ]
+      },
+      "sweeps": 3,
+      "variant": "packing"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 15.407357000000019,
+        "median_paired_speedup": 1.0047130634847363,
+        "paired_speedups": [
+          1.0047130634847363,
+          1.0157664289858337,
+          0.9333525746406521
+        ],
+        "totals": [
+          15.308089999999936,
+          15.407357000000019,
+          17.043194000000028
+        ]
+      },
+      "seconds": {
+        "median": 16.10760663234396,
+        "median_paired_speedup": 1.0027528636378285,
+        "paired_speedups": [
+          1.0027528636378285,
+          1.0127402774142957,
+          0.9109833669089626
+        ],
+        "totals": [
+          16.059682049497496,
+          16.10760663234396,
+          18.20370415993966
+        ]
+      },
+      "sweeps": 3,
+      "variant": "sharing"
+    }
+  ],
+  "batch_results": [
+    {
+      "batch_size": 1,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 0.0,
+      "samples_states_per_second": [
+        1570.6778159063076,
+        1546.5622483975073,
+        1538.591084403563
+      ],
+      "states_per_second": 1546.5622483975073,
+      "variant": "baseline"
+    },
+    {
+      "batch_size": 4,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        3891.090016529316,
+        3917.868243125821,
+        4965.6088661767735
+      ],
+      "states_per_second": 3917.868243125821,
+      "variant": "baseline"
+    },
+    {
+      "batch_size": 16,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        7910.876438555767,
+        6757.525913582124,
+        8445.54944974061
+      ],
+      "states_per_second": 7910.876438555767,
+      "variant": "baseline"
+    },
+    {
+      "batch_size": 64,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        9638.73185800551,
+        9789.819274048783,
+        9661.303931979564
+      ],
+      "states_per_second": 9661.303931979564,
+      "variant": "baseline"
+    },
+    {
+      "batch_size": 128,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        9397.822024152978,
+        9314.162512350615,
+        10144.70319445402
+      ],
+      "states_per_second": 9397.822024152978,
+      "variant": "baseline"
+    },
+    {
+      "batch_size": 1,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 0.0,
+      "samples_states_per_second": [
+        1752.2002656273846,
+        1788.6759693106098,
+        1720.6842697827344
+      ],
+      "states_per_second": 1752.2002656273846,
+      "variant": "inference"
+    },
+    {
+      "batch_size": 4,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        4444.589934667063,
+        4679.867258665175,
+        4428.4543991309765
+      ],
+      "states_per_second": 4444.589934667063,
+      "variant": "inference"
+    },
+    {
+      "batch_size": 16,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        7730.382729660411,
+        9797.398411800928,
+        9804.070249589038
+      ],
+      "states_per_second": 9797.398411800928,
+      "variant": "inference"
+    },
+    {
+      "batch_size": 64,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        10484.986107120742,
+        10859.104708553623,
+        11757.585945482748
+      ],
+      "states_per_second": 10859.104708553623,
+      "variant": "inference"
+    },
+    {
+      "batch_size": 128,
+      "max_policy_error_vs_single": 0.0,
+      "max_value_error_vs_single": 2.9802322387695312e-08,
+      "samples_states_per_second": [
+        10767.322912001295,
+        11751.480335724686,
+        11149.987616172724
+      ],
+      "states_per_second": 11149.987616172724,
+      "variant": "inference"
+    }
+  ],
+  "exact_parity_trials": 6528,
+  "external_load": {
+    "external_load": "User confirmed an ongoing overnight training run with eight workers. It was left running throughout these measurements.",
+    "hardware": "Apple M1 Pro, 10 logical CPUs",
+    "interpretation": "Contended-host exploratory measurements; use the quick preset for an idle rerun. Worker scaling is not an idle-host capacity estimate."
+  },
+  "game_reference": {
+    "0": [
+      "ebb3c83ec1fc48177c2f2119e7b141b712ecda5d48c30af57ff98a8125e6eb83",
+      13736,
+      {
+        "1": 13736
+      }
+    ],
+    "1": [
+      "dca6b80c7c064afa8b34a6d87e6bce70da760a3a4e265fce609aa76d263da9d2",
+      13200,
+      {
+        "1": 13200
+      }
+    ],
+    "2": [
+      "89d73222b171effd6bc796699f4c6434aca7745526d05a2cf88ee1c165fc11c8",
+      10638,
+      {
+        "1": 10638
+      }
+    ],
+    "3": [
+      "4360ebfa8bad536a733d58d19999f902c46007d34cbcff2d262e23c87fcb3485",
+      8859,
+      {
+        "1": 8859
+      }
+    ],
+    "4": [
+      "3e19c61382a943b9cb59d6e0f0b0a08917b4577067ec686c66a859987ece8138",
+      11829,
+      {
+        "1": 11829
+      }
+    ],
+    "5": [
+      "0da9d4651dff686e76a565974574c30f673b567eba12981c96a0ff85083a0d37",
+      7798,
+      {
+        "1": 7798
+      }
+    ],
+    "6": [
+      "980df74f59ca62d12f789ae422696fbf6b17658aa79836015ee4cd2750fa2f7b",
+      15055,
+      {
+        "1": 15055
+      }
+    ],
+    "7": [
+      "d99b0cd8f7ed3e953f18f88d4070e6900ebadf451af004d82bb2bec7f3298168",
+      10434,
+      {
+        "1": 10434
+      }
+    ]
+  },
+  "game_results": [
+    {
+      "decisions": 2788,
+      "evaluated_states": 91549,
+      "game_cpu_seconds": 83.17686299999998,
+      "games": 8,
+      "iterations": 32,
+      "load_average_end": [
+        11.73974609375,
+        13.18994140625,
+        14.91064453125
+      ],
+      "maximum_worker_rss_bytes": 351666176,
+      "variant": "baseline",
+      "wall_seconds_including_startup": 88.8063658750034,
+      "workers": 1
+    },
+    {
+      "decisions": 2788,
+      "evaluated_states": 91549,
+      "game_cpu_seconds": 75.25168099999999,
+      "games": 8,
+      "iterations": 32,
+      "load_average_end": [
+        12.23779296875,
+        13.04541015625,
+        14.701171875
+      ],
+      "maximum_worker_rss_bytes": 354271232,
+      "variant": "inference",
+      "wall_seconds_including_startup": 80.86904233298264,
+      "workers": 1
+    },
+    {
+      "decisions": 2788,
+      "evaluated_states": 91549,
+      "game_cpu_seconds": 91.06452300000001,
+      "games": 8,
+      "iterations": 32,
+      "load_average_end": [
+        21.7568359375,
+        15.42041015625,
+        15.50390625
+      ],
+      "maximum_worker_rss_bytes": 329449472,
+      "variant": "baseline",
+      "wall_seconds_including_startup": 35.4589693750022,
+      "workers": 4
+    },
+    {
+      "decisions": 2788,
+      "evaluated_states": 91549,
+      "game_cpu_seconds": 85.211381,
+      "games": 8,
+      "iterations": 32,
+      "load_average_end": [
+        31.46875,
+        18.26025390625,
+        16.52197265625
+      ],
+      "maximum_worker_rss_bytes": 325746688,
+      "variant": "inference",
+      "wall_seconds_including_startup": 32.701576750027016,
+      "workers": 4
+    },
+    {
+      "decisions": 2788,
+      "evaluated_states": 91549,
+      "game_cpu_seconds": 97.881643,
+      "games": 8,
+      "iterations": 32,
+      "load_average_end": [
+        33.08154296875,
+        20.01025390625,
+        17.220703125
+      ],
+      "maximum_worker_rss_bytes": 308756480,
+      "variant": "baseline",
+      "wall_seconds_including_startup": 28.036171082989313,
+      "workers": 8
+    },
+    {
+      "decisions": 2788,
+      "evaluated_states": 91549,
+      "game_cpu_seconds": 87.912229,
+      "games": 8,
+      "iterations": 32,
+      "load_average_end": [
+        34.9501953125,
+        21.52783203125,
+        17.849609375
+      ],
+      "maximum_worker_rss_bytes": 323813376,
+      "variant": "inference",
+      "wall_seconds_including_startup": 24.09437775000697,
+      "workers": 8
+    }
+  ],
+  "input_provenance": {
+    "candidate_count": 8192,
+    "cases_sha256": "78eed5f44ab572debcc0752412f179c649f3865bf75170e526790c5e35a6745d",
+    "checkpoint_sha256": "7d5d9e439bc9dac8116ef9e554c7a192599eff3d129280bf8aa6b43028b1e401",
+    "checkpoint_source": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000000.pth",
+    "config_sha256": "ac3a84e0f242fea6d99513bd15463c74a1085a17a163587e8a5aec025d8f40bb",
+    "config_source": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/resolved-config.json",
+    "replay_manifest_sha256": "9ab358e72c21b7654afcfb65e1e220160fa35020c1295e43bd4e64d89591533e",
+    "replay_source": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/randomized-budget-20261016/fixed/20261016T222710Z-group-fixed-budget-from119-03d7fcb36b/data/replay",
+    "seed": 20261017,
+    "selection": "Round-robin balanced strata from a seeded random candidate pool; not population weighted",
+    "strata": {
+      "(0, 2, False)": 11,
+      "(1, 0, False)": 11,
+      "(1, 1, False)": 11,
+      "(1, 2, False)": 11,
+      "(2, 0, False)": 11,
+      "(2, 0, True)": 11,
+      "(2, 1, False)": 11,
+      "(2, 2, False)": 11,
+      "(3, 0, False)": 10,
+      "(3, 0, True)": 10,
+      "(3, 1, False)": 10,
+      "(3, 2, False)": 10
+    }
+  },
+  "memory": {
+    "baseline": {
+      "live_allocations": 98234,
+      "note": "tracemalloc excludes some native Torch allocations; RSS is process lifetime high-water mark, bytes on macOS, KiB on Linux",
+      "process_peak_rss_native_units": 375635968,
+      "retained_searches": 4,
+      "traced_current_bytes": 13976447,
+      "traced_peak_bytes": 13984386
+    },
+    "combined": {
+      "live_allocations": 142573,
+      "note": "tracemalloc excludes some native Torch allocations; RSS is process lifetime high-water mark, bytes on macOS, KiB on Linux",
+      "process_peak_rss_native_units": 428736512,
+      "retained_searches": 4,
+      "traced_current_bytes": 17180706,
+      "traced_peak_bytes": 17187652
+    },
+    "inference": {
+      "live_allocations": 98173,
+      "note": "tracemalloc excludes some native Torch allocations; RSS is process lifetime high-water mark, bytes on macOS, KiB on Linux",
+      "process_peak_rss_native_units": 398917632,
+      "retained_searches": 4,
+      "traced_current_bytes": 13970545,
+      "traced_peak_bytes": 13978905
+    },
+    "snapshots": {
+      "live_allocations": 142654,
+      "note": "tracemalloc excludes some native Torch allocations; RSS is process lifetime high-water mark, bytes on macOS, KiB on Linux",
+      "process_peak_rss_native_units": 426917888,
+      "retained_searches": 4,
+      "traced_current_bytes": 17187903,
+      "traced_peak_bytes": 17194673
+    }
+  },
+  "primary_results": [
+    {
+      "budget": 32,
+      "cpu_seconds": {
+        "median": 4.324112000000241,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          4.367888999999963,
+          4.313339999999869,
+          4.324112000000241
+        ]
+      },
+      "seconds": {
+        "median": 4.608312209020369,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          4.764424462337047,
+          4.596190795709845,
+          4.608312209020369
+        ]
+      },
+      "sweeps": 3,
+      "variant": "baseline"
+    },
+    {
+      "budget": 32,
+      "cpu_seconds": {
+        "median": 3.8912290000000667,
+        "median_paired_speedup": 1.1112458300449979,
+        "paired_speedups": [
+          1.0776391110040622,
+          1.1227597983199649,
+          1.1112458300449979
+        ],
+        "totals": [
+          4.05320200000007,
+          3.841730000000098,
+          3.8912290000000667
+        ]
+      },
+      "seconds": {
+        "median": 4.079459210683126,
+        "median_paired_speedup": 1.1296380159782706,
+        "paired_speedups": [
+          1.093910568819632,
+          1.1401730674365913,
+          1.1296380159782706
+        ],
+        "totals": [
+          4.355405823967885,
+          4.031134331249632,
+          4.079459210683126
+        ]
+      },
+      "sweeps": 3,
+      "variant": "combined"
+    },
+    {
+      "budget": 32,
+      "cpu_seconds": {
+        "median": 3.8532730000002857,
+        "median_paired_speedup": 1.122191965116388,
+        "paired_speedups": [
+          1.1151637529890466,
+          1.1258066056903402,
+          1.122191965116388
+        ],
+        "totals": [
+          3.916813999999931,
+          3.831333000000427,
+          3.8532730000002857
+        ]
+      },
+      "seconds": {
+        "median": 4.036981960118283,
+        "median_paired_speedup": 1.1415241025464842,
+        "paired_speedups": [
+          1.1464130025793833,
+          1.1395644571419234,
+          1.1415241025464842
+        ],
+        "totals": [
+          4.1559407051536255,
+          4.033287250145804,
+          4.036981960118283
+        ]
+      },
+      "sweeps": 3,
+      "variant": "inference"
+    },
+    {
+      "budget": 32,
+      "cpu_seconds": {
+        "median": 4.311648000000048,
+        "median_paired_speedup": 1.0130439683387684,
+        "paired_speedups": [
+          1.0130439683387684,
+          0.9998734319822247,
+          1.0184133982426804
+        ],
+        "totals": [
+          4.311648000000048,
+          4.313885999999798,
+          4.245929999999703
+        ]
+      },
+      "seconds": {
+        "median": 4.5296362900407985,
+        "median_paired_speedup": 1.0415143782802212,
+        "paired_speedups": [
+          1.05183378029986,
+          1.0087365636418542,
+          1.0415143782802212
+        ],
+        "totals": [
+          4.5296362900407985,
+          4.556383659888525,
+          4.424626587133389
+        ]
+      },
+      "sweeps": 3,
+      "variant": "snapshots"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 17.070021999999767,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          17.29771900000003,
+          16.67097200000012,
+          17.070021999999767
+        ]
+      },
+      "seconds": {
+        "median": 18.10701583221089,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          18.383039704873227,
+          18.10701583221089,
+          17.881752626155503
+        ]
+      },
+      "sweeps": 3,
+      "variant": "baseline"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 16.14638999999997,
+        "median_paired_speedup": 1.0467721645163468,
+        "paired_speedups": [
+          1.0713056602745297,
+          1.0467721645163468,
+          1.0350591107732332
+        ],
+        "totals": [
+          16.14638999999997,
+          15.926075000000424,
+          16.491832999999133
+        ]
+      },
+      "seconds": {
+        "median": 17.145603915967513,
+        "median_paired_speedup": 1.0617752198880073,
+        "paired_speedups": [
+          1.0721721903159855,
+          1.0617752198880073,
+          1.0248028534647537
+        ],
+        "totals": [
+          17.145603915967513,
+          17.05353025108343,
+          17.448968419339508
+        ]
+      },
+      "sweeps": 3,
+      "variant": "combined"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 15.666453000000729,
+        "median_paired_speedup": 1.0895907325033287,
+        "paired_speedups": [
+          1.0882090900214898,
+          1.0946744990974273,
+          1.0895907325033287
+        ],
+        "totals": [
+          15.895583999999886,
+          15.229159000000038,
+          15.666453000000729
+        ]
+      },
+      "seconds": {
+        "median": 16.409338298020884,
+        "median_paired_speedup": 1.0897302683016905,
+        "paired_speedups": [
+          1.0816772215341286,
+          1.135882712733628,
+          1.0897302683016905
+        ],
+        "totals": [
+          16.994940208503976,
+          15.94092033378547,
+          16.409338298020884
+        ]
+      },
+      "sweeps": 3,
+      "variant": "inference"
+    },
+    {
+      "budget": 128,
+      "cpu_seconds": {
+        "median": 17.074675000000866,
+        "median_paired_speedup": 0.9989789077332873,
+        "paired_speedups": [
+          0.9874458531452697,
+          0.9989789077332873,
+          0.9997274911527687
+        ],
+        "totals": [
+          17.517638000000034,
+          16.68801200000013,
+          17.074675000000866
+        ]
+      },
+      "seconds": {
+        "median": 17.71689974918263,
+        "median_paired_speedup": 1.0093048377146503,
+        "paired_speedups": [
+          0.9889872938479972,
+          1.0402382418060194,
+          1.0093048377146503
+        ],
+        "totals": [
+          18.587741034920327,
+          17.406604664691258,
+          17.71689974918263
+        ]
+      },
+      "sweeps": 3,
+      "variant": "snapshots"
+    },
+    {
+      "budget": 256,
+      "cpu_seconds": {
+        "median": 35.547564000000364,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          35.32439900000003,
+          35.547564000000364,
+          36.571079000000054
+        ]
+      },
+      "seconds": {
+        "median": 37.865840332058724,
+        "median_paired_speedup": 1.0,
+        "paired_speedups": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "totals": [
+          37.34268296597293,
+          37.865840332058724,
+          39.207749456283636
+        ]
+      },
+      "sweeps": 3,
+      "variant": "baseline"
+    },
+    {
+      "budget": 256,
+      "cpu_seconds": {
+        "median": 32.375068999999996,
+        "median_paired_speedup": 1.097991914704502,
+        "paired_speedups": [
+          1.087285000545882,
+          1.097991914704502,
+          1.1663431863408613
+        ],
+        "totals": [
+          32.48862900000006,
+          32.375068999999996,
+          31.35533300000111
+        ]
+      },
+      "seconds": {
+        "median": 34.46631329250522,
+        "median_paired_speedup": 1.0837717096275503,
+        "paired_speedups": [
+          1.0834545212032638,
+          1.0837717096275503,
+          1.1967818048641419
+        ],
+        "totals": [
+          34.46631329250522,
+          34.93894516315777,
+          32.76098391279811
+        ]
+      },
+      "sweeps": 3,
+      "variant": "combined"
+    },
+    {
+      "budget": 256,
+      "cpu_seconds": {
+        "median": 31.986930000000314,
+        "median_paired_speedup": 1.1113152778337907,
+        "paired_speedups": [
+          1.0960142843885488,
+          1.1113152778337907,
+          1.1756457808227867
+        ],
+        "totals": [
+          32.229870999999804,
+          31.986930000000314,
+          31.107225999999287
+        ]
+      },
+      "seconds": {
+        "median": 33.27074873907259,
+        "median_paired_speedup": 1.1381120584037154,
+        "paired_speedups": [
+          1.0906561693814005,
+          1.1381120584037154,
+          1.200946446904483
+        ],
+        "totals": [
+          34.238730788230896,
+          33.27074873907259,
+          32.6473753741011
+        ]
+      },
+      "sweeps": 3,
+      "variant": "inference"
+    },
+    {
+      "budget": 256,
+      "cpu_seconds": {
+        "median": 35.05565399999989,
+        "median_paired_speedup": 1.0140322585338295,
+        "paired_speedups": [
+          0.9890787330146452,
+          1.0140322585338295,
+          1.0496128486501626
+        ],
+        "totals": [
+          35.714446000000066,
+          35.05565399999989,
+          34.842446000000564
+        ]
+      },
+      "seconds": {
+        "median": 36.634050787077285,
+        "median_paired_speedup": 1.033624169823337,
+        "paired_speedups": [
+          0.9873643837589919,
+          1.033624169823337,
+          1.0752234549025093
+        ],
+        "totals": [
+          37.82056916394504,
+          36.634050787077285,
+          36.46474533039145
+        ]
+      },
+      "sweeps": 3,
+      "variant": "snapshots"
+    }
+  ],
+  "profiles": {
+    "baseline": {
+      "functions": [
+        {
+          "calls": 4112,
+          "cumulative_seconds": 4.49862346,
+          "file": "predictor.py",
+          "fraction_of_profile": 0.6907099305130429,
+          "line": 25,
+          "name": "evaluate",
+          "self_seconds": 0.030968311000000002
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 3.1256495020000004,
+          "file": "skynet.py",
+          "fraction_of_profile": 0.47990616897164073,
+          "line": 363,
+          "name": "forward",
+          "self_seconds": 0.049313042
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.9720752960000001,
+          "file": "module.py",
+          "fraction_of_profile": 0.14925055767028023,
+          "line": 2849,
+          "name": "eval",
+          "self_seconds": 0.001982638
+        },
+        {
+          "calls": 15615,
+          "cumulative_seconds": 0.586006266,
+          "file": "game.py",
+          "fraction_of_profile": 0.08997426676583145,
+          "line": 1118,
+          "name": "apply_action",
+          "self_seconds": 0.034920807000000005
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.507213066,
+          "file": "policy.py",
+          "fraction_of_profile": 0.07787651149006533,
+          "line": 8,
+          "name": "group_normalized_logits",
+          "self_seconds": 0.27050021700000004
+        },
+        {
+          "calls": 22292,
+          "cumulative_seconds": 0.45037363900000005,
+          "file": "mcts.py",
+          "fraction_of_profile": 0.06914949598795633,
+          "line": 112,
+          "name": "view",
+          "self_seconds": 0.170606847
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.161590276,
+          "file": "batches.py",
+          "fraction_of_profile": 0.024810257915549885,
+          "line": 63,
+          "name": "states_to_batch",
+          "self_seconds": 0.022677255
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.069301525,
+          "file": "batches.py",
+          "fraction_of_profile": 0.010640421885231066,
+          "line": 49,
+          "name": "to_tensors",
+          "self_seconds": 0.008943715000000001
+        }
+      ],
+      "total_seconds": 6.5130429739999975
+    },
+    "combined": {
+      "functions": [
+        {
+          "calls": 4112,
+          "cumulative_seconds": 3.4391268490000004,
+          "file": "search_performance_poc.py",
+          "fraction_of_profile": 0.6270436771434613,
+          "line": 76,
+          "name": "evaluate",
+          "self_seconds": 0.030681155
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 3.182740148,
+          "file": "skynet.py",
+          "fraction_of_profile": 0.5802976084974422,
+          "line": 363,
+          "name": "forward",
+          "self_seconds": 0.047126695
+        },
+        {
+          "calls": 15615,
+          "cumulative_seconds": 0.566075557,
+          "file": "game.py",
+          "fraction_of_profile": 0.1032105282494955,
+          "line": 1118,
+          "name": "apply_action",
+          "self_seconds": 0.038671532
+        },
+        {
+          "calls": 22292,
+          "cumulative_seconds": 0.543992981,
+          "file": "search_performance_poc.py",
+          "fraction_of_profile": 0.09918429128185759,
+          "line": 141,
+          "name": "view",
+          "self_seconds": 0.222268973
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.49407760500000003,
+          "file": "policy.py",
+          "fraction_of_profile": 0.09008339960578016,
+          "line": 8,
+          "name": "group_normalized_logits",
+          "self_seconds": 0.265781031
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.06751365200000001,
+          "file": "search_performance_poc.py",
+          "fraction_of_profile": 0.012309522290453904,
+          "line": 42,
+          "name": "fill",
+          "self_seconds": 0.038214404
+        }
+      ],
+      "total_seconds": 5.484668730999998
+    },
+    "inference": {
+      "functions": [
+        {
+          "calls": 4112,
+          "cumulative_seconds": 3.474477638,
+          "file": "search_performance_poc.py",
+          "fraction_of_profile": 0.6358951033336541,
+          "line": 76,
+          "name": "evaluate",
+          "self_seconds": 0.029387082000000002
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 3.2174880380000004,
+          "file": "skynet.py",
+          "fraction_of_profile": 0.5888611473627237,
+          "line": 363,
+          "name": "forward",
+          "self_seconds": 0.051683551
+        },
+        {
+          "calls": 15615,
+          "cumulative_seconds": 0.5776908230000001,
+          "file": "game.py",
+          "fraction_of_profile": 0.10572834361309788,
+          "line": 1118,
+          "name": "apply_action",
+          "self_seconds": 0.035315357000000006
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.508549541,
+          "file": "policy.py",
+          "fraction_of_profile": 0.09307418168062401,
+          "line": 8,
+          "name": "group_normalized_logits",
+          "self_seconds": 0.278174747
+        },
+        {
+          "calls": 22292,
+          "cumulative_seconds": 0.44538970000000006,
+          "file": "mcts.py",
+          "fraction_of_profile": 0.08151473654850594,
+          "line": 112,
+          "name": "view",
+          "self_seconds": 0.16653500300000001
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.06958167500000001,
+          "file": "search_performance_poc.py",
+          "fraction_of_profile": 0.012734762178444546,
+          "line": 42,
+          "name": "fill",
+          "self_seconds": 0.039273556
+        }
+      ],
+      "total_seconds": 5.463916328000001
+    },
+    "snapshots": {
+      "functions": [
+        {
+          "calls": 4112,
+          "cumulative_seconds": 4.510289285000001,
+          "file": "predictor.py",
+          "fraction_of_profile": 0.671372077786157,
+          "line": 25,
+          "name": "evaluate",
+          "self_seconds": 0.03258734
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 3.1195628510000004,
+          "file": "skynet.py",
+          "fraction_of_profile": 0.4643576632713433,
+          "line": 363,
+          "name": "forward",
+          "self_seconds": 0.052396733
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.9806520190000001,
+          "file": "module.py",
+          "fraction_of_profile": 0.1459734269752544,
+          "line": 2849,
+          "name": "eval",
+          "self_seconds": 0.002087695
+        },
+        {
+          "calls": 15615,
+          "cumulative_seconds": 0.5627996820000001,
+          "file": "game.py",
+          "fraction_of_profile": 0.08377466898594475,
+          "line": 1118,
+          "name": "apply_action",
+          "self_seconds": 0.034558492
+        },
+        {
+          "calls": 22292,
+          "cumulative_seconds": 0.547916164,
+          "file": "search_performance_poc.py",
+          "fraction_of_profile": 0.08155920612469111,
+          "line": 141,
+          "name": "view",
+          "self_seconds": 0.22741882900000002
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.49967482300000005,
+          "file": "policy.py",
+          "fraction_of_profile": 0.07437831654182692,
+          "line": 8,
+          "name": "group_normalized_logits",
+          "self_seconds": 0.269200365
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.162416993,
+          "file": "batches.py",
+          "fraction_of_profile": 0.024176328206005463,
+          "line": 63,
+          "name": "states_to_batch",
+          "self_seconds": 0.022675576000000003
+        },
+        {
+          "calls": 4112,
+          "cumulative_seconds": 0.072636268,
+          "file": "batches.py",
+          "fraction_of_profile": 0.010812158397904658,
+          "line": 49,
+          "name": "to_tensors",
+          "self_seconds": 0.008418964000000001
+        }
+      ],
+      "total_seconds": 6.718017377000003
+    }
+  },
+  "purpose": "Behavior-preserving CPU search PoCs; production unchanged",
+  "raw_artifacts": [
+    {
+      "path": ".runs/search-performance-searches/blocks.jsonl",
+      "sha256": "09fd9ff05f291b9caa0e996e271a9919b8091dc90384ae22ba90ae74fe21219e"
+    },
+    {
+      "path": ".runs/search-performance-searches/manifest.json",
+      "sha256": "b1f1222d58ea292d2158c60cf52735477f7a499ef9671efd8ecde8a782e2e2b9"
+    },
+    {
+      "path": ".runs/search-performance-searches/searches.jsonl",
+      "sha256": "274c8adc742466581ec1e8f6b86546c6fe7786f869c7a9cf58398bcf2f3c6102"
+    },
+    {
+      "path": ".runs/search-performance-ablations/summary.json",
+      "sha256": "df41241ce9fa3176196660e068f1ca15fd5098b1544e325f670e27ccec94e8c5"
+    },
+    {
+      "path": ".runs/search-performance-ablations/blocks.jsonl",
+      "sha256": "00279219eb2b2bda6c6f7e085007dffdad82959b1b99151e43e6f87df79fc85e"
+    },
+    {
+      "path": ".runs/search-performance-ablations/manifest.json",
+      "sha256": "01c19a8d7fefdf9e568a5ac1fdd7e8999e04c19c739f1863a17bce3312283e24"
+    },
+    {
+      "path": ".runs/search-performance-ablations/searches.jsonl",
+      "sha256": "3b9404bea8b4e3490c4bd773aa0a02860b596add78ef397e2c14d19835414b17"
+    },
+    {
+      "path": ".runs/search-performance-profile/combined.prof",
+      "sha256": "90f3eed86f365be4eb073e4c1365b86bd25567392121da757b9adcfc21967147"
+    },
+    {
+      "path": ".runs/search-performance-profile/baseline-profile.json",
+      "sha256": "1db2ac4331320de08a0882ce458af342cdaf2214fb072f044621c3a7254521c9"
+    },
+    {
+      "path": ".runs/search-performance-profile/combined-cache.json",
+      "sha256": "76bcfaccb254bb21c61480ce99403e1d16ec0db716f8657e9c0d23ccfa7585af"
+    },
+    {
+      "path": ".runs/search-performance-profile/snapshots.prof",
+      "sha256": "dedaf244d8c6fc831b8f08cbe95d90bbb9498fa7a8df65ba5632ae26aff604e8"
+    },
+    {
+      "path": ".runs/search-performance-profile/combined-memory.json",
+      "sha256": "96ffcdd700ffacf7fdf0731072898919ddfc87016605edf2bd89cbac5e166abb"
+    },
+    {
+      "path": ".runs/search-performance-profile/inference-profile.json",
+      "sha256": "0a3d54a9e716de0db84645492afd9ca2c95d6db69202e4d58aef3ecc4f2d7d14"
+    },
+    {
+      "path": ".runs/search-performance-profile/combined-profile.json",
+      "sha256": "bdc4232cd677cdeaee634b3de77cabce2644047b1618bd521fb92eb5a0bc7876"
+    },
+    {
+      "path": ".runs/search-performance-profile/inference.prof",
+      "sha256": "83920e1245720b9943b44bfefc1b503a5ce9d72b0ffec3370104d9949fe9155d"
+    },
+    {
+      "path": ".runs/search-performance-profile/baseline.prof",
+      "sha256": "777c6dc9943046acc1b31c6c1f8367067c9e7e96bc5c4d9b97d330719b1ad90d"
+    },
+    {
+      "path": ".runs/search-performance-profile/manifest.json",
+      "sha256": "278f41fb6ae6715f88c035f5bdac2ee157d79e5d94010d6983638026c29fd77b"
+    },
+    {
+      "path": ".runs/search-performance-profile/baseline-memory.json",
+      "sha256": "a30122e6e31b5bca562b81daa76d3a77eba926bad668b90ebf5cc0a44e597ec0"
+    },
+    {
+      "path": ".runs/search-performance-profile/snapshots-memory.json",
+      "sha256": "71878d0e71f1b1aa6a946915c5a8b9808dd34b64280f61406c73a5e921f1a494"
+    },
+    {
+      "path": ".runs/search-performance-profile/snapshots-cache.json",
+      "sha256": "76bcfaccb254bb21c61480ce99403e1d16ec0db716f8657e9c0d23ccfa7585af"
+    },
+    {
+      "path": ".runs/search-performance-profile/snapshots-profile.json",
+      "sha256": "b530da7394a16f088b5072d46aca262f14bc60d200366c3550eb47c1ce7fb0d7"
+    },
+    {
+      "path": ".runs/search-performance-profile/inference-memory.json",
+      "sha256": "dfb6dd370e5347a1e6242785c839354c891a3dc824d0221db2cec76547bc9788"
+    },
+    {
+      "path": ".runs/search-performance-batches/batches.jsonl",
+      "sha256": "a5198e80253cb875a4fd7fee3560017076973237ce727e62c1ef296cfe950566"
+    },
+    {
+      "path": ".runs/search-performance-batches/manifest.json",
+      "sha256": "83aaf9bb50ed7bf556f03130f80dadce3cfd9cad1d84c405a16ebc527bfa6896"
+    },
+    {
+      "path": ".runs/search-performance-games/manifest.json",
+      "sha256": "2a0a40c1659e579777084522cd5afeee3ac66762b695d04e23823414a21f5357"
+    },
+    {
+      "path": ".runs/search-performance-games/games.jsonl",
+      "sha256": "d22e72965b693b104dededbfc752657d26c850a99ffd62ed824e82ad2c95d113"
+    }
+  ],
+  "selected_positions": [
+    {
+      "game_id": 119896,
+      "index": 902702,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121007,
+      "index": 1180504,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117689,
+      "index": 319330,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 120109,
+      "index": 955618,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 118878,
+      "index": 632001,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 122458,
+      "index": 1577885,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 122138,
+      "index": 1493151,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 117432,
+      "index": 255325,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121794,
+      "index": 1388113,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 119970,
+      "index": 921113,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 120046,
+      "index": 940809,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 120700,
+      "index": 1101119,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 117494,
+      "index": 271033,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 123178,
+      "index": 1770972,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 123368,
+      "index": 1820016,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 119613,
+      "index": 829944,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 124127,
+      "index": 2022449,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 123698,
+      "index": 1905351,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 117871,
+      "index": 366419,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 123937,
+      "index": 1968783,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121086,
+      "index": 1201943,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117501,
+      "index": 272625,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 122575,
+      "index": 1609891,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 119088,
+      "index": 688399,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 117010,
+      "index": 152017,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121498,
+      "index": 1309154,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 122442,
+      "index": 1573560,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 122153,
+      "index": 1497512,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 122901,
+      "index": 1695451,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 118845,
+      "index": 622649,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 119967,
+      "index": 920503,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 116839,
+      "index": 108367,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 120228,
+      "index": 984855,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 116998,
+      "index": 148967,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 118281,
+      "index": 471819,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 120509,
+      "index": 1053799,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119061,
+      "index": 681580,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 117031,
+      "index": 157360,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 122042,
+      "index": 1463674,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 121268,
+      "index": 1250172,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 118841,
+      "index": 621651,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 124176,
+      "index": 2034159,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 124152,
+      "index": 2028377,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 118010,
+      "index": 402611,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 116980,
+      "index": 144895,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 122658,
+      "index": 1632061,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 123307,
+      "index": 1804973,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 119094,
+      "index": 689991,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 120569,
+      "index": 1068486,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 117306,
+      "index": 224180,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 118966,
+      "index": 655108,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 118805,
+      "index": 611518,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119116,
+      "index": 695797,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117895,
+      "index": 372387,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 118879,
+      "index": 632041,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 122896,
+      "index": 1694171,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 116673,
+      "index": 65727,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117221,
+      "index": 203529,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 120324,
+      "index": 1007657,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 119866,
+      "index": 896151,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 118567,
+      "index": 546949,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119307,
+      "index": 748370,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117870,
+      "index": 366092,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 123731,
+      "index": 1913012,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 120108,
+      "index": 955417,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 116832,
+      "index": 106455,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 117041,
+      "index": 159969,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 120758,
+      "index": 1114793,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119974,
+      "index": 922347,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117355,
+      "index": 236719,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 121604,
+      "index": 1336333,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 124139,
+      "index": 2025007,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 123072,
+      "index": 1742689,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 116459,
+      "index": 13310,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 119526,
+      "index": 807498,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 123571,
+      "index": 1873350,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119989,
+      "index": 925991,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 119421,
+      "index": 780083,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 119488,
+      "index": 797067,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 122048,
+      "index": 1465505,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 122024,
+      "index": 1457325,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 122922,
+      "index": 1701199,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 117844,
+      "index": 358765,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 123002,
+      "index": 1724191,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 120077,
+      "index": 947629,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 117837,
+      "index": 357060,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 117181,
+      "index": 193700,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 116754,
+      "index": 86250,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119950,
+      "index": 916271,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 119210,
+      "index": 721563,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 117724,
+      "index": 327765,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 122404,
+      "index": 1563299,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121750,
+      "index": 1375691,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 123419,
+      "index": 1833905,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 118896,
+      "index": 636339,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 116822,
+      "index": 103669,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119161,
+      "index": 708592,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 119955,
+      "index": 917458,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 119490,
+      "index": 797720,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 124347,
+      "index": 2078306,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 123984,
+      "index": 1982591,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 124178,
+      "index": 2034677,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 119471,
+      "index": 792889,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 120509,
+      "index": 1053735,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 120429,
+      "index": 1034157,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 120751,
+      "index": 1113287,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 116559,
+      "index": 37831,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 116417,
+      "index": 2025,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 122564,
+      "index": 1606796,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121304,
+      "index": 1259632,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 121195,
+      "index": 1231556,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 117625,
+      "index": 302262,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 116488,
+      "index": 19947,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 120335,
+      "index": 1010445,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 120207,
+      "index": 979519,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 123493,
+      "index": 1852913,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 124286,
+      "index": 2062297,
+      "stratum": [
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 116916,
+      "index": 128751,
+      "stratum": [
+        3,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 118015,
+      "index": 404025,
+      "stratum": [
+        3,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 119997,
+      "index": 927611,
+      "stratum": [
+        3,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 122853,
+      "index": 1682567,
+      "stratum": [
+        0,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 122770,
+      "index": 1660108,
+      "stratum": [
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 120105,
+      "index": 954648,
+      "stratum": [
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 124194,
+      "index": 2038522,
+      "stratum": [
+        1,
+        2,
+        false
+      ]
+    },
+    {
+      "game_id": 121820,
+      "index": 1394961,
+      "stratum": [
+        2,
+        0,
+        false
+      ]
+    },
+    {
+      "game_id": 118798,
+      "index": 609963,
+      "stratum": [
+        2,
+        0,
+        true
+      ]
+    },
+    {
+      "game_id": 116491,
+      "index": 20677,
+      "stratum": [
+        2,
+        1,
+        false
+      ]
+    },
+    {
+      "game_id": 124291,
+      "index": 2063521,
+      "stratum": [
+        2,
+        2,
+        false
+      ]
+    }
+  ],
+  "snapshot_cache": {
+    "snapshot_reuses": 0,
+    "static_array_reuses": 18692,
+    "view_calls": 22292
+  },
+  "stages": {
+    "ablations": {
+      "experiment_source_sha256": {
+        "run_search_performance.py": "c4d257c813ad7d86dfeaf159d3050ec843d0d8254d8383ac58d3153876e2214d",
+        "src/skyjo/experiments/search_performance.py": "a705ec254c913d47eb9751c62d4513ab75df1fd8292b27e694cd0ca331ff7a26",
+        "src/skyjo/experiments/search_performance_poc.py": "92cedf26caf4023b2a964f1837b0a77cbd6c9af1537d719d35daddaa52ce7a72"
+      },
+      "git_status": " M src/skyjo/experiments/search_performance.py\n M tests/test_search_performance.py\n",
+      "host_end": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          13.9912109375,
+          14.115234375,
+          15.5341796875
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "host_start": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          13.46630859375,
+          15.68798828125,
+          16.52294921875
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "revision": "c7d68bd86d2dd45d27a11aa801f21f4ed3930e75"
+    },
+    "batches": {
+      "experiment_source_sha256": {
+        "run_search_performance.py": "c4d257c813ad7d86dfeaf159d3050ec843d0d8254d8383ac58d3153876e2214d",
+        "src/skyjo/experiments/search_performance.py": "a705ec254c913d47eb9751c62d4513ab75df1fd8292b27e694cd0ca331ff7a26",
+        "src/skyjo/experiments/search_performance_poc.py": "92cedf26caf4023b2a964f1837b0a77cbd6c9af1537d719d35daddaa52ce7a72"
+      },
+      "git_status": " M src/skyjo/experiments/search_performance.py\n M tests/test_search_performance.py\n",
+      "host_end": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          12.703125,
+          13.80419921875,
+          15.3017578125
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "host_start": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          13.1943359375,
+          13.93408203125,
+          15.36474609375
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "revision": "c7d68bd86d2dd45d27a11aa801f21f4ed3930e75"
+    },
+    "games": {
+      "experiment_source_sha256": {
+        "run_search_performance.py": "c4d257c813ad7d86dfeaf159d3050ec843d0d8254d8383ac58d3153876e2214d",
+        "src/skyjo/experiments/search_performance.py": "a705ec254c913d47eb9751c62d4513ab75df1fd8292b27e694cd0ca331ff7a26",
+        "src/skyjo/experiments/search_performance_poc.py": "92cedf26caf4023b2a964f1837b0a77cbd6c9af1537d719d35daddaa52ce7a72"
+      },
+      "git_status": " M src/skyjo/experiments/search_performance.py\n M tests/test_search_performance.py\n",
+      "host_end": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          34.9501953125,
+          21.52783203125,
+          17.849609375
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "host_start": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          12.703125,
+          13.80419921875,
+          15.3017578125
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "revision": "c7d68bd86d2dd45d27a11aa801f21f4ed3930e75"
+    },
+    "profile": {
+      "experiment_source_sha256": {
+        "run_search_performance.py": "c4d257c813ad7d86dfeaf159d3050ec843d0d8254d8383ac58d3153876e2214d",
+        "src/skyjo/experiments/search_performance.py": "a705ec254c913d47eb9751c62d4513ab75df1fd8292b27e694cd0ca331ff7a26",
+        "src/skyjo/experiments/search_performance_poc.py": "92cedf26caf4023b2a964f1837b0a77cbd6c9af1537d719d35daddaa52ce7a72"
+      },
+      "git_status": " M src/skyjo/experiments/search_performance.py\n M tests/test_search_performance.py\n",
+      "host_end": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          13.1943359375,
+          13.93408203125,
+          15.36474609375
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "host_start": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          13.9912109375,
+          14.115234375,
+          15.5341796875
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "revision": "c7d68bd86d2dd45d27a11aa801f21f4ed3930e75"
+    },
+    "searches": {
+      "experiment_source_sha256": {
+        "run_search_performance.py": "e92e05c14e9ec5579a12cfbddd50f4bc58b0ca0f81cd13b9cd6ef9b9aee2f55f",
+        "src/skyjo/experiments/search_performance.py": "52268eeb44ad8009200a59ab79a794b708f252faf6dc400059a6afcb5fb3e8e6",
+        "src/skyjo/experiments/search_performance_poc.py": "92cedf26caf4023b2a964f1837b0a77cbd6c9af1537d719d35daddaa52ce7a72"
+      },
+      "git_status": "",
+      "host_end": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          13.46630859375,
+          15.68798828125,
+          16.52294921875
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "host_start": {
+        "cpu_count": 10,
+        "hardware": "Apple M1 Pro",
+        "load_average": [
+          30.08642578125,
+          27.40380859375,
+          19.30615234375
+        ],
+        "machine": "arm64",
+        "numpy": "2.1.3",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "python": "3.12.7",
+        "torch": "2.5.1",
+        "torch_threads": 1
+      },
+      "revision": "48dd25ef5194e48296a685303b40acf64e9a69b2"
+    }
+  },
+  "validation": {
+    "cli_help": "Passed",
+    "direct_python_entrypoint": "Passed one-position, one-traversal baseline/inference smoke",
+    "focused_tests": "........................................................................ [ 63%]\n..........................................                               [100%]\n114 passed in 22.05s",
+    "quick_rerun": {
+      "exact_parity": true,
+      "note": "Ratios above one favor the variant; load and short-sweep variation can dominate small effects.",
+      "results": [
+        {
+          "budget": 128,
+          "cpu_seconds": {
+            "median": 1.8770379999999995,
+            "median_paired_speedup": 1.0,
+            "paired_speedups": [
+              1.0,
+              1.0
+            ],
+            "totals": [
+              1.881714,
+              1.872361999999999
+            ]
+          },
+          "seconds": {
+            "median": 1.959986083995318,
+            "median_paired_speedup": 1.0,
+            "paired_speedups": [
+              1.0,
+              1.0
+            ],
+            "totals": [
+              1.9669177099131048,
+              1.9530544580775313
+            ]
+          },
+          "sweeps": 2,
+          "variant": "baseline"
+        },
+        {
+          "budget": 128,
+          "cpu_seconds": {
+            "median": 1.8837345,
+            "median_paired_speedup": 0.9964672035036053,
+            "paired_speedups": [
+              0.9928532195335821,
+              1.0000811874736284
+            ],
+            "totals": [
+              1.895259000000003,
+              1.8722099999999973
+            ]
+          },
+          "seconds": {
+            "median": 2.0949315415346064,
+            "median_paired_speedup": 0.9355941918617751,
+            "paired_speedups": [
+              0.93385234567361,
+              0.9373360380499401
+            ],
+            "totals": [
+              2.106240583991166,
+              2.0836224990780465
+            ]
+          },
+          "sweeps": 2,
+          "variant": "combined"
+        },
+        {
+          "budget": 128,
+          "cpu_seconds": {
+            "median": 1.7366684999999977,
+            "median_paired_speedup": 1.0808729593640236,
+            "paired_speedups": [
+              1.075034778261801,
+              1.086711140466246
+            ],
+            "totals": [
+              1.750375,
+              1.7229619999999954
+            ]
+          },
+          "seconds": {
+            "median": 1.822610522591276,
+            "median_paired_speedup": 1.0753826098621173,
+            "paired_speedups": [
+              1.0735443189425151,
+              1.0772209007817195
+            ],
+            "totals": [
+              1.8321718770312145,
+              1.8130491681513377
+            ]
+          },
+          "sweeps": 2,
+          "variant": "inference"
+        },
+        {
+          "budget": 128,
+          "cpu_seconds": {
+            "median": 2.023678499999999,
+            "median_paired_speedup": 0.9279966129528614,
+            "paired_speedups": [
+              0.9084818852946958,
+              0.9475113406110269
+            ],
+            "totals": [
+              2.0712729999999997,
+              1.9760839999999984
+            ]
+          },
+          "seconds": {
+            "median": 2.1403668940474745,
+            "median_paired_speedup": 0.9162519647871931,
+            "paired_speedups": [
+              0.895824693647312,
+              0.9366792359270741
+            ],
+            "totals": [
+              2.1956502470420673,
+              2.0850835410528816
+            ]
+          },
+          "sweeps": 2,
+          "variant": "snapshots"
+        }
+      ],
+      "trials": 128
+    },
+    "test_log_sha256": "8a90f60100b4a956554e0b3242edf69208adbc5fdaaf9163a00bafb7bdf4672f"
+  }
+}
