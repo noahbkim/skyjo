@@ -295,6 +295,47 @@ with the eight-worker limit per active stage. Smoke tests completed four tiny lo
 ablations and both faceoff modes; six focused tests passed. Entrypoint:
 `run_search_followups.py`; plan/status/results: `.runs/search-followups-20261017/`.
 
+**Follow-up results, October 17:** all24 fits and both faceoffs completed.
+With auxiliaries retained, value weight0.1 achieved test policy KL0.10867 and
+value MSE0.18538, versus0.11427/0.19074 at weight1 (unchanged0.11525/0.19213).
+All nonzero-value arms selected64 updates using validation policy KL; longer fits
+were worse. Policy-only gave KL0.10798 but worsened value MSE to0.19588. This
+supports testing value weight0.1 in self-play; it does not establish playing
+strength or the ideal full-replay update count. The sweep used fresh Adam on a
+small fixed split; the next continuation retains existing Adam moments.
+
+Highest-Q acting lost to visits at identical frozen weights and256 search visits:
+93 wins/163 losses in256 full games (36.33% win credit, paired95% CI30.08–42.58%),
+and389 wins/633 losses/2 draws in1024 first rounds (38.09%, CI35.11–41.02%).
+Q scored7.54 more points per first round (worse), paired95% CI5.87–9.23.
+Keep visit acting and targets. [Evidence](evidence/search-followups-20261017.json)
+records all sweep arms, faceoff settings, checkpoint hashes and paired intervals.
+
+**Next run, October 17:** one eight-worker continuation from overnight4, fixed256
+search,1024 games per iteration, group-normalized learned priors and group root
+noise. Change only value weight1 to0.1; retain score/doubling auxiliaries1/.1,
+LR.001, replay ratio4, weights, Adam state, replay, RNG and progress counters.
+Recipe: `configs/overnight-group256-value01.toml`; local source configuration:
+`configs/local/overnight-group256-value01-from4.toml`. A22h soft budget stops
+after a complete batch (~3h), aiming for22–25h through October18 evening.
+Artifacts: `.runs/overnight-group256-value01-from4/`.
+
+Use all workers for this candidate rather than training another control. Match
+the original baseline lineage by cumulative training elapsed after shared
+iteration19: candidate's existing44150.45334387501 seconds plus this continuation's
+actual elapsed time. Follow historical checkpoint ancestry and sum recorded
+training intervals, excluding gaps between runs; select the closest checkpoint
+after the candidate finishes. Preserve the prior comparison's baseline32 versus
+candidate256 inference settings and report both full-game and first-round scores.
+Historical worker counts and recipes differ, so this compares complete training
+approaches per elapsed time and cannot isolate value weighting causally.
+
+Disk cleanup losslessly archived the completed fixed/randomized pilot replay
+datasets under `.runs/randomized-budget-20261016/`, verifying every file hash
+before removing the unpacked copies. Reclaimed8.12GiB; archives and inventories
+remain beside each run's data. Preserve the active source replay and all
+checkpoints. Compact faceoff artifacts remain (only a few MB).
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the

@@ -1,0 +1,440 @@
+{
+  "loss_sweep": {
+    "selection": "Minimum validation policy KL over recorded steps, including unchanged step0. Always inspect value MSE alongside policy KL. Test results did not select a step.",
+    "interpretation": "Three minibatch seeds on one fixed game split, not independent self-play training runs. Test games excluded from this fitting and from the previous diagnostic subset.",
+    "split_counts": {
+      "train": {
+        "games": 256,
+        "positions": 16384
+      },
+      "validation": {
+        "games": 64,
+        "positions": 8192
+      },
+      "test": {
+        "games": 64,
+        "positions": 8192
+      }
+    },
+    "arms": [
+      {
+        "value_scale": 0.0,
+        "auxiliaries": false,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          256
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.10803114622831345,
+            "value_mse": 0.1860283340793103
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.10798018425703049,
+            "value_mse": 0.19588118822624287
+          }
+        }
+      },
+      {
+        "value_scale": 0.0,
+        "auxiliaries": true,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          256
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.1081918478012085,
+            "value_mse": 0.18741188485485813
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.10832167168458302,
+            "value_mse": 0.19254826505978903
+          }
+        }
+      },
+      {
+        "value_scale": 0.1,
+        "auxiliaries": false,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          64
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.10809495051701863,
+            "value_mse": 0.18289072283854088
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.10867505272229512,
+            "value_mse": 0.18564409118456146
+          }
+        }
+      },
+      {
+        "value_scale": 0.1,
+        "auxiliaries": true,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          64
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.10814624776442845,
+            "value_mse": 0.18393012594121197
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.1086673637231191,
+            "value_mse": 0.1853849015509089
+          }
+        }
+      },
+      {
+        "value_scale": 0.3,
+        "auxiliaries": false,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          64
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.10899220903714497,
+            "value_mse": 0.18453110909710327
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.10959128042062123,
+            "value_mse": 0.1870079975730429
+          }
+        }
+      },
+      {
+        "value_scale": 0.3,
+        "auxiliaries": true,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          64
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.10920204718907674,
+            "value_mse": 0.18526678159832954
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.10978146642446518,
+            "value_mse": 0.18793071138982972
+          }
+        }
+      },
+      {
+        "value_scale": 1.0,
+        "auxiliaries": false,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          64
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.11321030805508296,
+            "value_mse": 0.18974775246654949
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.11410242070754369,
+            "value_mse": 0.19083987517903248
+          }
+        }
+      },
+      {
+        "value_scale": 1.0,
+        "auxiliaries": true,
+        "seeds": 3,
+        "selected_steps": [
+          64,
+          64,
+          64
+        ],
+        "means": {
+          "selected_validation": {
+            "policy/all/target_kl": 0.11343564838171005,
+            "value_mse": 0.18947344024976095
+          },
+          "test_before": {
+            "policy/all/target_kl": 0.11524848639965057,
+            "value_mse": 0.1921250792220235
+          },
+          "test_after": {
+            "policy/all/target_kl": 0.11427249511082967,
+            "value_mse": 0.19073599538144967
+          }
+        }
+      }
+    ]
+  },
+  "acting_comparisons": {
+    "full-game": {
+      "games": 256,
+      "q_wins": 93,
+      "q_losses": 163,
+      "draws": 0,
+      "q_win_credit": 0.36328125,
+      "q_win_credit_95ci": [
+        0.30078125,
+        0.42578125
+      ],
+      "visits_minus_q_score": -6.92578125,
+      "score_95ci": [
+        -14.2580078125,
+        0.4766601562499986
+      ],
+      "settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "mode": "search",
+          "iterations": 256,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "mode": "search",
+          "iterations": 256,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "value",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 128,
+        "seed": 2026101703,
+        "workers": 8,
+        "threads": 1,
+        "first_round": false
+      },
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "sha256": "1381e44fdbfb3c44d8c8d0e2aea77ed3caa307c5b095d9fa1f3839fb3ad77c70"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "sha256": "1381e44fdbfb3c44d8c8d0e2aea77ed3caa307c5b095d9fa1f3839fb3ad77c70"
+        }
+      },
+      "execution": {
+        "requested_workers": 8,
+        "effective_workers": 8,
+        "threads_per_worker": 1
+      },
+      "ci_method": "10000 paired-seat seed-cluster bootstrap samples, RNG seed20261017"
+    },
+    "first-round": {
+      "games": 1024,
+      "q_wins": 389,
+      "q_losses": 633,
+      "draws": 2,
+      "q_win_credit": 0.380859375,
+      "q_win_credit_95ci": [
+        0.35107421875,
+        0.41015625
+      ],
+      "visits_minus_q_score": -7.544921875,
+      "score_95ci": [
+        -9.232421875,
+        -5.869140625
+      ],
+      "settings": {
+        "control": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "mode": "search",
+          "iterations": 256,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "visits",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "variant": {
+          "checkpoint": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "mode": "search",
+          "iterations": 256,
+          "temperature": 0.0,
+          "search": {
+            "dirichlet_epsilon": 0.0,
+            "after_state_evaluate_all_children": false,
+            "c_puct": 1.0,
+            "fpu_reduction": 0.0,
+            "boundary_samples": 1,
+            "merge_symmetric_actions": true,
+            "uniform_group_priors": false,
+            "group_root_noise": true,
+            "dirichlet_alpha": null,
+            "fpu_mode": "parent",
+            "root_strategy": "puct",
+            "interior_strategy": "puct",
+            "valuation": "current_mixture",
+            "action_strategy": "value",
+            "target_strategy": "visits",
+            "gumbel_candidates": 16,
+            "gumbel_scale": 1.0,
+            "completed_q_scale": 0.1,
+            "completed_q_visit_offset": 50.0,
+            "completed_q_rescale": true,
+            "replicas": 1,
+            "uncertainty_z": 1.0
+          },
+          "boundary_checkpoint": null
+        },
+        "seed_count": 512,
+        "seed": 2026101703,
+        "workers": 8,
+        "threads": 1,
+        "first_round": true
+      },
+      "checkpoints": {
+        "control": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "sha256": "1381e44fdbfb3c44d8c8d0e2aea77ed3caa307c5b095d9fa1f3839fb3ad77c70"
+        },
+        "variant": {
+          "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+          "sha256": "1381e44fdbfb3c44d8c8d0e2aea77ed3caa307c5b095d9fa1f3839fb3ad77c70"
+        }
+      },
+      "execution": {
+        "requested_workers": 8,
+        "effective_workers": 8,
+        "threads_per_worker": 1
+      },
+      "ci_method": "10000 paired-seat seed-cluster bootstrap samples, RNG seed20261017"
+    }
+  },
+  "sources": [
+    {
+      "path": ".runs/search-followups-20261017/full/loss-sweep/summary.json",
+      "sha256": "17a6c1001412d756f3b605e7848c93912330e97f9d06a34799c91bc00980d528"
+    },
+    {
+      "path": ".runs/search-followups-20261017/full/loss-sweep/split.json",
+      "sha256": "555f3aacff540f429a75a6c71b6465cc2cfd0f42ecaab6dc1a420e59ca6fe4c6"
+    },
+    {
+      "path": ".runs/search-followups-20261017/full/loss-sweep/arms.jsonl",
+      "sha256": "065832f50189a5025d4cbf05b0a599ffa5470927db43dd7ce4c973235b7b14f5"
+    },
+    {
+      "path": ".runs/search-followups-20261017/full/full-game/20261017T193225Z-experiment-e56bc32306/comparison.json",
+      "sha256": "40ab13e2a8ac9b56295152ace4c4339331d67e9823ce391a196f7abbf4904778"
+    },
+    {
+      "path": ".runs/search-followups-20261017/full/first-round/20261017T203436Z-experiment-1f0e91e923/comparison.json",
+      "sha256": "e990603072530ad329f5e606d37325d847d1c0abb2bd32b03c7708e26e6d8525"
+    }
+  ]
+}
