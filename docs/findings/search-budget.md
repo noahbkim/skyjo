@@ -618,6 +618,21 @@ expectations. The earlier `mean_return` comparison is not a clean contrast of
 radically different estimators under these settings: root initialization and
 floating-point differences can change subsequent allocation paths.
 
+Following the discovery event at individual-visit resolution further narrows
+this interpretation. Rerunning candidate12 Give9 seed0 with BASE and2048 visits:
+the clear is discovered at415, and the next20 visits to the placement node all
+choose CLEAR. At415 its PUCT score is0.69951 versus0.58023 for the strongest
+other placement score; TAKE already has acquisition PUCT score0.50673 versus
+DRAW0.50352 despite its lower Q. TAKE Q overtakes DRAW by421 (0.45254 versus
+0.45146). Between415 and2048, all320 subsequent visits to the opponent's
+acquisition node choose TAKE;253 of those choose CLEAR at the placement node.
+The297 earlier DRAW visits remain in the acquisition-node value. Thus local
+allocation responds promptly to discovery in this trace. Late discovery,
+retained pre-discovery evidence at ancestors, and cumulative root visit targets
+remain distinct bottlenecks; this is weaker evidence against mean backups than
+the first-discovery snapshot alone suggests. It is one position/seed, not a
+general allocation guarantee.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
