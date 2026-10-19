@@ -419,6 +419,44 @@ avoidance labels do not prove the alternatives are optimal or measure general
 tactical strength. [Evidence](evidence/value01-tactics-20261019.json) preserves
 all72 trial summaries, model probes and source hashes.
 
+**Own-clear recognition screen, October 19:** separate acquiring a clearing card
+from placing it. Use `explain.create_obvious_clear_position` (visible10/10/? with
+discard10), its deterministic TAKE successor, and `create_almost_clear_position`
+(discard11). Probe raw policy and four search seeds0–3 at32/256 with the same
+PUCT mixture configuration as tactical checks.
+
+| Model | Raw P(TAKE clearing10) | Raw P(clearing placement after TAKE) | TAKE choices at32 /256 | Clearing placement choices at32 /256 |
+| --- | ---: | ---: | ---: | ---: |
+| Before4 | 47.95%, DRAW argmax | 17.12%, nonclear argmax | 4/4 /4/4 | 4/4 /4/4 |
+| Candidate12 | 39.70%, DRAW argmax | 21.54%, clear argmax | 0/4 /4/4 | 4/4 /4/4 |
+| Historical87 | 45.92%, DRAW argmax | 8.28%, nonclear argmax | 0/4 /0/4 | 0/4 /4/4 |
+
+Candidate12's search256 average visit targets assign only51.37% to TAKE and
+58.20% to the clearing placement. Before4 targets were88.96% and85.25%. Thus
+search can choose the clear while supplying a relatively weak policy target;
+greedy success alone hides this distinction. Candidate12 raw TAKE probability
+is39.70% with the clearing10 versus38.69% with nonclearing11.
+
+Construct four positive-rank variants3/6/9/12, each with a matched no-clear
+control changing the second matching visible card from rank to rank−1. Probe
+both before and after TAKE; validate states and confirm the intended placement
+clears only in the matching condition using the engine. These are policy-only
+probes, not additional search trials. All three models choose DRAW on all four
+matching examples. Candidate12 chooses the clearing slot after TAKE in4/4,
+before4 in2/4, historical87 in0/4. But candidate12 also chooses that slot in all
+four nonmatching controls: its behavior is partly a general placement preference.
+Matching increases its placement probability by3.05–3.89 percentage points,
+while changing TAKE probability by at most0.56pp in either direction.
+
+This screen supports weak policy sensitivity to the two-step clearing opportunity
+and search reliance, with some placement sensitivity; it does not establish
+general clear recognition. Heuristic examples are not optimal full-game oracles.
+Next useful coverage: varied board/score contexts, matched clearing/nonclearing
+controls, negative-card cases where clearing can be undesirable, and both own
+opportunities and opponent threats. Keep acquisition, placement, policy mass,
+search choices and visit targets separate. [Evidence](evidence/clear-recognition-20261019.json)
+contains72 searches, all raw policy probes, recipes and checkpoint/source hashes.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
