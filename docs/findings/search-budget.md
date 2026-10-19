@@ -390,6 +390,35 @@ learned substantially, but extra training and value-weight reduction remain
 confounded; these results alone do not prove value0.1 caused the improvement or
 that search256 self-play is more efficient than the historical recipe.
 
+**Tactical recheck, October 19:** run the exact same two giveaway fixtures and
+PUCT mixture plan as October17, with seeds0–3 and32/256/2048 iterations, on
+candidate12 and historical87. Reuse the preserved matching checkpoint4 results;
+plans and fixture hashes agree across all three.
+
+| Position / budget | Before4 avoids | Candidate12 avoids | Historical87 avoids |
+| --- | ---: | ---: | ---: |
+| Give9 /32 | 0/4 | 0/4 | 0/4 |
+| Give9 /256 | 0/4 | 0/4 | 0/4 |
+| Give9 /2048 | 0/4 | 4/4 | 4/4 |
+| Give12 /32 | 0/4 | 0/4 | 0/4 |
+| Give12 /256 | 1/4 | 0/4 | 0/4 |
+| Give12 /2048 | 4/4 | 4/4 | 4/4 |
+
+Candidate12's stable avoidance starts at1551–1710 iterations on Give9 and
+1671–1869 on Give12, remaining stable through the2048 tested horizon. Historical87
+starts at930–1139 and1022–1191 respectively. Before4 never stabilized on Give9
+through2048, but stabilized much earlier on Give12 (459–487). Thus tactical
+progress is mixed and neither case is solved at the deployed256 budget.
+
+Candidate12 raw policy still chooses both giveaways. Its Give9 giveaway prior
+rose30.9%→68.4% from checkpoint4 (historical87:52.7%), while the modeled opponent
+clearing-action prior fell4.95%→2.38%. Give12 root giveaway prior remained31.6%
+(previous31.5%). Deeper recovery therefore did not come from a policy that
+learned to avoid these cards directly. These two selected positions and their
+avoidance labels do not prove the alternatives are optimal or measure general
+tactical strength. [Evidence](evidence/value01-tactics-20261019.json) preserves
+all72 trial summaries, model probes and source hashes.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
