@@ -122,6 +122,8 @@ def build_training_batch(
             else None
         )
         for entry in round_result.history[:-1]:
+            if not entry.trainable:
+                continue
             state = entry.state
             probabilities = (
                 entry.training_policy
@@ -139,7 +141,18 @@ def build_training_batch(
             states.append(state)
             rows.append(row)
     if not states:
-        raise ValueError("Training requires at least one observed decision")
+        # A completed game can, by chance, contain only fast searches.
+        inputs = batches.states_to_batch([result.rounds[-1].history[-1].state])[:0]
+        players = len(result.final_scores)
+        shapes = {"value": (players,), "policy": (sj.MASK_SIZE,)}
+        shapes.update(resolved.shapes(players))
+        return dataclasses.replace(
+            inputs,
+            targets={
+                name: np.empty((0, *shape), dtype=np.float32)
+                for name, shape in shapes.items()
+            },
+        )
     inputs = batches.states_to_batch(states)
     return batches.TrainingBatch(
         inputs.spatial_inputs,

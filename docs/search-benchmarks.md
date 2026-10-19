@@ -90,3 +90,50 @@ does not quantify shared model error. Likewise, simulation counts do not imply
 equal model work: chance enumeration and boundary sampling can evaluate many
 states in a single traversal, so compare evaluator-state counts and elapsed time
 alongside the fixed total budget.
+
+## Learned/uniform priors and visit/Q selection
+
+`configs/benchmarks/clearing-alphazero.toml` compares four methods using the
+existing position-diagnostic runner: learned or uniform group priors, each with
+visit-based or highest-Q final selection. All retain PUCT, mean-return valuation,
+zero FPU, c_puct=1.5, sampled ordinary chance, one boundary sample and visit targets.
+Uniform priors apply at every decision node; Q selection considers evaluated
+choices only. This is the named AlphaZero preset, not the historical mixture
+search. These are comparison recipes, not recommended training changes.
+
+```sh
+uv run python run_search_diagnostics.py run \
+  --checkpoint "$SEARCH_CHECKPOINT" \
+  --suite data/search-positions \
+  --plan configs/benchmarks/clearing-alphazero.toml \
+  --output .runs/clearing-comparison
+```
+
+The plan uses seeds 0–3 and 8,192 visits. Discovery, first acceptance and stable
+acceptance within that horizon are different measurements. The suite also includes
+TAKE/CLEAR positions; the archived initial experiment selected only the giveaways.
+[Findings and archived provenance](findings/search-budget.md) preserve that result.
+
+Four matching contestant files live in `configs/search-strategies/`. To isolate
+visit-versus-Q acting with the same frozen model and 256 visits:
+
+```sh
+uv run python run_checkpoint_comparison.py \
+  --control "$SEARCH_CHECKPOINT" \
+  --control-settings configs/search-strategies/alphazero.toml \
+  --variant-settings configs/search-strategies/alphazero-q.toml \
+  --seed-count 128 --seed 20261016 --workers 8 --threads 1 \
+  --runs-dir .runs/search-faceoffs
+```
+
+Omitting `--variant` reuses the control checkpoint. These files specify 256 visits;
+edit both to change the budget (`--iterations` only fills an omitted value).
+Each seed plays both seats, so 128 seeds produce 256 games. Use the uniform recipes
+to isolate priors, keeping evaluator and valuation fixed. Compare evaluator work
+and elapsed time as well as visits; tactical success is not a strength result.
+
+Add `--first-round` to stop at the first round boundary from zero cumulative
+scores. This preserves normal scoring, including doubling, and reports round
+scores plus paired score-margin/win-credit summaries. Search still evaluates
+full-game outcomes: this measures opening-round performance, not full-game
+strength. Use separate fresh seeds for a confirmation comparison.

@@ -32,6 +32,10 @@ def compare(
     threads: Annotated[int, typer.Option(min=1)] = 1,
     runs_dir: Path = Path(".runs"),
     allow_dirty: bool = False,
+    first_round: Annotated[
+        bool,
+        typer.Option(help="Stop after the first round from a fresh zero-score game."),
+    ] = False,
 ) -> Path:
     settings = evaluation.EvaluationConfig(
         contestants.from_file(control, control_settings, iterations=iterations),
@@ -42,6 +46,7 @@ def compare(
         seed=seed,
         workers=workers,
         threads=threads,
+        first_round=first_round,
     )
     path = evaluation.launch_comparison(
         settings,

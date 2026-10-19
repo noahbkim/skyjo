@@ -27,6 +27,7 @@ class PlayerDecision:
     probabilities: np.ndarray
     diagnostics: tuple[DiagnosticSection, ...] = ()
     training_policy: np.ndarray | None = None
+    trainable: bool = True
 
 
 @runtime_checkable

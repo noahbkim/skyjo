@@ -22,6 +22,27 @@ paths resolve relative to the file declaring them. Run records preserve the
 settings and source configs, including local overrides. Promote reusable changes
 back into the shared recipe.
 
+New runs use a group-normalized policy and group-level root exploration noise.
+To reproduce the old policy parameterization and noise distribution, set:
+
+```toml
+[model]
+policy_normalization = "actions" # default: "groups"
+
+[search]
+group_root_noise = false # default: true
+```
+
+Both settings are recorded in resolved run configurations. The model option
+controls training and inference together; it is not a uniform-prior override.
+Search still learns and uses nonuniform group probabilities. Targets retain the
+existing per-action representation, dividing each group's mass among its members.
+The offline CLI accepts `--policy-normalization groups` or `actions`; omitted,
+it uses groups for new training and preserves the checkpoint mode on exact resume.
+Old checkpoints without the field load as actions. An online continuation adopts
+the new run's settings, so specify actions explicitly to retain the old mode.
+See [policy normalization](architecture.md#boundaries-that-matter) for the math.
+
 ## Make comparisons interpretable
 
 Before an expensive run, state the question, control, changed factor, budget,
@@ -46,6 +67,41 @@ Distinguish exploratory selection from confirmation. A failed or interrupted run
 supports claims only about its completed measurements.
 
 ## Continuation and recording
+
+For a weights-only restart, set `bootstrap_checkpoint` instead of
+`initial_checkpoint`. This copies compatible model weights, permits changing
+policy normalization, and starts with fresh replay, Adam state, RNGs and counters.
+It rejects an initial replay dataset or simultaneous continuation checkpoint.
+The initial saved checkpoint records the source hash and source progress.
+Set the search budget, games per iteration, workers and time cap in a local
+configuration extending `configs/baseline.toml`. Time caps are soft: finishing
+an active iteration can produce substantial overrun, recorded in the results.
+
+Optional randomized self-play caps use `selfplay.fast_search_iterations` and
+`selfplay.full_search_probability` together. `search.iterations` remains the full
+cap. A per-game independent RNG selects each decision's cap. Fast searches disable
+root noise, act greedily, and contribute no training rows; full searches keep the
+configured exploration and targets. All played decisions remain in game histories,
+and retained rows receive the actual final game outcome and round auxiliaries.
+Replay ratio counts retained rows, not all played moves. Metrics distinguish
+`generation/positions`, `generation/training_positions`, and `generation/fast_positions`.
+Defaults disable randomization. Both new settings must be supplied to enable it.
+
+For example, this optional schedule retains about one quarter of decisions:
+
+```toml
+[selfplay]
+fast_search_iterations = 16
+full_search_probability = 0.25
+
+[search]
+iterations = 128
+```
+
+Its expected cap is 44 traversals per decision, not 32. Size replay and optimizer
+exposure using retained positions; a larger game count alone need not provide
+more training signal. This capability is experimental: the initial pilot did not
+establish a strength benefit. See the [closed investigation](findings/search-budget.md).
 
 Offline exact resume requires matching learning/data settings; `--steps` is the
 cumulative update target. Online continuation creates a new run from a parent

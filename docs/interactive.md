@@ -64,6 +64,9 @@ When replicas are enabled, a standard-error column measures search variability,
 not model bias. See [search strategies](search-strategies.md).
 
 Policy players show model prior alongside their greedy selection distribution.
+Group-normalized checkpoints select the symmetry group with greatest total
+probability, then its representative action. Historical per-action checkpoints
+retain individual-action argmax. The diagnostic text identifies which is used.
 Probability-only and human decisions use a simple action/probability table.
 Numeric diagnostics display nine significant digits, with horizontal scrolling
 for wide tables rather than truncating numbers. Player-supplied diagnostics take

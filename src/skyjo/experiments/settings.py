@@ -22,6 +22,8 @@ class GenerationConfig:
     games_per_iteration: int
     games_per_task: int
     start_state: str
+    fast_search_iterations: int = 0
+    full_search_probability: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class ModelSettings:
     embedding_dimensions: int
     global_state_embedding_dimensions: int
     num_heads: int
+    policy_normalization: str = "groups"
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,7 @@ class SelfPlayRunConfig:
     auxiliary_targets: AuxiliaryTargetSettings
     initial_dataset: Path | None = None
     dataset_id: str | None = None
+    bootstrap_checkpoint: Path | None = None
 
     @classmethod
     def from_resolved(cls, config, *, search=None):
@@ -106,6 +110,9 @@ class SelfPlayRunConfig:
             if config["replay"]["initial_dataset"]
             else None,
             config["replay"]["dataset_id"],
+            Path(config["bootstrap_checkpoint"])
+            if config["bootstrap_checkpoint"]
+            else None,
         )
 
 

@@ -80,14 +80,15 @@ def add_generated_games_to_buffer(
                 game_index=generated_game.global_game_index,
             )
         batch = targets.build_training_batch(generated_game.result, **options)
-        training_data_buffer.append(
-            batch,
-            buffer.GameProvenance(
-                generated_game.global_game_index,
-                generated_game.play_seed,
-                target_seed,
-            ),
-        )
+        if len(batch):
+            training_data_buffer.append(
+                batch,
+                buffer.GameProvenance(
+                    generated_game.global_game_index,
+                    generated_game.play_seed,
+                    target_seed,
+                ),
+            )
         game_stats_list.append(game_stats.analyze_game(generated_game.result))
         converted_positions += len(batch.spatial_inputs)
         if log_progress and (
@@ -112,6 +113,7 @@ def prepare_iteration(
 ) -> experiment_training.PreparedGames:
     started = time.perf_counter()
     before = (replay.game_count, len(replay))
+    before_count = replay.count
     ordered = sorted(generated, key=lambda game: game.global_game_index)
     games = add_generated_games_to_buffer(
         ordered, replay, log_progress=True, **target_settings
@@ -121,6 +123,11 @@ def prepare_iteration(
         [(g.global_game_index, g.play_seed) for g in ordered],
         before,
         time.perf_counter() - started,
+        training_positions=replay.count - before_count,
+        training_games=sum(
+            any(e.trainable for r in g.result.rounds for e in r.history[:-1])
+            for g in ordered
+        ),
     )
 
 
@@ -192,6 +199,10 @@ def train_self_play(
         role="initial",
     )
     state = dataclasses.replace(state, snapshot=initial)
+    if "bootstrap" in run_configuration:
+        recording.event(
+            "bootstrap_started", state, context=run_configuration["bootstrap"]
+        )
     if parent is not None:
         recording.event(
             "continuation_started",
@@ -231,6 +242,8 @@ def train_self_play(
         "players": players,
         "run_seed": run_seed,
         "start_state_generator": start_state_generator,
+        "fast_search_iterations": settings.generation.fast_search_iterations,
+        "full_search_probability": settings.generation.full_search_probability,
     }
     generation_settings = {
         "run_seed": run_seed,
@@ -238,6 +251,7 @@ def train_self_play(
         "model": run_configuration["model"],
         "model_player": dataclasses.asdict(model_player_config),
         "auxiliary_targets": run_configuration["auxiliary_targets"],
+        "selfplay": dataclasses.asdict(settings.generation),
     }
     phase_totals = {}
     final_saved = False
@@ -296,21 +310,22 @@ def train_self_play(
                 games=len(prepared.games), positions=prepared.positions
             )
             started = time.perf_counter()
-            artifacts.save_replay(
-                training_data_buffer,
-                state=state,
-                generation=generation,
-                generation_iteration=iteration,
-                game_count=len(prepared.games),
-                generation_settings=generation_settings,
-            )
+            if training_data_buffer:
+                artifacts.save_replay(
+                    training_data_buffer,
+                    state=state,
+                    generation=generation,
+                    generation_iteration=iteration,
+                    game_count=len(prepared.games),
+                    generation_settings=generation_settings,
+                )
             timings["replay_save"] = time.perf_counter() - started
 
             trained = train.train_iteration(
                 learner,
                 training_data_buffer,
                 training_config,
-                prepared.positions,
+                prepared.training_positions,
                 replay_ratio=state.replay_ratio,
                 gradient_diagnostic=training_config.gradient_diagnostic
                 and not state.diagnostic_done,
@@ -331,7 +346,7 @@ def train_self_play(
             after_fill = training_config.replay_ratio_after_fill
             evicted_positions = (
                 prepared.replay_before[1]
-                + prepared.positions
+                + prepared.training_positions
                 - len(training_data_buffer)
             )
             if (
@@ -394,7 +409,7 @@ def train_self_play(
             recording.training(
                 state,
                 trained,
-                new_positions=prepared.positions,
+                new_positions=prepared.training_positions,
                 replay_positions=len(training_data_buffer),
                 replay_artifact=artifacts.replay_artifact,
             )

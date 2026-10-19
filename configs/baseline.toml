@@ -8,6 +8,7 @@ players = 2
 embedding_dimensions = 16
 global_state_embedding_dimensions = 32
 num_heads = 2
+policy_normalization = "groups"
 
 [training]
 batch_size = 256
@@ -25,6 +26,7 @@ start_state = "standard"
 [search]
 iterations = 32
 dirichlet_epsilon = 0.25
+group_root_noise = true
 after_state_evaluate_all_children = false
 c_puct = 1.0
 # Starting penalty for unevaluated actions; tune alongside c_puct.

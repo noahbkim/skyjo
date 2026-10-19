@@ -62,6 +62,14 @@ def capture_rng_state() -> dict[str, typing.Any]:
     }
 
 
+def _policy_configuration(configuration, default_mode):
+    """Make policy semantics explicit without changing the caller's metadata."""
+    result = normalize_configuration(configuration)
+    if isinstance(result, dict) and isinstance(result.get("model"), dict):
+        result["model"].setdefault("policy_normalization", default_mode)
+    return result
+
+
 def restore_rng_state(state: dict[str, typing.Any]) -> None:
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
@@ -82,6 +90,16 @@ def save_checkpoint(
     continuation_state: dict | None = None,
 ) -> pathlib.Path:
     """Atomically save all state needed to resume a training run."""
+    configuration = normalize_configuration(configuration)
+    mode = getattr(model, "policy_normalization", None)
+    if mode is not None:
+        configuration = _policy_configuration(configuration, mode)
+        if (
+            isinstance(configuration, dict)
+            and isinstance(configuration.get("model"), dict)
+            and configuration["model"]["policy_normalization"] != mode
+        ):
+            raise ValueError("Checkpoint policy normalization differs from model")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "format": CHECKPOINT_FORMAT,
@@ -90,7 +108,7 @@ def save_checkpoint(
         "optimizer_state_dict": None if optimizer is None else optimizer.state_dict(),
         "scheduler_state_dict": None if scheduler is None else scheduler.state_dict(),
         "rng_state": capture_rng_state(),
-        "configuration": normalize_configuration(configuration),
+        "configuration": configuration,
         "progress": dataclasses.asdict(progress or TrainingProgress()),
     }
     if sampling_rng is not None:
@@ -159,6 +177,21 @@ def restore_checkpoint(
     actual_configuration = payload.get("configuration")
     if expected_configuration is not None:
         expected = normalize_configuration(expected_configuration)
+        mode = getattr(model, "policy_normalization", None)
+        if mode is not None:
+            expected = _policy_configuration(expected, mode)
+            actual_configuration = _policy_configuration(
+                actual_configuration, "actions"
+            )
+            if (
+                isinstance(expected, dict)
+                and isinstance(expected.get("model"), dict)
+                and expected["model"]["policy_normalization"] != mode
+            ):
+                raise ValueError(
+                    "checkpoint configuration does not match the active model's "
+                    "policy normalization"
+                )
         if actual_configuration != expected:
             raise ValueError(
                 "checkpoint configuration does not match the active run: "

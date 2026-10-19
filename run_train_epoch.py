@@ -104,6 +104,12 @@ def main(
     num_heads: Annotated[
         int, typer.Option("--num-heads", help="EquivariantSkyNet num_heads.")
     ] = DEFAULT_NUM_HEADS,
+    policy_normalization: Annotated[
+        str | None,
+        typer.Option(
+            help="groups or actions; defaults to groups, or the resumed checkpoint's mode."
+        ),
+    ] = None,
     value_scale: Annotated[
         float, typer.Option("--value-scale", help="Scale for the value loss term.")
     ] = 1.0,
@@ -134,6 +140,7 @@ def main(
             embedding_dimensions=embedding_dimensions,
             global_state_embedding_dimensions=global_state_embedding_dimensions,
             num_heads=num_heads,
+            policy_normalization=policy_normalization,
             value_scale=value_scale,
             policy_scale=policy_scale,
             auxiliary_objectives=json.loads(auxiliary_objectives)

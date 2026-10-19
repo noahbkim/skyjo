@@ -59,6 +59,8 @@ def load_model(path: Path, *, device="cpu"):
     payload = checkpoint.decode_checkpoint(path, map_location=device)
     config = payload["configuration"]
     settings = dict(config["model"])
+    # Missing metadata identifies the historical per-action normalization.
+    settings.setdefault("policy_normalization", "actions")
     # Earlier experiment checkpoints embedded these derived settings in model.
     legacy_shape = settings.pop("non_spatial_input_shape", None)
     if legacy_shape is not None and tuple(

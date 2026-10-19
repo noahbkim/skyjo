@@ -58,11 +58,20 @@ def run(
     embedding_dimensions: int = 32,
     global_state_embedding_dimensions: int = 64,
     num_heads: int = 2,
+    policy_normalization: str | None = None,
     value_scale: float = 1.0,
     policy_scale: float = 1.0,
     auxiliary_objectives=None,
 ) -> OfflineTrainingResult:
     device = torch.device(device_name)
+    if policy_normalization is None:
+        policy_normalization = (
+            checkpoint.decode_checkpoint(resume_checkpoint)["configuration"][
+                "model"
+            ].get("policy_normalization", "actions")
+            if resume_checkpoint is not None
+            else "groups"
+        )
 
     load_start = time.perf_counter()
     complete_buffer = replay_io.load(dataset_path)
@@ -88,6 +97,7 @@ def run(
             "embedding_dimensions": embedding_dimensions,
             "global_state_embedding_dimensions": global_state_embedding_dimensions,
             "num_heads": num_heads,
+            "policy_normalization": policy_normalization,
         },
         players=complete_buffer.spatial_input_buffer.shape[1],
         device=device,
@@ -112,6 +122,7 @@ def run(
             "embedding_dimensions": embedding_dimensions,
             "global_state_embedding_dimensions": global_state_embedding_dimensions,
             "num_heads": num_heads,
+            "policy_normalization": policy_normalization,
         },
         "auxiliary_objectives": selected_objectives,
         "training": {
