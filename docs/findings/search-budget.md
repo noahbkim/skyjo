@@ -457,6 +457,63 @@ opportunities and opponent threats. Keep acquisition, placement, policy mass,
 search choices and visit targets separate. [Evidence](evidence/clear-recognition-20261019.json)
 contains72 searches, all raw policy probes, recipes and checkpoint/source hashes.
 
+**Quick search-target probes, October 19:** 310 main searches completed in49s
+with8 workers, plus24 selective-prior searches. Entrypoint:
+`run_search_target_probes.py`; artifacts `.runs/target-probes-20261019/`.
+Candidate12: five heuristic/tactical positions × learned/noisy/uniform/
+uniform-noisy/mean-return × four seeds ×2048 traversals, with power-of-two
+snapshots;17 exact endgames × those five methods × two seeds ×256 traversals.
+Before4 repeats the five heuristic positions with learned/noisy priors and four
+seeds. Noise matches self-play epsilon.25, group-aware; other BASE settings stay
+fixed. Compare final visit targets with last-half visits diagnostically only.
+Existing exact references were re-enumerated. A smoke run passed, and learned/
+noisy snapshot target masses and greedy actions matched the production runner.
+
+The evidence separates several mechanisms:
+
+- **Delayed internal exploration:** candidate12 learned priors first evaluate
+  GIVE→TAKE→CLEAR at415–507 visits for Give9 and884–1006 for Give12. Self-play
+  root noise still takes431–527 /890–1296. Uniform priors reduce this to36–124 /
+  67–172. At256, learned avoids0/4 on both; uniform avoids4/4 on both.
+- **Root allocation and retained visits also matter:** flattening only interior
+  PUCT priors brings discovery down to19–34 /11–71, but still avoids0/4 at256
+  on both, despite an avoiding action having higher Q in4/4. Flattening both
+  root and interior avoids4/4. Root-only flattening avoids Give12 in4/4 at256
+  even though3/4 searches never evaluate its full clear by2048. This directly
+  shows why avoidance alone is not evidence of tactical understanding. The
+  allocation-only both-uniform implementation reproduces all eight matching
+  standard-uniform trials' choices and target masses.
+- **Own-clear discovery is early; value separation is smaller:** candidate12
+  evaluates TAKE→CLEAR at visit5 and immediate placement at visit1. At256 its
+  best TAKE-minus-DRAW Q gap is0.029 versus before4's0.255. The neural estimate
+  for the actor after clearing is0.568 versus before4's0.795. These estimates
+  are not calibrated ground truth, so a smaller gap is not itself a value error.
+  With fixed c_puct, however, it changes the balance of value and exploration.
+- **Visit targets lag current allocation:** candidate12 own-TAKE mass is51.4%
+  at256 versus59.0% in visits129–256; at2048 it is86.0% versus93.6% in the last
+  half. Immediate-clear mass is58.2% versus70.1% at256. Give9 at2048 puts66.2%
+  on avoiding actions versus88.3% in the last half. This is measurable retained
+  exploration, not proof that last-half targets would train a stronger player.
+- **Greedy failure and bad distribution are different:** Give12 learned256
+  still selects the giveaway, but its target already puts69.3% across the
+  alternatives. Give9 actually strengthens the giveaway: raw policy68.4% to
+  target78.9% (69.3% with noise). Avoidance target mass cannot identify the best
+  alternative without an oracle.
+- **More search helps exact targets; uniform is not a blanket remedy:** across
+  17 exact cases, raw-policy expected regret is0.08548; learned search32 gives
+  0.03264 and256 gives0.01707. Noisy256 gives0.02383; uniform256 gives0.03788,
+  uniform-noisy0.04072. Regret is lost exact terminal win credit, not a faceoff
+  rate. Mean-return256 gives0.01789 and barely changes own-clear targets; it
+  does not resolve these failures by itself.
+
+Next direction: test bounded interior-prior softening with the exact controls
+retained; evaluate root target quality separately from acting argmax, and examine
+exploration strength relative to Q gaps. Establish value calibration with paired
+continuations before treating small clear advantages as wrong. No training
+recipe or production search default changed. [Evidence](evidence/search-target-probes-20261019.json)
+preserves aggregated snapshots, neural probes, allocation-split source, hashes
+and limits; full traces remain local.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
