@@ -363,6 +363,33 @@ hashes, settings and selection. Artifacts and sequential queue status:
 variation. No contemporaneous value1 continuation exists, so these comparisons
 cannot isolate the causal contribution of value weighting.
 
+**Faceoff results, October 19:** all six completed at01:18 Eastern in2h59m,
+faster than estimated. Each row has256 full games and1024 first rounds; positive
+score advantage means opponent score minus candidate12 score (lower is better).
+
+| Opponent / search budgets opponent:candidate | Full-game win credit | Full-game score advantage | First-round win credit | First-round score advantage |
+| --- | ---: | ---: | ---: | ---: |
+| Historical87 /256:256 | 53.52% | +3.16 | 51.76% | +0.79 |
+| Pre-continuation4 /256:256 | 83.20% | +58.29 | 85.94% | +13.68 |
+| Historical87 /32:256 | 57.03% | +5.18 | 50.39% | +2.09 |
+
+At equal256 search, historical87 full-game win-credit95% CI47.46–59.38% and
+score CI−1.45..+7.76 include parity; first-round score CI−0.18..+1.82 does too.
+Thus candidate12 is competitive with the time-matched baseline, with no clear
+superiority established. Against checkpoint4, full-game win CI78.13–87.89% and
+first-round score advantage CI12.33–15.01 establish substantial improvement
+along this continuation. Against historical87/search32, full-game win
+CI50.78–63.09% and score CI0.18–10.29 suggest a modest advantage; first-round
+win CI47.46–53.42% is inconclusive despite a score advantage CI1.05–3.15.
+
+These are marginal paired-seat seed-cluster bootstrap95% intervals, unadjusted
+for multiple comparisons; arms share seeds. Eight workers were verified in all
+six raw reports. [Results and provenance](evidence/value01-faceoff-results-20261019.json)
+preserve settings, checkpoint/report hashes and all intervals. The continuation
+learned substantially, but extra training and value-weight reduction remain
+confounded; these results alone do not prove value0.1 caused the improvement or
+that search256 self-play is more efficient than the historical recipe.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
