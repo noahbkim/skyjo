@@ -150,6 +150,7 @@ and repeated metrics. Update design rationale when an interface decision changes
 - [Round-boundary evaluation](findings/boundary-evaluation.md)
 - [Symmetric action grouping](findings/symmetry.md)
 - [Architecture performance](findings/architecture-performance.md)
+- [Search throughput and performance PoCs](findings/search-performance.md)
 
 These notes include negative and inconclusive results. Their evidence summaries
 preserve historical source references and provenance gaps; local run paths are
