@@ -633,6 +633,60 @@ remain distinct bottlenecks; this is weaker evidence against mean backups than
 the first-discovery snapshot alone suggests. It is one position/seed, not a
 general allocation guarantee.
 
+## Full afterstate giveaway probes, October 19, 2026
+
+Candidate12, two giveaways, seeds0–3, sampled/enumerated ordinary chance crossed
+with learned/uniform group priors at both root and interior nodes. Same BASE
+settings as recent probes: c_puct1, parent FPU reduction0, current-mixture backup,
+group symmetry, no root noise, visit acting/targets, boundary_samples1. All32
+searches ran to8192 traversals with eight single-threaded workers in about90s.
+Enumeration covers ordinary in-round outcomes; round boundaries remain sampled.
+
+Discovery means the first evaluation of the prescribed GIVE/TAKE/CLEAR witness:
+one sampled outcome versus every ordinary outcome in enumeration mode. Stable
+thresholds mean the final uninterrupted interval through8192, not an asymptotic
+guarantee. Q preference requires a strictly better evaluated non-giveaway Q.
+
+| Position | Chance / priors | Clear discovered | Stable non-giveaway Q | Stable non-giveaway visit action |
+| --- | --- | ---: | ---: | ---: |
+| Give9 | Sampled / learned | 415–507 | 561–610 | 1551–1710 |
+| Give9 | Enumerated / learned | 409–422 | 547–562 | 1568–1592 |
+| Give9 | Sampled / uniform | 36–124 | 152–201 | 162–207 |
+| Give9 | Enumerated / uniform | 43–101 | 168–186 | 180–198 |
+| Give12 | Sampled / learned | 884–1006 | 3–27 | 1671–1869 |
+| Give12 | Enumerated / learned | 942–981 | 22–30 | 1729–1804 |
+| Give12 | Sampled / uniform | 67–172 | 38–172 | 38–178 |
+| Give12 | Enumerated / uniform | 37–87 | 37–60 | 38–56 |
+
+Ranges span four seeds. Give12 often has a better-Q alternative, or with uniform
+priors a different selected action, before discovering the clear. Avoidance does
+not establish tactical understanding. At256 both learned conditions avoid0/4 on
+both positions; both uniform conditions avoid4/4. At2048 and8192 all conditions
+avoid4/4. Give9 mean avoidance target mass at256 is21.1%/20.2% for sampled/enumerated
+learned, versus88.4%/88.3% for uniform; Give12 is69.3%/69.8% versus89.3%/89.3%.
+
+Full enumeration provides little learned-prior improvement in traversal count.
+Median evaluated states at stable avoidance are1632→8023 on Give9 and1794→10810.5
+on Give12; uniform gives203→834.5 and87.5→242. Those are network-input state counts,
+not proportional runtime increases because enumeration batches evaluations.
+Learned-prior median event times roughly double (2.99→5.80s,2.86→5.89s), but include
+diagnostic overhead and concurrent-worker contention, not isolated timing trials.
+Uniform Give12 gains in iteration count, but still evaluates more states.
+
+Validation: all16 sampled discovery iterations reproduce previous trials, and all48
+sampled root snapshots at32/256/2048 reproduce prior choices, target masses and
+complete root-group statistics exactly. Fixture-label action counts independently
+checked for all24 condition/budget summaries. Import/CLI smoke, direct invocation,
+eight-worker smoke and Ruff passed. No production behavior or model weights changed.
+
+Reusable runner: `run_chance_discovery_probes.py`, revision170cec3. Full local traces:
+`.runs/chance-discovery-20261019/full/`. [Compact evidence](evidence/chance-discovery-20261019.json)
+retains configuration/checkpoint hashes, event work counts, first/post-discovery
+and stable thresholds, selected snapshots, and raw artifact digest. These two
+fixtures do not establish general playing strength. Current conclusion: ordinary
+chance sampling is not the main explanation for delayed giveaway recovery here;
+prior-guided discovery and accumulated visit allocation remain more consequential.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
