@@ -588,6 +588,36 @@ training recipe. The post-clear evaluator supplies useful relative information,
 but its absolute calibration is still unverified. [Evidence](evidence/value-propagation-20261019.json)
 preserves stage estimates, interventions, traces, source hashes and validation.
 
+## Backup interpretation correction, October 19, 2026
+
+The dilution above is real, but the recursive `current_mixture` formula should
+not be described as an intrinsically different estimator from standard sampled
+MCTS returns. With the current sampled-chance configuration and one boundary
+sample per visit, it is algebraically the same average of the traversal leaf
+evaluations. Each non-root decision's initial model evaluation is its first
+sample; sampled chance outcome frequencies equal child visit counts. Recursive
+weighted means therefore collapse to a flat sample mean. The root alone retains
+an additional initial-model pseudocount. Exact chance enumeration and unequal
+boundary batches require separate treatment; this equivalence does not cover
+every supported configuration.
+
+Verified on candidate12 (SHA beginning `21159b7fec97`) with BASE, seed0: all22
+probe positions, 2048 visits on the five heuristic positions and256 on the17
+exact controls. A temporary wrapper around `mcts.backpropagate` independently
+accumulated each traversal's fresh `Evidence.value` at every node on its path,
+including the root pseudocount, then compared against the recursively backed
+value after every update. Maximum absolute difference was1.99e-7. Sampled chance
+weights also matched outcome child visits at every checked update. No production
+search behavior changed.
+
+Consequently, the broader hypothesis is a finite-budget limitation of averaging
+under an evolving exploratory continuation policy, not demonstrated incorrect
+counting or a uniquely nonstandard recursive backup. Testing max/soft decision
+backups remains justified, while chance nodes must retain probability-weighted
+expectations. The earlier `mean_return` comparison is not a clean contrast of
+radically different estimators under these settings: root initialization and
+floating-point differences can change subsequent allocation paths.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
