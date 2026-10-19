@@ -73,10 +73,9 @@ For a weights-only restart, set `bootstrap_checkpoint` instead of
 policy normalization, and starts with fresh replay, Adam state, RNGs and counters.
 It rejects an initial replay dataset or simultaneous continuation checkpoint.
 The initial saved checkpoint records the source hash and source progress.
-`configs/overnight-group256.toml` supplies a twelve-hour fixed 256 recipe; extend it
-locally with the early checkpoint path. It generates 1,024 games per iteration
-and saves after each update cycle. The time cap is soft: finishing a large active
-iteration can produce substantial overrun, which is recorded in the results.
+Set the search budget, games per iteration, workers and time cap in a local
+configuration extending `configs/baseline.toml`. Time caps are soft: finishing
+an active iteration can produce substantial overrun, recorded in the results.
 
 Optional randomized self-play caps use `selfplay.fast_search_iterations` and
 `selfplay.full_search_probability` together. `search.iterations` remains the full
@@ -88,16 +87,21 @@ Replay ratio counts retained rows, not all played moves. Metrics distinguish
 `generation/positions`, `generation/training_positions`, and `generation/fast_positions`.
 Defaults disable randomization. Both new settings must be supplied to enable it.
 
-`run_randomized_budget_experiment.py` is an experimental two-arm continuation pilot:
-group-aware fixed32 versus 75% fast16 / 25% full128. It runs sequentially under soft
-time caps, then evaluates all three pairs including a historical control, plus
-each endpoint against its own initial normalization. The historical checkpoint is
-selected by elapsed time before faceoffs. Its code revision, replay sampler, and
-training cadence differ, so the historical contrast does not isolate grouping.
-The two new arms share all settings except the randomized-cap method. Parent119's
-legacy metadata is adapted into a separate file; missing replay-sampler state is
-explicitly initialized identically for both arms, never silently treated as exact
-resume. The pilot preserves original checkpoint and replay artifacts.
+For example, this optional schedule retains about one quarter of decisions:
+
+```toml
+[selfplay]
+fast_search_iterations = 16
+full_search_probability = 0.25
+
+[search]
+iterations = 128
+```
+
+Its expected cap is 44 traversals per decision, not 32. Size replay and optimizer
+exposure using retained positions; a larger game count alone need not provide
+more training signal. This capability is experimental: the initial pilot did not
+establish a strength benefit. See the [closed investigation](findings/search-budget.md).
 
 Offline exact resume requires matching learning/data settings; `--steps` is the
 cumulative update target. Online continuation creates a new run from a parent

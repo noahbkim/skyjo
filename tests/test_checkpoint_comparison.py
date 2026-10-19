@@ -16,6 +16,7 @@ import typer
 from typer.testing import CliRunner
 
 import run_checkpoint_comparison as cli
+from skyjo.engine import game as sj
 from skyjo.experiments import contestants, evaluation
 from skyjo.experiments.contestants import ContestantConfig
 from skyjo.learning import checkpoint, models
@@ -134,8 +135,9 @@ def test_recording_keeps_completed_game_when_interrupted(
     assert not (run_path / "comparison.json").exists()
 
 
+@pytest.mark.parametrize("first_round", [False, True])
 def test_parallel_cli_matches_serial_contestants_and_restores_runtime(
-    tmp_path, model_checkpoint
+    tmp_path, model_checkpoint, monkeypatch, first_round
 ):
     """Real games protect settings wiring, seat order, and worker-independent RNGs."""
     boundary = tmp_path / "boundary.pth"
@@ -176,9 +178,35 @@ merge_symmetric_actions = false
         ),
         seed_count=2,
         seed=97,
+        first_round=first_round,
     )
     saved, threads = checkpoint.capture_rng_state(), torch.get_num_threads()
-    serial = evaluation.evaluate_checkpoints(settings).to_dict()
+    observed_scores = []
+    real_round = evaluation.play.play_round
+
+    def observe_round(*args, **kwargs):
+        history = real_round(*args, **kwargs)
+        assert tuple(sj.get_game_scores(history[0].state)) == (0, 0)
+        assert sj.get_round_over(history[-1].state)
+        observed_scores.append(
+            sj.get_fixed_perspective_round_scores(history[-1].state).tolist()
+        )
+        return history
+
+    with monkeypatch.context() as patch:
+        if first_round:
+            patch.setattr(evaluation.play, "play_round", observe_round)
+            patch.setattr(
+                evaluation.play,
+                "play_game",
+                lambda *a, **kw: pytest.fail(
+                    "First-round evaluation must stop before round two"
+                ),
+            )
+        serial = evaluation.evaluate_checkpoints(settings).to_dict()
+    if first_round:
+        assert [game["round_scores"] for game in serial["games"]] == observed_scores
+        assert len(observed_scores) == 4
     assert_runtime_unchanged(saved, threads)
     app = typer.Typer()
     app.command()(cli.compare)
@@ -204,6 +232,7 @@ merge_symmetric_actions = false
             "--runs-dir",
             str(tmp_path / "runs"),
             "--allow-dirty",
+            *(["--first-round"] if first_round else []),
         ],
     )
     assert result.exit_code == 0, result.output

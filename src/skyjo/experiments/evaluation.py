@@ -1,4 +1,4 @@
-"""Seat-balanced full-game checkpoint comparisons, independent of training."""
+"""Seat-balanced full-game or first-round comparisons, independent of training."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from skyjo.analytics.comparisons import summarize_match
+from skyjo.engine import game as sj
 from skyjo.experiments import contestants, runs
 from skyjo.experiments.contestants import ContestantConfig
 from skyjo.learning import checkpoint
@@ -31,6 +32,7 @@ class EvaluationConfig:
     seed: int = 0
     workers: int = 1
     threads: int = 1
+    first_round: bool = False
 
     def __post_init__(self):
         for name in ("seed_count", "workers", "threads"):
@@ -77,7 +79,7 @@ def _build_agents(configurations):
     return agents
 
 
-def _play_game(agents, job):
+def _play_game(agents, job, *, first_round=False):
     index, seed, seats = job
     streams = GameRandomStreams.from_seed(seed)
     player_seeds = streams.search.integers(0, 2**32, size=2)
@@ -85,33 +87,43 @@ def _play_game(agents, job):
         agents[name].player(np.random.default_rng(int(player_seeds[i])))
         for i, name in enumerate(seats)
     ]
-    result = play.play_game(
-        players, environment_rng=streams.environment, action_rng=streams.actions
-    )
+    if first_round:
+        history = play.play_round(
+            players, environment_rng=streams.environment, action_rng=streams.actions
+        )
+        scores = tuple(
+            map(int, sj.get_fixed_perspective_round_scores(history[-1].state))
+        )
+        winners = tuple(i for i, score in enumerate(scores) if score == min(scores))
+    else:
+        result = play.play_game(
+            players, environment_rng=streams.environment, action_rng=streams.actions
+        )
+        scores, winners = result.final_scores, result.winners
     variant_seat = seats.index("variant")
-    scores = result.final_scores
     return {
         "seed": seed,
         "seed_index": index,
         "seats": list(seats),
         "cumulative_scores": list(scores),
-        "variant_win_credit": (
-            1.0 / len(result.winners) if variant_seat in result.winners else 0.0
-        ),
+        **({"round_scores": list(scores)} if first_round else {}),
+        "variant_win_credit": (1.0 / len(winners) if variant_seat in winners else 0.0),
         "control_minus_variant": scores[1 - variant_seat] - scores[variant_seat],
     }
 
 
 _worker_agents = None
 _worker_inputs = None
+_worker_first_round = False
 
 
-def _initialize_worker(configurations, threads):
-    global _worker_agents, _worker_inputs
+def _initialize_worker(configurations, threads, first_round):
+    global _worker_agents, _worker_inputs, _worker_first_round
     torch.set_num_threads(threads)
     torch.set_num_interop_threads(1)
     _worker_agents = None
     _worker_inputs = configurations
+    _worker_first_round = first_round
 
 
 def _play_worker_game(job):
@@ -119,7 +131,7 @@ def _play_worker_game(job):
     if _worker_agents is None:
         # Load once per worker and report loading errors through the task future.
         _worker_agents = _build_agents(_worker_inputs)
-    return _play_game(_worker_agents, job)
+    return _play_game(_worker_agents, job, first_round=_worker_first_round)
 
 
 def evaluate_checkpoints(
@@ -167,14 +179,14 @@ def evaluate_checkpoints(
         effective_workers = min(settings.workers, len(jobs))
         if effective_workers == 1:
             for job in jobs:
-                collect(_play_game(agents, job))
+                collect(_play_game(agents, job, first_round=settings.first_round))
         else:
             del agents
             executor = ProcessPoolExecutor(
                 max_workers=effective_workers,
                 mp_context=mp.get_context("spawn"),
                 initializer=_initialize_worker,
-                initargs=(configurations, settings.threads),
+                initargs=(configurations, settings.threads, settings.first_round),
             )
             remaining = iter(jobs)
             pending = set()

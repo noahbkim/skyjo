@@ -1,144 +1,169 @@
 # Is more search worth its cost?
 
-**Current direction, October 16, 2026:** isolate search strategy changes using
-frozen weights and valuation. On two selected clearing-card positions, uniform
-priors substantially reduce the iterations needed to stop handing the opponent
-a clearing card. Highest-Q final selection also helps the learned-prior
-AlphaZero preset. Playing-strength gains from those frozen-search changes remain
-untested. A separate group-aware/randomized-budget training pilot below found no
-clear strength improvement.
+**Closed October 19, 2026.** This investigation did not establish a better
+training recipe or resolve the clearing-card failures. The final candidate
+improved substantially over its predecessor but did not clearly outperform the
+time-matched historical baseline at equal inference search. Keep the historical
+lineage as the reference; do not interpret this as proof that more search cannot
+help, that the value network is calibrated, or that training needs 100× more games.
 
-The frozen iteration 119 variant checkpoint is shared across all methods.
-Here “AlphaZero” means the named preset: PUCT, mean-return backups, zero FPU,
-sampled ordinary chance, one first-visit boundary sample, grouped symmetry,
-no root noise, and greedy final selection. It differs from the recording's
-historical mixture-backup search. Uniform means equal probability per symmetry
-group at every decision node. Final Q selection changes no allocation or backup.
+## What survives on the branch
 
-Ranges below cover seeds 0–3. “Stable from” is one plus the last giveaway
-iteration: the selected action then avoids the labeled card through the tested
-horizon. It is not an asymptotic convergence claim.
+| Change | Why keep it | Status |
+| --- | --- | --- |
+| Group-normalized policy and group root noise | Removes action-multiplicity bias consistently in training and inference; preserves tensor/checkpoint interfaces | Default for new models; strength benefit not isolated |
+| Historical checkpoint semantics | Old checkpoints retain per-action normalization; exact resume checks the mode | Required compatibility |
+| Randomized self-play budgets | Small optional mechanism for trading search quality against game/target throughput | Off by default; pilot inconclusive |
+| Weights-only bootstrap | Reuse compatible weights with fresh replay, optimizer, RNGs and counters; record parent hash | Reusable training feature |
+| First-round faceoffs | Paired opening-round scores without later-round contexts | Optional `--first-round` mode |
+| Four frozen AlphaZero contestant recipes and tactical plan | Compare learned/uniform priors and visit/Q acting using existing runners | Evaluation options, not recommended defaults |
 
-| Priors / final selection | 9-card position: stable from | 12-card position: stable from | Tested horizon |
-| --- | ---: | ---: | ---: |
-| Learned / visits | 4,514–5,171 | 11,305–13,196 | 32,768 |
-| Learned / highest Q | 1,275–1,467 | 6,211–6,687 | 32,768 |
-| Uniform / visits | 873–1,260 | 1–188 | 8,192 |
-| Uniform / highest Q | 1,083–1,360 | 39–181 | 8,192 |
+The general search-position diagnostics, exact-endgame benchmark, strategy
+implementations and action-group tree merging already existed on the integration
+base (`16a6ec7`); they are not new infrastructure from this branch. No residual
+architecture, turn-completion search, posterior-value objective or alternative
+backup was added to production by this investigation. See
+[architecture](../architecture.md), [training options](../experiments.md), and
+[benchmark commands](../search-benchmarks.md).
 
-The initial 8,192-iteration screen had 4/4 final avoidances in every cell except
-learned-prior visit selection on the 12-card position (0/4). That failure prompted
-an exploratory extension of learned-prior methods to 32,768. The longer runs
-retained identical prefixes and recovered in all four seeds. Paired visit/Q runs
-had exactly identical root statistics, evaluator work, and witness discovery;
-the improvement therefore comes from final selection on the same search.
+## Training and playing strength
 
-Uniform priors discover the GIVE → TAKE → CLEAR line in 107–213 iterations for
-the 9-card position and 126–503 for the 12-card position, versus 620–644 and
-3,735–4,280 with learned priors. The model assigns the opponent's clearing action
-only 3.33% and 1.65% prior probability, respectively. Discovery alone does not
-immediately change the final choice. Conversely, avoiding the card at iteration
-one does not establish that search understood the tactic. Q selection does not
-improve median recovery over visits in the uniform-prior runs.
+The group-aware fixed 256 run bootstrapped from historical iteration 19 with fresh
+replay/Adam: 4,096 games in 12h16m, checkpoint 4. It beat its start in the requested
+256-versus-32 setup, but lost the opening-round comparison against time-matched
+historical 44: 42.33% win credit over 1,024 rounds and 1.47 points worse per round.
+That comparison mixes weights and inference budgets.
 
-**Next action:** run paired-seat frozen-checkpoint faceoffs using the matching
-[contestant recipes](../../configs/search-strategies/), first changing only
-priors and then only final selection. Keep mean-return valuation and boundary
-evaluation fixed; report win credit, score margin, paired uncertainty, and work.
-No faceoffs or training were run in that tactical screen. Two selected positions and four
-seeds cannot establish general playing strength or model accuracy.
+A continuation lowered value-loss weight from 1 to 0.1 while retaining auxiliaries,
+search 256, replay and Adam. Another 8,192 games in 22h39m reached checkpoint 12.
+Candidate cumulative training after iteration 19 was 34.9135h versus historical 87's
+35.0025h. Historical code, worker counts and training history differ; this is a
+wall-time comparison, not an isolated search-budget or loss-weight ablation.
 
-**Implemented next step:** new training defaults to group-normalized learned
-policies and group-level Dirichlet noise. Symmetric logits are averaged before
-normalization, and group mass is split across the existing action interface.
-The same normalization is used in the training loss, inference, search priors,
-and policy-only selection; visit-target splitting already preserves group mass.
-`model.policy_normalization = "actions"` and `search.group_root_noise = false`
-retain the previous behavior. Old checkpoints load with their original policy
-semantics, so the measurements above remain a legacy-checkpoint baseline. This
-implementation is used in the continuation pilot below; that small pilot does
-not establish a playing-strength gain from normalization.
-See [configuration and continuation rules](../experiments.md#shared-and-local-configurations).
+Final faceoffs used eight workers, paired seats, no root noise, greedy visit
+acting, 256 full games and 1,024 first rounds per row, with separate seeds for
+full-game and first-round comparisons. Positive round score advantage means
+opponent score minus candidate score; intervals are paired
+seed-cluster bootstrap 95% intervals, unadjusted for multiple comparisons.
 
-[Reproduction and faceoff commands](../search-benchmarks.md#clearing-card-alphazero-baseline).
-[Compact evidence](evidence/clearing-alphazero.json) retains all 48 measured trials,
-per-seed thresholds, hashes, plans, model probes, and local run references.
-Detailed traces and source snapshots remain under `.runs/clearing-*` in the
-`codex/search-clearing-cards` workspace. Recipes are committed in `d9f4010`.
-Validation: 45 focused tests passed, and the four faceoff configurations were
-checked against the measured diagnostic configurations.
+| Candidate 12 against | Opponent / candidate search | Full-game win credit | First-round score advantage |
+| --- | --- | --- | --- |
+| Historical 87 | 256 / 256 | 53.52% (47.46–59.38) | +0.79 (−0.18–1.82) |
+| Checkpoint 4 | 256 / 256 | 83.20% (78.13–87.89) | +13.68 (12.33–15.01) |
+| Historical 87 | 32 / 256 | 57.03% (50.78–63.09) | +2.09 (1.05–3.15) |
 
-## Randomized-budget continuation pilot
+Other decisions supported by the experiments:
 
-**Result, October 16:** both continuations and all six faceoffs completed in about
-1 h 55 m. Neither group-aware fixed32 nor randomized fast16/full 128 demonstrated an
-improvement over its starting model. The randomized method did not demonstrate
-an advantage over fixed32. This is one training seed and a small evaluation screen.
+- **Keep visit acting.** Highest-Q acting with identical checkpoint 4/search 256
+  lost to visits: 36.33% win credit in 256 full games (30.08–42.58), and 38.09%
+  in 1,024 first rounds. A better result on a giveaway fixture did not transfer.
+- **Do not promote the randomized schedule.** The short fixed 32 versus
+  75% fast 16 / 25% full 128 pilot showed no clear strength advantage. Its expected
+  cap was 44, and only 25.12% of decisions entered replay. It refreshed inherited
+  replay more slowly and received fewer optimizer updates; it did not demonstrate
+  a throughput advantage over fixed 32.
+- **Value weight 0.1 was a useful lead, not a proven cause.** Fixed-replay tests
+  improved policy KL/value MSE versus weight 1 (0.10867/0.18538 versus
+  0.11427/0.19074). The subsequent stronger checkpoint also had much more training;
+  there was no contemporaneous weight 1 continuation.
 
-Each row has 64 games (32 environment seeds, both seats), common search 32,
-mixture backups, no root noise and greedy acting. Win credit includes half a win
-for ties. Intervals bootstrap environment-seed pairs 20,000 times; they are
-conditional on these checkpoints and unadjusted for multiple comparisons.
-Positive score margin favors the first-named model.
+## What the tactical probes actually established
 
-| Comparison | Win credit (95% interval) | Score margin (95% interval) |
-| --- | ---: | ---: |
-| Group fixed32 vs historical | 56.25% (43.75–68.75) | +6.88 (−3.69–17.33) |
-| Group randomized vs historical | 50.00% (39.06–60.94) | −1.19 (−9.48–7.12) |
-| Group randomized vs group fixed32 | 45.31% (34.38–57.81) | −8.38 (−18.11–1.19) |
-| Historical vs original 119 | 49.22% (37.50–60.94) | +0.34 (−11.66–13.08) |
-| Group fixed32 vs group-normalized 119 | 43.75% (29.69–57.81) | −7.59 (−18.80–3.27) |
-| Group randomized vs group-normalized 119 | 42.97% (32.03–54.69) | −5.48 (−14.77–4.53) |
+These are two selected giveaway positions and related clearing opportunities,
+not independent samples of playing strength. Avoidance labels are tactical
+hypotheses, not exact full-game action values. Uniform priors below mean uniform
+at both root and interior decision groups, not merely group normalization.
 
-Both new arms retained learned priors, starting from 119 weights, Adam moments,
-the same 2,097,152-position replay capacity and explicitly initialized replay
-sampler. New training used group normalization and group-level root noise,
-LR 0.001, replay ratio 4, inherited auxiliaries and 256 games per iteration.
-The random arm selected full 128 searches independently with probability 0.25;
-other moves used greedy, noise-free search 16. Only full-search rows entered replay.
+Candidate 12, seeds 0–3, PUCT c=1, parent FPU reduction 0, mixture backup, sampled
+ordinary chance, boundary sample 1, no noise, visit acting/targets:
 
-| Arm | Actual training time | Fresh games | Retained positions | Optimizer updates |
-| --- | ---: | ---: | ---: | ---: |
-| Historical | 62.5 min | 2,048 | 534,918 | 8,359 |
-| Group fixed32 | 54.6 min | 2,560 | 693,606 | 10,842 |
-| Group randomized | 52.7 min | 1,792 | 138,549 | 2,169 |
+| Position / priors | Clear first evaluated | Stable giveaway avoidance through 8,192 visits |
+| --- | --- | --- |
+| Give9 / learned | 415–507 | 1,551–1,710 |
+| Give9 / uniform | 36–124 | 162–207 |
+| Give12 / learned | 884–1,006 | 1,671–1,869 |
+| Give12 / uniform | 67–172 | 38–178 |
 
-Randomized play generated 551,560 decisions and retained 25.12%. It produced
-fewer games than fixed32: its expected cap was 44 rather than 32, and games averaged
-307.8 rather than 270.9 decisions. This pilot therefore does not show the intended
-game-throughput advantage relative to this cheaper fixed baseline. Only 6.6% of
-its final replay was fresh versus 33.1% for fixed32, so most training still sampled
-inherited targets. The short trial confounds deeper target quality with slower
-replay refresh and fewer updates as components of the randomized method.
+At 256, learned priors fail avoidance in all four seeds on both positions; uniform
+avoids in all four. Avoidance can precede discovering the clear, especially on
+Give12, so it must not be treated as tactical understanding. The original 119
+AlphaZero-preset screen also favored uniform priors, but used different backup/FPU
+settings; its larger thresholds are not a matched training-progress comparison.
 
-The historical checkpoint 121 was selected nearest the new arms' mean elapsed
-time before faceoffs. It used older code, a different replay sampler and 1024-game
-updates, and had more elapsed training time. Its contrast cannot isolate grouping.
-Initial comparisons preserve each arm's normalization, separating training from
-the immediate policy transformation of the same 119 weights.
+- **Chance enumeration was not the main fix.** Enumerating every ordinary
+  afterstate outcome barely changed learned-prior avoidance thresholds, while
+  requiring roughly 5–6× as many evaluated states at recovery. It evaluates
+  outcomes of a selected action, not every subsequent decision; a batch yields
+  one expectation, not an independent visit per outcome.
+- **Allocation and cumulative targets both matter.** Interior-only uniform
+  priors discovered the clear earlier but still failed avoidance at 256. Historical
+  visits remain in both ancestor value averages and final visit targets. Give9's
+  learned 256 target increased giveaway mass from raw 68.4% to 78.9%; Give12's target
+  already assigned 69.3% across alternatives despite selecting the giveaway.
+- **The evaluator recognizes completed clears better than opportunities.**
+  Candidate 12's clearing-player value rose 0.4392→0.6261 for clear9 and
+  0.4885→0.6533 for clear12. Completing a whole TAKE/placement turn with the same
+  evaluator favored TAKE where one-action lookahead favored DRAW. These are
+  neural estimates, not calibrated outcome oracles. Actual fresh 256 searches at
+  acquisition still chose DRAW; fresh searches after TAKE chose CLEAR.
+- **No demonstrated backup arithmetic defect.** Under sampled chance and one
+  boundary sample per visit, recursive mixture values matched flat means of fresh
+  leaf evaluations, including a root pseudocount (maximum error 1.99e-7 across 22
+  positions). This equivalence does not cover all enumeration/boundary settings.
+  In Give9 seed 0, the next 20 placement visits after discovery all chose CLEAR,
+  and all 320 subsequent acquisition visits chose TAKE. Local PUCT did respond;
+  late discovery and retained earlier samples explain more than the first snapshot.
+- **More search can make better targets.** On 17 exact endgames, candidate 12's
+  policy regret was 0.08548, search 32 target regret 0.03264 and search 256 0.01707.
+  Uniform 256 was worse at 0.03788. Thus uniform is not a general remedy, and the
+  claim that deeper search never improves targets is unsupported.
+- **Small-set fitting works; generalization remains open.** Policy-only fits on
+  14/15 improved exact-case targets reached KL 0.00020/0.000058. These were
+  same-example capacity checks. Combined-loss replay fits could overfit value
+  outcomes and absorb policy targets less effectively; neither result diagnoses
+  the full training loop by itself.
 
-**Decision:** do not select this randomized schedule for a large run based on
-these results. A follow-up should account for retained-sample rate when sizing
-replay and optimizer exposure, and use a fresh contemporaneous control if the
-goal is to isolate normalization. More evaluation games can narrow match
-uncertainty but cannot replace independent training seeds.
+## Handoff and recovery
 
-[Compact evidence](evidence/randomized-search-budget.json) includes report hashes,
-checkpoint hashes, resolved settings, paired-seed statistics and bootstrap details.
-Full artifacts are in `.runs/randomized-budget-20261016`; code revision `5d79800`.
+The full pre-cleanup investigation is preserved remotely at
+[`archive/search-clearing-cards-20261019`](https://github.com/noahbkim/skyjo/tree/archive/search-clearing-cards-20261019),
+commit `753a284d3f6db965c916b057b127afc200bed26b`. Its
+[original findings](https://github.com/noahbkim/skyjo/blob/753a284d3f6db965c916b057b127afc200bed26b/docs/findings/search-budget.md)
+link every detailed evidence file, method, checkpoint hash and experiment result.
+The tag preserves them even if this branch is later squashed.
 
-**Next run:** twelve-hour weights-only bootstrap from the long-selfplay run's
-iteration 19 (19,456 games; checkpoint `checkpoint_20261003_125640_381463.pth`).
-Use fresh replay and Adam state, learned group-normalized priors, group-level root
-noise, fixed 256 search iterations, mixture backups and sampled chance. Preserve
-the 16/32-dimensional model and score/doubling auxiliaries. Generate 1,024 games per
-training iteration, replay ratio 4, LR 0.001, capacity 1,048,576 positions, eight CPU
-workers. Save every iteration and finish the active batch after the 12-hour soft
-cap. This tests sustained learning from deeper fresh targets; it is not an
-equal-compute ablation establishing the optimal search budget. Compare against
-the initial group-aware snapshot with matched inference settings before claiming
-progress. Recipe: `configs/overnight-group256.toml`; source checkpoint is supplied
-through a local override.
+Removed from the active tree: six one-off runners (randomized pilot, learning-loop,
+followups, target, value-propagation and chance-discovery probes), their four
+support modules and two dedicated test files, two dated overnight recipes, and
+14 bulky evidence JSON files. They encoded particular checkpoint names, fixed
+case selections or intervention recipes; they overlapped existing diagnostics,
+training and faceoff entrypoints. The pilot-specific checkpoint-adaptation test
+was removed with its helper. Core feature tests remain.
+
+Use existing tools for future work:
+
+- `run_search_diagnostics.py`: fixture-based discovery, values, visits and budget
+  traces; extend the TOML plan instead of adding another runner.
+- `run_search_strategy_benchmark.py`: exact-endgame regret and frozen controls.
+- `run_checkpoint_comparison.py`: paired full games or `--first-round`; reuse the
+  same checkpoint with different contestant settings to isolate search changes.
+- `run_train_epoch.py`: fixed-replay training and fitting diagnostics.
+
+Local runs and checkpoints were not deleted. Final candidate:
+`.runs/overnight-group256-value01-from4/20261018T002135Z-overnight-group256-value01-6fb23c2b2c/checkpoints/checkpoint_000012.pth`
+(SHA256 `21159b7fec97cd3a46d76234429dfa3e6f5b493bc97e02d4d7275c046c6f1aac`).
+`.runs/value01-faceoffs-20261018/plan.json` locates checkpoint 4/historical 87 and records
+hashes and time matching; results are alongside it. Archived evidence preserves
+that plan too. These local artifacts are not part of Git: retain or relocate them
+before removing the worktree. Old ignored `configs/local/` overnight overrides
+refer to archived recipes; recover those recipes from the tag before reusing them.
+
+No new run is queued. If investigation resumes, the unresolved question is whether
+useful supervision is absent, is not absorbed, or fails to generalize. Audit a
+real training iteration with fixed positions/targets and a held-out comparison
+before buying substantially more self-play. Residual column-to-head connections,
+turn-completion search and sharper acting temperatures remain untested ideas,
+not changes or recommendations established by this branch.
 
 ## Earlier inference and training evidence
 

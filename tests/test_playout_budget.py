@@ -8,16 +8,13 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import torch
 from helpers import NaiveQuickFinishPlayer
 
 from skyjo.engine import game
 from skyjo.experiments import experiment_config, selfplay_training
-from skyjo.experiments.budget_comparison import adapt_parent
 from skyjo.experiments.contestants import ContestantConfig, PreparedContestant
 from skyjo.experiments.playout_budget import RandomizedBudgetPlayer
-from skyjo.learning import buffer, checkpoint, observations, targets
-from skyjo.learning.learner import Learner
+from skyjo.learning import buffer, targets
 from skyjo.search.configuration import SearchConfig
 from skyjo.simulation import play
 from skyjo.simulation.decisions import PlayerDecision
@@ -150,58 +147,3 @@ def test_invalid_randomized_budget_is_rejected_before_launch(
             },
             base_directory=tmp_path,
         )
-
-
-def test_legacy_parent_adaptation_preserves_parameters_and_adam(tmp_path):
-    settings = {
-        "embedding_dimensions": 4,
-        "global_state_embedding_dimensions": 8,
-        "num_heads": 1,
-        "policy_normalization": "actions",
-    }
-    learner = Learner.create(
-        settings, players=2, device="cpu", learn_rate=0.001, seed=0
-    )
-    parameter = next(learner.model.parameters())
-    parameter.grad = torch.ones_like(parameter)
-    learner.optimizer.step()
-    source = tmp_path / "legacy.pth"
-    checkpoint.save_checkpoint(
-        source,
-        model=learner.model,
-        optimizer=learner.optimizer,
-        configuration={"model": settings, "players": 2},
-    )
-    legacy = checkpoint.decode_checkpoint(source)
-    legacy["configuration"]["model"].update(
-        auxiliary_objectives={},
-        non_spatial_input_shape=list(observations.get_non_spatial_input_shape(2)),
-    )
-    legacy["configuration"]["model"].pop("policy_normalization")
-    torch.save(legacy, source)
-    original_bytes = source.read_bytes()
-    destination = tmp_path / "adapted.pth"
-    metadata = adapt_parent(source, destination, sampling_seed=17)
-    adapted = checkpoint.decode_checkpoint(destination)
-    assert source.read_bytes() == original_bytes
-    assert metadata["replay_sampling_rng_initialized"]
-    assert (
-        adapted["sampling_rng_state"] == np.random.default_rng(17).bit_generator.state
-    )
-    assert adapted["configuration"]["model"]["policy_normalization"] == "actions"
-    for name, value in legacy["model_state_dict"].items():
-        torch.testing.assert_close(
-            adapted["model_state_dict"][name], value, rtol=0, atol=0
-        )
-    for name, value in legacy["optimizer_state_dict"]["state"][0].items():
-        torch.testing.assert_close(
-            adapted["optimizer_state_dict"]["state"][0][name], value, rtol=0, atol=0
-        )
-    second = tmp_path / "readapted.pth"
-    assert not adapt_parent(destination, second, sampling_seed=99)[
-        "replay_sampling_rng_initialized"
-    ]
-    assert (
-        checkpoint.decode_checkpoint(second)["sampling_rng_state"]
-        == adapted["sampling_rng_state"]
-    )
