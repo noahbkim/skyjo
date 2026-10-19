@@ -336,6 +336,33 @@ before removing the unpacked copies. Reclaimed8.12GiB; archives and inventories
 remain beside each run's data. Preserve the active source replay and all
 checkpoints. Compact faceoff artifacts remain (only a few MB).
 
+**Continuation completed, October 18:** overnight value0.1 finished normally at
+19:00 Eastern after81538.1s (22h39m), reaching checkpoint12. Eight additional
+iterations generated8192 games and2475670 positions. Checkpoint12 SHA256:
+`21159b7fec97cd3a46d76234429dfa3e6f5b493bc97e02d4d7275c046c6f1aac`.
+Heuristic target probability rose0.4219 to0.4652; target matches remained6/10.
+These checks do not establish stronger play.
+
+**Approved evaluation queue:** checkpoint12 versus historical87 at256/256,
+then versus pre-continuation4 at256/256, then historical87 at baseline32 versus
+candidate256. Each comparison runs256 full games and1024 fresh first rounds,
+eight workers, one thread each, balanced seats, temperature0, no root noise,
+visit acting and shared PUCT settings. Preserve each checkpoint's policy
+normalization (historical actions; candidate/pre-continuation groups).
+Use common fresh seeds across comparisons but separate seed streams for full
+games and first rounds. Report win credit, opponent-minus-candidate score margin
+(positive favors candidate), and paired-seat seed-cluster bootstrap95% intervals.
+
+Historical87 has126008.90 seconds (35.0025h) after shared iteration19, nearest
+candidate125688.56 seconds (34.9135h), a320.34s difference. The match sums
+checkpoint elapsed intervals along the actual ancestry, excluding idle gaps.
+[Plan and ancestry](evidence/value01-faceoff-plan-20261018.json) pin checkpoints,
+hashes, settings and selection. Artifacts and sequential queue status:
+`.runs/value01-faceoffs-20261018/`. Prior256/256 faceoffs took3731s/full256 and
+4764s/first-round1024; expect roughly6h total, allowing5–8h for game-length
+variation. No contemporaneous value1 continuation exists, so these comparisons
+cannot isolate the causal contribution of value weighting.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
