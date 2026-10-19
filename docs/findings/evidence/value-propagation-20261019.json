@@ -1,0 +1,4136 @@
+{
+  "manifest": {
+    "status": "completed",
+    "started_at": "2026-10-19T16:47:43.220112+00:00",
+    "git": {
+      "commit": "c41ec0883c5c8b511703e987d8f976030f7f1097",
+      "dirty": false,
+      "allow_dirty": false
+    },
+    "script_sha256": "dbb769a47f32c2f4afa4745540ecf9083765c46d5316adb259cff63f28f2ad4c",
+    "checkpoints": {
+      "historical87": {
+        "path": "/Users/urolyi1/repos/skyjo/.runs/20261006T041335Z-overnight-search32-replay4x-from66-20h-f4bd070743/checkpoints/checkpoint_000087.pth",
+        "sha256": "8e7e0cffce5165a1a5444ab1c69a808435fc2f8091ce51715b5206251824ebf4",
+        "policy_normalization": "actions"
+      },
+      "before4": {
+        "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-from19/20261017T004030Z-overnight-group256-early-bootstrap-41f56ef9a6/checkpoints/checkpoint_000004.pth",
+        "sha256": "1381e44fdbfb3c44d8c8d0e2aea77ed3caa307c5b095d9fa1f3839fb3ad77c70",
+        "policy_normalization": "groups"
+      },
+      "candidate12": {
+        "path": "/Users/urolyi1/.codex/worktrees/34cc/skyjo/.runs/overnight-group256-value01-from4/20261018T002135Z-overnight-group256-value01-6fb23c2b2c/checkpoints/checkpoint_000012.pth",
+        "sha256": "21159b7fec97cd3a46d76234429dfa3e6f5b493bc97e02d4d7275c046c6f1aac",
+        "policy_normalization": "groups"
+      }
+    },
+    "workers": 8,
+    "smoke": false,
+    "interventions": "Preview replaces only non-root witness-prefix values and/or policies. Value comes from exact chance-weighted frozen-network estimates after the known clear, not true outcomes. Policies choose the specified continuation with probability1. No model parameters change.",
+    "planned_trials": 134,
+    "finished_at": "2026-10-19T16:48:09.976819+00:00"
+  },
+  "neural": [
+    {
+      "model": "candidate12",
+      "case": "giveaway_9",
+      "stages": [
+        {
+          "actor": 1,
+          "line_action": 18,
+          "raw_value": [
+            0.47379061579704285,
+            0.52620929479599
+          ],
+          "line_prior": 0.6844372749328613,
+          "one_ply_best_action": 18,
+          "selected_action_values": [
+            {
+              "action": 18,
+              "value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "prior": 0.6844372749328613
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.4396776258945465,
+            0.5603224039077759
+          ],
+          "line_prior": 0.1560639888048172,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.45136764645576477,
+                0.5486323833465576
+              ],
+              "prior": 0.8439359664916992
+            },
+            {
+              "action": 3,
+              "value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "prior": 0.1560639888048172
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 27,
+          "raw_value": [
+            0.4391731917858124,
+            0.5608267784118652
+          ],
+          "line_prior": 0.023845059797167778,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "prior": 0.023845059797167778
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.6260954141616821,
+        0.37390461564064026
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "candidate12",
+      "case": "giveaway_12",
+      "stages": [
+        {
+          "actor": 1,
+          "line_action": 27,
+          "raw_value": [
+            0.5248168110847473,
+            0.4751831293106079
+          ],
+          "line_prior": 0.31585079431533813,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.4917396008968353,
+                0.5082604289054871
+              ],
+              "prior": 0.31585079431533813
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.4917396008968353,
+            0.5082604289054871
+          ],
+          "line_prior": 0.16623523831367493,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.49797675013542175,
+                0.5020232796669006
+              ],
+              "prior": 0.8337647318840027
+            },
+            {
+              "action": 3,
+              "value": [
+                0.4884738326072693,
+                0.5115261077880859
+              ],
+              "prior": 0.16623523831367493
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 27,
+          "raw_value": [
+            0.4884738326072693,
+            0.5115261077880859
+          ],
+          "line_prior": 0.023343848064541817,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.6532805562019348,
+                0.34671953320503235
+              ],
+              "prior": 0.023343848064541817
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.6532805562019348,
+        0.34671953320503235
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "candidate12",
+      "case": "own_take_clear",
+      "stages": [
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.5153800249099731,
+            0.48462000489234924
+          ],
+          "line_prior": 0.3970426023006439,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.5199283361434937,
+                0.4800716042518616
+              ],
+              "prior": 0.6029574275016785
+            },
+            {
+              "action": 3,
+              "value": [
+                0.5114316344261169,
+                0.48856836557388306
+              ],
+              "prior": 0.3970426023006439
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 24,
+          "raw_value": [
+            0.5114316344261169,
+            0.48856836557388306
+          ],
+          "line_prior": 0.2153635025024414,
+          "one_ply_best_action": 24,
+          "selected_action_values": [
+            {
+              "action": 24,
+              "value": [
+                0.5680457353591919,
+                0.4319542646408081
+              ],
+              "prior": 0.2153635025024414
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.5680457353591919,
+        0.4319542646408081
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "candidate12",
+      "case": "own_place_clear",
+      "stages": [
+        {
+          "actor": 0,
+          "line_action": 24,
+          "raw_value": [
+            0.5114316344261169,
+            0.48856836557388306
+          ],
+          "line_prior": 0.2153635025024414,
+          "one_ply_best_action": 24,
+          "selected_action_values": [
+            {
+              "action": 24,
+              "value": [
+                0.5680457353591919,
+                0.4319542646408081
+              ],
+              "prior": 0.2153635025024414
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.5680457353591919,
+        0.4319542646408081
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "before4",
+      "case": "giveaway_9",
+      "stages": [
+        {
+          "actor": 1,
+          "line_action": 18,
+          "raw_value": [
+            0.4602126181125641,
+            0.5397874116897583
+          ],
+          "line_prior": 0.30929115414619446,
+          "one_ply_best_action": 18,
+          "selected_action_values": [
+            {
+              "action": 18,
+              "value": [
+                0.45076674222946167,
+                0.5492332577705383
+              ],
+              "prior": 0.30929115414619446
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.45076674222946167,
+            0.5492332577705383
+          ],
+          "line_prior": 0.33893412351608276,
+          "one_ply_best_action": 3,
+          "selected_action_values": [
+            {
+              "action": 3,
+              "value": [
+                0.45427313446998596,
+                0.5457268953323364
+              ],
+              "prior": 0.33893412351608276
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 27,
+          "raw_value": [
+            0.45427313446998596,
+            0.5457268953323364
+          ],
+          "line_prior": 0.04946136474609375,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.572992205619812,
+                0.42700785398483276
+              ],
+              "prior": 0.04946136474609375
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.572992205619812,
+        0.42700785398483276
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "before4",
+      "case": "giveaway_12",
+      "stages": [
+        {
+          "actor": 1,
+          "line_action": 27,
+          "raw_value": [
+            0.32235032320022583,
+            0.6776496171951294
+          ],
+          "line_prior": 0.31525206565856934,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.27115553617477417,
+                0.7288444638252258
+              ],
+              "prior": 0.31525206565856934
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.27115553617477417,
+            0.7288444638252258
+          ],
+          "line_prior": 0.36198458075523376,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.29856881499290466,
+                0.7014312744140625
+              ],
+              "prior": 0.6380154490470886
+            },
+            {
+              "action": 3,
+              "value": [
+                0.2595776915550232,
+                0.740422248840332
+              ],
+              "prior": 0.36198458075523376
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 27,
+          "raw_value": [
+            0.2595776915550232,
+            0.740422248840332
+          ],
+          "line_prior": 0.024807358160614967,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.6733803153038025,
+                0.3266197741031647
+              ],
+              "prior": 0.024807358160614967
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.6733803153038025,
+        0.3266197741031647
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "before4",
+      "case": "own_take_clear",
+      "stages": [
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.5366733074188232,
+            0.4633267819881439
+          ],
+          "line_prior": 0.4795462191104889,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.5386354923248291,
+                0.4613645374774933
+              ],
+              "prior": 0.5204538106918335
+            },
+            {
+              "action": 3,
+              "value": [
+                0.5348585844039917,
+                0.4651413857936859
+              ],
+              "prior": 0.4795462191104889
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 24,
+          "raw_value": [
+            0.5348585844039917,
+            0.4651413857936859
+          ],
+          "line_prior": 0.1711510419845581,
+          "one_ply_best_action": 24,
+          "selected_action_values": [
+            {
+              "action": 24,
+              "value": [
+                0.7947352528572083,
+                0.20526479184627533
+              ],
+              "prior": 0.1711510419845581
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.7947352528572083,
+        0.20526479184627533
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "before4",
+      "case": "own_place_clear",
+      "stages": [
+        {
+          "actor": 0,
+          "line_action": 24,
+          "raw_value": [
+            0.5348585844039917,
+            0.4651413857936859
+          ],
+          "line_prior": 0.1711510419845581,
+          "one_ply_best_action": 24,
+          "selected_action_values": [
+            {
+              "action": 24,
+              "value": [
+                0.7947352528572083,
+                0.20526479184627533
+              ],
+              "prior": 0.1711510419845581
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.7947352528572083,
+        0.20526479184627533
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "historical87",
+      "case": "giveaway_9",
+      "stages": [
+        {
+          "actor": 1,
+          "line_action": 18,
+          "raw_value": [
+            0.42216962575912476,
+            0.5778303146362305
+          ],
+          "line_prior": 0.5267482995986938,
+          "one_ply_best_action": 23,
+          "selected_action_values": [
+            {
+              "action": 18,
+              "value": [
+                0.48640137910842896,
+                0.513598620891571
+              ],
+              "prior": 0.5267482995986938
+            },
+            {
+              "action": 23,
+              "value": [
+                0.47533780336380005,
+                0.5246621370315552
+              ],
+              "prior": 0.025345997884869576
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.48640137910842896,
+            0.513598620891571
+          ],
+          "line_prior": 0.2909753620624542,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.4943818151950836,
+                0.505618155002594
+              ],
+              "prior": 0.7090246081352234
+            },
+            {
+              "action": 3,
+              "value": [
+                0.4835411608219147,
+                0.5164588689804077
+              ],
+              "prior": 0.2909753620624542
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 27,
+          "raw_value": [
+            0.4835411608219147,
+            0.5164588689804077
+          ],
+          "line_prior": 0.029810339212417603,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.6248673796653748,
+                0.37513267993927
+              ],
+              "prior": 0.029810339212417603
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.6248673796653748,
+        0.37513267993927
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "historical87",
+      "case": "giveaway_12",
+      "stages": [
+        {
+          "actor": 1,
+          "line_action": 27,
+          "raw_value": [
+            0.4597643315792084,
+            0.5402356386184692
+          ],
+          "line_prior": 0.2810511291027069,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.4411133825778961,
+                0.5588865876197815
+              ],
+              "prior": 0.2810511291027069
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.4411133825778961,
+            0.5588865876197815
+          ],
+          "line_prior": 0.3123554289340973,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.46673721075057983,
+                0.5332627892494202
+              ],
+              "prior": 0.6876446008682251
+            },
+            {
+              "action": 3,
+              "value": [
+                0.4324968755245209,
+                0.5675030946731567
+              ],
+              "prior": 0.3123554289340973
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 27,
+          "raw_value": [
+            0.4324968755245209,
+            0.5675030946731567
+          ],
+          "line_prior": 0.01871592365205288,
+          "one_ply_best_action": 27,
+          "selected_action_values": [
+            {
+              "action": 27,
+              "value": [
+                0.6785356998443604,
+                0.3214643597602844
+              ],
+              "prior": 0.01871592365205288
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.6785356998443604,
+        0.3214643597602844
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "historical87",
+      "case": "own_take_clear",
+      "stages": [
+        {
+          "actor": 0,
+          "line_action": 3,
+          "raw_value": [
+            0.49393072724342346,
+            0.5060692429542542
+          ],
+          "line_prior": 0.4592454433441162,
+          "one_ply_best_action": 2,
+          "selected_action_values": [
+            {
+              "action": 2,
+              "value": [
+                0.4957735240459442,
+                0.5042263865470886
+              ],
+              "prior": 0.540754497051239
+            },
+            {
+              "action": 3,
+              "value": [
+                0.4932726323604584,
+                0.5067272782325745
+              ],
+              "prior": 0.4592454433441162
+            }
+          ]
+        },
+        {
+          "actor": 0,
+          "line_action": 24,
+          "raw_value": [
+            0.4932726323604584,
+            0.5067272782325745
+          ],
+          "line_prior": 0.08275379985570908,
+          "one_ply_best_action": 24,
+          "selected_action_values": [
+            {
+              "action": 24,
+              "value": [
+                0.5815944075584412,
+                0.41840559244155884
+              ],
+              "prior": 0.08275379985570908
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.5815944075584412,
+        0.41840559244155884
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    },
+    {
+      "model": "historical87",
+      "case": "own_place_clear",
+      "stages": [
+        {
+          "actor": 0,
+          "line_action": 24,
+          "raw_value": [
+            0.4932726323604584,
+            0.5067272782325745
+          ],
+          "line_prior": 0.08275379985570908,
+          "one_ply_best_action": 24,
+          "selected_action_values": [
+            {
+              "action": 24,
+              "value": [
+                0.5815944075584412,
+                0.41840559244155884
+              ],
+              "prior": 0.08275379985570908
+            }
+          ]
+        }
+      ],
+      "after_clear_value": [
+        0.5815944075584412,
+        0.41840559244155884
+      ],
+      "interpretation": "Values in fixed-seat order; one-ply expectations enumerate ordinary chance exactly but use the frozen neural value, not an outcome oracle."
+    }
+  ],
+  "turn_completion": {
+    "elapsed_seconds": 3.035670790995937,
+    "rows": [
+      {
+        "case": "giveaway_9/after_give",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.4396776258945465,
+        "one_action_value": 0.45136764645576477,
+        "turn_completion_value": 0.46962631303890084,
+        "enumerated_leaf_states": 615,
+        "best_placements": [
+          19,
+          23,
+          27
+        ]
+      },
+      {
+        "case": "giveaway_9/after_give",
+        "model": "before4",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.45076674222946167,
+        "one_action_value": 0.44960033893585205,
+        "turn_completion_value": 0.5034971827385473,
+        "enumerated_leaf_states": 615,
+        "best_placements": [
+          19,
+          23,
+          27
+        ]
+      },
+      {
+        "case": "giveaway_9/after_give",
+        "model": "historical87",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.48640137910842896,
+        "one_action_value": 0.4943818151950836,
+        "turn_completion_value": 0.4639225806675705,
+        "enumerated_leaf_states": 615,
+        "best_placements": [
+          19,
+          23,
+          26,
+          27
+        ]
+      },
+      {
+        "case": "giveaway_9/after_give",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.4396776258945465,
+        "one_action_value": 0.4391731917858124,
+        "turn_completion_value": 0.6260953545570374,
+        "enumerated_leaf_states": 26,
+        "best_placements": [
+          27
+        ]
+      },
+      {
+        "case": "giveaway_9/after_give",
+        "model": "before4",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.45076674222946167,
+        "one_action_value": 0.45427313446998596,
+        "turn_completion_value": 0.572992205619812,
+        "enumerated_leaf_states": 26,
+        "best_placements": [
+          27
+        ]
+      },
+      {
+        "case": "giveaway_9/after_give",
+        "model": "historical87",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.48640137910842896,
+        "one_action_value": 0.4835411608219147,
+        "turn_completion_value": 0.6248673796653748,
+        "enumerated_leaf_states": 26,
+        "best_placements": [
+          27
+        ]
+      },
+      {
+        "case": "giveaway_12/after_give",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.4917396008968353,
+        "one_action_value": 0.49797675013542175,
+        "turn_completion_value": 0.5468966184921984,
+        "enumerated_leaf_states": 615,
+        "best_placements": [
+          19,
+          25,
+          27
+        ]
+      },
+      {
+        "case": "giveaway_12/after_give",
+        "model": "before4",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.27115553617477417,
+        "one_action_value": 0.29856881499290466,
+        "turn_completion_value": 0.419247863146494,
+        "enumerated_leaf_states": 615,
+        "best_placements": [
+          16,
+          22,
+          24,
+          25,
+          27
+        ]
+      },
+      {
+        "case": "giveaway_12/after_give",
+        "model": "historical87",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.4411133825778961,
+        "one_action_value": 0.46673721075057983,
+        "turn_completion_value": 0.48932137747980514,
+        "enumerated_leaf_states": 615,
+        "best_placements": [
+          19,
+          23,
+          25,
+          27
+        ]
+      },
+      {
+        "case": "giveaway_12/after_give",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.4917396008968353,
+        "one_action_value": 0.4884738326072693,
+        "turn_completion_value": 0.6532805562019348,
+        "enumerated_leaf_states": 26,
+        "best_placements": [
+          27
+        ]
+      },
+      {
+        "case": "giveaway_12/after_give",
+        "model": "before4",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.27115553617477417,
+        "one_action_value": 0.2595776915550232,
+        "turn_completion_value": 0.6733802556991577,
+        "enumerated_leaf_states": 26,
+        "best_placements": [
+          27
+        ]
+      },
+      {
+        "case": "giveaway_12/after_give",
+        "model": "historical87",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.4411133825778961,
+        "one_action_value": 0.4324968755245209,
+        "turn_completion_value": 0.6785356998443604,
+        "enumerated_leaf_states": 26,
+        "best_placements": [
+          27
+        ]
+      },
+      {
+        "case": "own_take_clear",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.5153800249099731,
+        "one_action_value": 0.5199283361434937,
+        "turn_completion_value": 0.5061355183174561,
+        "enumerated_leaf_states": 4095,
+        "best_placements": [
+          6,
+          18,
+          24
+        ]
+      },
+      {
+        "case": "own_take_clear",
+        "model": "before4",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.5366733074188232,
+        "one_action_value": 0.5386354923248291,
+        "turn_completion_value": 0.5116469622491957,
+        "enumerated_leaf_states": 4095,
+        "best_placements": [
+          12,
+          24
+        ]
+      },
+      {
+        "case": "own_take_clear",
+        "model": "historical87",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.49393072724342346,
+        "one_action_value": 0.4957735240459442,
+        "turn_completion_value": 0.5260846856590752,
+        "enumerated_leaf_states": 4095,
+        "best_placements": [
+          12,
+          16,
+          17,
+          24
+        ]
+      },
+      {
+        "case": "own_take_clear",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.5153800249099731,
+        "one_action_value": 0.5114316344261169,
+        "turn_completion_value": 0.5680457353591919,
+        "enumerated_leaf_states": 138,
+        "best_placements": [
+          24
+        ]
+      },
+      {
+        "case": "own_take_clear",
+        "model": "before4",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.5366733074188232,
+        "one_action_value": 0.5348585844039917,
+        "turn_completion_value": 0.7947352528572083,
+        "enumerated_leaf_states": 138,
+        "best_placements": [
+          24
+        ]
+      },
+      {
+        "case": "own_take_clear",
+        "model": "historical87",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.49393072724342346,
+        "one_action_value": 0.4932726323604584,
+        "turn_completion_value": 0.5815944671630859,
+        "enumerated_leaf_states": 138,
+        "best_placements": [
+          24
+        ]
+      },
+      {
+        "case": "own_no_clear_control",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.5167005658149719,
+        "one_action_value": 0.5211098790168762,
+        "turn_completion_value": 0.5050703382992244,
+        "enumerated_leaf_states": 4095,
+        "best_placements": [
+          6,
+          10,
+          14,
+          18,
+          24
+        ]
+      },
+      {
+        "case": "own_no_clear_control",
+        "model": "before4",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.5402584075927734,
+        "one_action_value": 0.5458173155784607,
+        "turn_completion_value": 0.515220549348351,
+        "enumerated_leaf_states": 4095,
+        "best_placements": [
+          12,
+          17,
+          21,
+          24
+        ]
+      },
+      {
+        "case": "own_no_clear_control",
+        "model": "historical87",
+        "actor": 0,
+        "action": 2,
+        "raw_value": 0.49357113242149353,
+        "one_action_value": 0.4946640431880951,
+        "turn_completion_value": 0.524154717688794,
+        "enumerated_leaf_states": 4095,
+        "best_placements": [
+          12,
+          16,
+          17,
+          24
+        ]
+      },
+      {
+        "case": "own_no_clear_control",
+        "model": "candidate12",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.5167005658149719,
+        "one_action_value": 0.5128087401390076,
+        "turn_completion_value": 0.4873214662075043,
+        "enumerated_leaf_states": 138,
+        "best_placements": [
+          20
+        ]
+      },
+      {
+        "case": "own_no_clear_control",
+        "model": "before4",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.5402584075927734,
+        "one_action_value": 0.5385642051696777,
+        "turn_completion_value": 0.48679548501968384,
+        "enumerated_leaf_states": 138,
+        "best_placements": [
+          17
+        ]
+      },
+      {
+        "case": "own_no_clear_control",
+        "model": "historical87",
+        "actor": 0,
+        "action": 3,
+        "raw_value": 0.49357113242149353,
+        "one_action_value": 0.49286535382270813,
+        "turn_completion_value": 0.5097509622573853,
+        "enumerated_leaf_states": 138,
+        "best_placements": [
+          24
+        ]
+      }
+    ],
+    "interpretation": "Exact ordinary-chance enumeration and best placement within the same player turn, evaluated by each frozen network after completing that turn. These are neural expectimax estimates, not true win-probability oracles. Includes a nonclearing TAKE control."
+  },
+  "comparisons": [
+    {
+      "case": "giveaway_12",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        884,
+        943,
+        998,
+        1006
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.693359375
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.7723388671875
+        }
+      }
+    },
+    {
+      "case": "giveaway_12",
+      "method": "best_response",
+      "trials": 4,
+      "first_clear_evaluated": [
+        716,
+        704,
+        776,
+        826
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.6982421875
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.856689453125
+        }
+      }
+    },
+    {
+      "case": "giveaway_12",
+      "method": "both_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        12,
+        11,
+        12,
+        12
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.884765625
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.942138671875
+        }
+      }
+    },
+    {
+      "case": "giveaway_12",
+      "method": "policy_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        7,
+        7,
+        7,
+        7
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.8828125
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.942626953125
+        }
+      }
+    },
+    {
+      "case": "giveaway_12",
+      "method": "value_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        866,
+        903,
+        867,
+        862
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.712890625
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.7752685546875
+        }
+      }
+    },
+    {
+      "case": "giveaway_12/reroot1",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.1240234375
+        }
+      }
+    },
+    {
+      "case": "giveaway_12/reroot2",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        39,
+        38,
+        38,
+        39
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.572265625
+        }
+      }
+    },
+    {
+      "case": "giveaway_9",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        415,
+        451,
+        507,
+        444
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.2109375
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.661865234375
+        }
+      }
+    },
+    {
+      "case": "giveaway_9",
+      "method": "best_response",
+      "trials": 4,
+      "first_clear_evaluated": [
+        449,
+        427,
+        566,
+        456
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.2021484375
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.811279296875
+        }
+      }
+    },
+    {
+      "case": "giveaway_9",
+      "method": "both_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.7373046875
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8936767578125
+        }
+      }
+    },
+    {
+      "case": "giveaway_9",
+      "method": "policy_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.7294921875
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8907470703125
+        }
+      }
+    },
+    {
+      "case": "giveaway_9",
+      "method": "value_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        363,
+        388,
+        389,
+        363
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.2099609375
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.6922607421875
+        }
+      }
+    },
+    {
+      "case": "giveaway_9/reroot1",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 0,
+          "target_mass": 0.126953125
+        }
+      }
+    },
+    {
+      "case": "giveaway_9/reroot2",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        38,
+        38,
+        38,
+        38
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.677734375
+        }
+      }
+    },
+    {
+      "case": "own_place_clear",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.58203125
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8465576171875
+        }
+      }
+    },
+    {
+      "case": "own_place_clear",
+      "method": "best_response",
+      "trials": 4,
+      "first_clear_evaluated": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.6171875
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8511962890625
+        }
+      }
+    },
+    {
+      "case": "own_place_clear",
+      "method": "both_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.58203125
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8465576171875
+        }
+      }
+    },
+    {
+      "case": "own_place_clear",
+      "method": "policy_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.58203125
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8465576171875
+        }
+      }
+    },
+    {
+      "case": "own_place_clear",
+      "method": "value_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.58203125
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8465576171875
+        }
+      }
+    },
+    {
+      "case": "own_take_clear",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        5,
+        5,
+        5,
+        5
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.513671875
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.859619140625
+        }
+      }
+    },
+    {
+      "case": "own_take_clear",
+      "method": "best_response",
+      "trials": 4,
+      "first_clear_evaluated": [
+        5,
+        5,
+        5,
+        5
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.634765625
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.849365234375
+        }
+      }
+    },
+    {
+      "case": "own_take_clear",
+      "method": "both_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.6806640625
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8817138671875
+        }
+      }
+    },
+    {
+      "case": "own_take_clear",
+      "method": "policy_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        5,
+        5,
+        5,
+        5
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.6826171875
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8829345703125
+        }
+      }
+    },
+    {
+      "case": "own_take_clear",
+      "method": "value_preview",
+      "trials": 4,
+      "first_clear_evaluated": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.5146484375
+        },
+        "2048": {
+          "accepted": 4,
+          "target_mass": 0.8590087890625
+        }
+      }
+    },
+    {
+      "case": "own_take_clear/reroot1",
+      "method": "base",
+      "trials": 4,
+      "first_clear_evaluated": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "budgets": {
+        "256": {
+          "accepted": 4,
+          "target_mass": 0.58203125
+        }
+      }
+    }
+  ],
+  "exact": [
+    {
+      "method": "best_response",
+      "budget": 32,
+      "cases": 17,
+      "seeds": 2,
+      "target_exact_regret": 0.04114357629013699,
+      "choice_exact_regret": 0.0,
+      "q_choice_exact_regret": 0.015894467374080172
+    },
+    {
+      "method": "best_response",
+      "budget": 256,
+      "cases": 17,
+      "seeds": 2,
+      "target_exact_regret": 0.017388977549688545,
+      "choice_exact_regret": 0.0,
+      "q_choice_exact_regret": 0.0
+    }
+  ],
+  "example_traces": [
+    {
+      "case": "giveaway_9",
+      "exact": false,
+      "method": "base",
+      "seed": 0,
+      "first_clear_evaluated": 415,
+      "preview_hits": 0,
+      "snapshots": [
+        {
+          "iteration": 256,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.20703125,
+          "q_best_actions": [
+            18
+          ],
+          "q_best_accepted": false,
+          "good_minus_bad_q": -0.016767950970159595,
+          "recent_accepted_mass": 0.171875,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 256,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.4561105701014226,
+                0.5438894667746028
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.4561105701014226,
+                0.5438894667746028
+              ],
+              "total_child_visits": 256,
+              "child_visit_weighted_q_sum": 139.25338366627693,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 203,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5512147836497264
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 203,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5512147836497264
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 203,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.44878526597187435,
+                0.5512147836497264
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.44878526597187435,
+                0.5512147836497264
+              ],
+              "total_child_visits": 202,
+              "child_visit_weighted_q_sum": 90.66373136639595,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 24,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.4294111045698325
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  2
+                ],
+                "visits": 178,
+                "prior": 0.8439359664916992,
+                "search_prior": 0.8439359664916992,
+                "q": 0.4514486789703369
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 24,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.4294111045698325,
+                0.5705888718366623
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.4294111045698325,
+                0.5705888718366623
+              ],
+              "total_child_visits": 23,
+              "child_visit_weighted_q_sum": 9.866693317890167,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 0,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": null
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  19,
+                  23
+                ],
+                "visits": 22,
+                "prior": 0.7825327515602112,
+                "search_prior": 0.7825327515602112,
+                "q": 0.4300962022759698
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 203,
+                "evaluated": true,
+                "value": [
+                  0.44878526597187435,
+                  0.5512147836497264
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 24,
+                "evaluated": true,
+                "value": [
+                  0.4294111045698325,
+                  0.5705888718366623
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 0,
+                "evaluated": false,
+                "value": null
+              }
+            ],
+            "evaluated": false,
+            "visited": false
+          }
+        },
+        {
+          "iteration": 415,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.1879518072289157,
+          "q_best_actions": [
+            18
+          ],
+          "q_best_accepted": false,
+          "good_minus_bad_q": -0.020633286213753932,
+          "recent_accepted_mass": 0.15723270440251572,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 415,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.45645692858558434,
+                0.5435430763575894
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.45645692858558434,
+                0.5435430763575894
+              ],
+              "total_child_visits": 415,
+              "child_visit_weighted_q_sum": 225.58771046996117,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 337,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5504814157323243
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 337,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5504814157323243
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 337,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.4495185875397408,
+                0.5504814157323243
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.4495185875397408,
+                0.5504814157323243
+              ],
+              "total_child_visits": 336,
+              "child_visit_weighted_q_sum": 151.0480863749981,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 39,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.43499582012494403
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  2
+                ],
+                "visits": 297,
+                "prior": 0.8439359664916992,
+                "search_prior": 0.8439359664916992,
+                "q": 0.45145875215530396
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 39,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.43499582012494403,
+                0.565004207384892
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.43499582012494403,
+                0.565004207384892
+              ],
+              "total_child_visits": 38,
+              "child_visit_weighted_q_sum": 16.525663793087006,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6241073608398438
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6241073608398438
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 337,
+                "evaluated": true,
+                "value": [
+                  0.4495185875397408,
+                  0.5504814157323243
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 39,
+                "evaluated": true,
+                "value": [
+                  0.43499582012494403,
+                  0.565004207384892
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "evaluated": true,
+                "value": [
+                  0.6241073608398438,
+                  0.3758927285671234
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 2048,
+          "choice": 21,
+          "accepted": true,
+          "accepted_target_mass": 0.67919921875,
+          "q_best_actions": [
+            21
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.04283475259797498,
+          "recent_accepted_mass": 0.8935546875,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 2048,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.48140865488713286,
+                0.5185913609667137
+              ],
+              "line_action": 18,
+              "action": 21,
+              "value": [
+                0.48140865488713286,
+                0.5185913609667137
+              ],
+              "total_child_visits": 2048,
+              "child_visit_weighted_q_sum": 1062.0674893260002,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 657,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.4933223437682316
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  21
+                ],
+                "visits": 1002,
+                "prior": 0.09642075002193451,
+                "search_prior": 0.09642075002193451,
+                "q": 0.5361570963662066
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 657,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.5066776293779254,
+                0.4933223437682316
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.5066776293779254,
+                0.4933223437682316
+              ],
+              "total_child_visits": 656,
+              "child_visit_weighted_q_sum": 332.44752487540245,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 359,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.5525467283712456
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 359,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.5525467283712456
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 359,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.5525467283712456,
+                0.4474532224009628
+              ],
+              "line_action": 27,
+              "action": 27,
+              "value": [
+                0.5525467283712456,
+                0.4474532224009628
+              ],
+              "total_child_visits": 358,
+              "child_visit_weighted_q_sum": 197.92510229349136,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 254,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6025494933128357
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 254,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6025494933128357
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 657,
+                "evaluated": true,
+                "value": [
+                  0.5066776293779254,
+                  0.4933223437682316
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 359,
+                "evaluated": true,
+                "value": [
+                  0.5525467283712456,
+                  0.4474532224009628
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 254,
+                "evaluated": true,
+                "value": [
+                  0.6025494933128357,
+                  0.39745044708251953
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        }
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "exact": false,
+      "method": "best_response",
+      "seed": 0,
+      "first_clear_evaluated": 449,
+      "preview_hits": 0,
+      "snapshots": [
+        {
+          "iteration": 256,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.1875,
+          "q_best_actions": [
+            18
+          ],
+          "q_best_accepted": false,
+          "good_minus_bad_q": -0.030222773551940918,
+          "recent_accepted_mass": 0.15625,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 256,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.44603484869003296,
+                0.5539650917053223
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.44603484869003296,
+                0.5539650917053223
+              ],
+              "total_child_visits": 256,
+              "child_visit_weighted_q_sum": 139.81246587634087,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 208,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5539650917053223
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 208,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5539650917053223
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 208,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.44603484869003296,
+                0.5539650917053223
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.44603484869003296,
+                0.5539650917053223
+              ],
+              "total_child_visits": 207,
+              "child_visit_weighted_q_sum": 91.62838280200958,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 23,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.4155639410018921
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  2
+                ],
+                "visits": 184,
+                "prior": 0.8439359664916992,
+                "search_prior": 0.8439359664916992,
+                "q": 0.44603484869003296
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 23,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.4155639410018921,
+                0.5844360589981079
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.4155639410018921,
+                0.5844360589981079
+              ],
+              "total_child_visits": 22,
+              "child_visit_weighted_q_sum": 9.131419628858566,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 0,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": null
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  19,
+                  23
+                ],
+                "visits": 21,
+                "prior": 0.7825327515602112,
+                "search_prior": 0.7825327515602112,
+                "q": 0.4155639410018921
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 208,
+                "evaluated": true,
+                "value": [
+                  0.44603484869003296,
+                  0.5539650917053223
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 23,
+                "evaluated": true,
+                "value": [
+                  0.4155639410018921,
+                  0.5844360589981079
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 0,
+                "evaluated": false,
+                "value": null
+              }
+            ],
+            "evaluated": false,
+            "visited": false
+          }
+        },
+        {
+          "iteration": 449,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.18262806236080179,
+          "q_best_actions": [
+            21
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.1499110758304596,
+          "recent_accepted_mass": 0.17616580310880828,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 449,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.47689899802207947,
+                0.5231009721755981
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.47689899802207947,
+                0.5231009721755981
+              ],
+              "total_child_visits": 449,
+              "child_visit_weighted_q_sum": 179.06878063082695,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 367,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.37318989634513855
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  21
+                ],
+                "visits": 30,
+                "prior": 0.09642075002193451,
+                "search_prior": 0.09642075002193451,
+                "q": 0.5231009721755981
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 367,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "total_child_visits": 366,
+              "child_visit_weighted_q_sum": 170.96756720542908,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.6268100738525391
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.6268100738525391
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 38,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "total_child_visits": 37,
+              "child_visit_weighted_q_sum": 15.603282183408737,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6268100738525391
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6268100738525391
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 367,
+                "evaluated": true,
+                "value": [
+                  0.6268100738525391,
+                  0.37318989634513855
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "evaluated": true,
+                "value": [
+                  0.6268100738525391,
+                  0.37318989634513855
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "evaluated": true,
+                "value": [
+                  0.6268100738525391,
+                  0.37318989634513855
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 2048,
+          "choice": 21,
+          "accepted": true,
+          "accepted_target_mass": 0.82080078125,
+          "q_best_actions": [
+            27
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.14124098420143127,
+          "recent_accepted_mass": 1.0,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 2048,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.4855690896511078,
+                0.5144308805465698
+              ],
+              "line_action": 18,
+              "action": 21,
+              "value": [
+                0.4855690896511078,
+                0.5144308805465698
+              ],
+              "total_child_visits": 2048,
+              "child_visit_weighted_q_sum": 993.3790360093117,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 367,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.37318989634513855
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 233,
+                "prior": 0.04537050798535347,
+                "search_prior": 0.04537050798535347,
+                "q": 0.5144308805465698
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 367,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "total_child_visits": 366,
+              "child_visit_weighted_q_sum": 170.96756720542908,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.6268100738525391
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.6268100738525391
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 38,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.6268100738525391,
+                0.37318989634513855
+              ],
+              "total_child_visits": 37,
+              "child_visit_weighted_q_sum": 15.603282183408737,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6268100738525391
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6268100738525391
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 367,
+                "evaluated": true,
+                "value": [
+                  0.6268100738525391,
+                  0.37318989634513855
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "evaluated": true,
+                "value": [
+                  0.6268100738525391,
+                  0.37318989634513855
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "evaluated": true,
+                "value": [
+                  0.6268100738525391,
+                  0.37318989634513855
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        }
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "exact": false,
+      "method": "value_preview",
+      "seed": 0,
+      "first_clear_evaluated": 363,
+      "preview_hits": 2,
+      "snapshots": [
+        {
+          "iteration": 256,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.2109375,
+          "q_best_actions": [
+            18
+          ],
+          "q_best_accepted": false,
+          "good_minus_bad_q": -0.01355804971056307,
+          "recent_accepted_mass": 0.171875,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 256,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.4542849222741702,
+                0.5457150716957879
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.4542849222741702,
+                0.5457150716957879
+              ],
+              "total_child_visits": 256,
+              "child_visit_weighted_q_sum": 139.7225641310215,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 202,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5519471012129642
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 202,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5519471012129642
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 202,
+              "model_value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "backed_value": [
+                0.44805289303312207,
+                0.5519471012129642
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.44805289303312207,
+                0.5519471012129642
+              ],
+              "total_child_visits": 201,
+              "child_visit_weighted_q_sum": 89.88058897852898,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 28,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.43745438222374233
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  2
+                ],
+                "visits": 173,
+                "prior": 0.8439359664916992,
+                "search_prior": 0.8439359664916992,
+                "q": 0.44873911142349243
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 28,
+              "model_value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "backed_value": [
+                0.43745438222374233,
+                0.5625455752015114
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.43745438222374233,
+                0.5625455752015114
+              ],
+              "total_child_visits": 27,
+              "child_visit_weighted_q_sum": 11.622627288103104,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 0,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": null
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  19,
+                  23
+                ],
+                "visits": 25,
+                "prior": 0.7825327515602112,
+                "search_prior": 0.7825327515602112,
+                "q": 0.4331762099266052
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 202,
+                "evaluated": true,
+                "value": [
+                  0.44805289303312207,
+                  0.5519471012129642
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 28,
+                "evaluated": true,
+                "value": [
+                  0.43745438222374233,
+                  0.5625455752015114
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 0,
+                "evaluated": false,
+                "value": null
+              }
+            ],
+            "evaluated": false,
+            "visited": false
+          }
+        },
+        {
+          "iteration": 363,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.20110192837465565,
+          "q_best_actions": [
+            18
+          ],
+          "q_best_accepted": false,
+          "good_minus_bad_q": -0.0169094775257439,
+          "recent_accepted_mass": 0.17757009345794392,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 363,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.45500924986797375,
+                0.5449907708462778
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.45500924986797375,
+                0.5449907708462778
+              ],
+              "total_child_visits": 363,
+              "child_visit_weighted_q_sum": 197.85043129324913,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 290,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5511449549732537
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 290,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.5511449549732537
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 290,
+              "model_value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "backed_value": [
+                0.4488550745207688,
+                0.5511449549732537
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.4488550745207688,
+                0.5511449549732537
+              ],
+              "total_child_visits": 289,
+              "child_visit_weighted_q_sum": 129.54187619686127,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.44137430896884516
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  2
+                ],
+                "visits": 251,
+                "prior": 0.8439359664916992,
+                "search_prior": 0.8439359664916992,
+                "q": 0.4492814838886261
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 38,
+              "model_value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "backed_value": [
+                0.44137430896884516,
+                0.5586257184806623
+              ],
+              "line_action": 27,
+              "action": 19,
+              "value": [
+                0.44137430896884516,
+                0.5586257184806623
+              ],
+              "total_child_visits": 37,
+              "child_visit_weighted_q_sum": 16.146128326654434,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6223928928375244
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6223928928375244
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 290,
+                "evaluated": true,
+                "value": [
+                  0.4488550745207688,
+                  0.5511449549732537
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 38,
+                "evaluated": true,
+                "value": [
+                  0.44137430896884516,
+                  0.5586257184806623
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "evaluated": true,
+                "value": [
+                  0.6223928928375244,
+                  0.377607136964798
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 2048,
+          "choice": 21,
+          "accepted": true,
+          "accepted_target_mass": 0.7001953125,
+          "q_best_actions": [
+            21
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.046329710897748067,
+          "recent_accepted_mass": 0.8935546875,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 2048,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.48139296210993204,
+                0.518607058601882
+              ],
+              "line_action": 18,
+              "action": 21,
+              "value": [
+                0.48139296210993204,
+                0.518607058601882
+              ],
+              "total_child_visits": 2048,
+              "child_visit_weighted_q_sum": 1062.0996537804604,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 614,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.4901112236009747
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  21
+                ],
+                "visits": 1040,
+                "prior": 0.09642075002193451,
+                "search_prior": 0.09642075002193451,
+                "q": 0.5364409344987228
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 614,
+              "model_value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "backed_value": [
+                0.5098888262960732,
+                0.4901112236009747
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.5098888262960732,
+                0.4901112236009747
+              ],
+              "total_child_visits": 613,
+              "child_visit_weighted_q_sum": 312.4456439316273,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 362,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.5515911366728788
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 362,
+                "prior": 0.1560639888048172,
+                "search_prior": 0.1560639888048172,
+                "q": 0.5515911366728788
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 362,
+              "model_value": [
+                0.6260954141616821,
+                0.37390461564064026
+              ],
+              "backed_value": [
+                0.5515911366728788,
+                0.44840892721276254
+              ],
+              "line_action": 27,
+              "action": 27,
+              "value": [
+                0.5515911366728788,
+                0.44840892721276254
+              ],
+              "total_child_visits": 361,
+              "child_visit_weighted_q_sum": 199.04989606142044,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 257,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6006044149398804
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 257,
+                "prior": 0.023845059797167778,
+                "search_prior": 0.023845059797167778,
+                "q": 0.6006044149398804
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 614,
+                "evaluated": true,
+                "value": [
+                  0.5098888262960732,
+                  0.4901112236009747
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 362,
+                "evaluated": true,
+                "value": [
+                  0.5515911366728788,
+                  0.44840892721276254
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 257,
+                "evaluated": true,
+                "value": [
+                  0.6006044149398804,
+                  0.3993956744670868
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        }
+      ]
+    },
+    {
+      "case": "giveaway_9",
+      "exact": false,
+      "method": "policy_preview",
+      "seed": 0,
+      "first_clear_evaluated": 3,
+      "preview_hits": 2,
+      "snapshots": [
+        {
+          "iteration": 3,
+          "choice": 18,
+          "accepted": false,
+          "accepted_target_mass": 0.0,
+          "q_best_actions": [
+            18
+          ],
+          "q_best_accepted": false,
+          "good_minus_bad_q": null,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 3,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.49420618265867233,
+                0.5057937875390053
+              ],
+              "line_action": 18,
+              "action": 18,
+              "value": [
+                0.49420618265867233,
+                0.5057937875390053
+              ],
+              "total_child_visits": 3,
+              "child_visit_weighted_q_sum": 1.4969658553600311,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 3,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.4989886184533437
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 3,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.4989886184533437
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 3,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.5010113716125488,
+                0.4989886184533437
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.5010113716125488,
+                0.4989886184533437
+              ],
+              "total_child_visits": 2,
+              "child_visit_weighted_q_sum": 1.0633564889431,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 2,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.53167824447155
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 2,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.53167824447155
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 2,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.53167824447155,
+                0.4683217257261276
+              ],
+              "line_action": 27,
+              "action": 27,
+              "value": [
+                0.53167824447155,
+                0.4683217257261276
+              ],
+              "total_child_visits": 1,
+              "child_visit_weighted_q_sum": 0.6241832971572876,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.6241832971572876
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.6241832971572876
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 3,
+                "evaluated": true,
+                "value": [
+                  0.5010113716125488,
+                  0.4989886184533437
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 2,
+                "evaluated": true,
+                "value": [
+                  0.53167824447155,
+                  0.4683217257261276
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 1,
+                "evaluated": true,
+                "value": [
+                  0.6241832971572876,
+                  0.37581667304039
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 256,
+          "choice": 21,
+          "accepted": true,
+          "accepted_target_mass": 0.734375,
+          "q_best_actions": [
+            27
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.14187142445760614,
+          "recent_accepted_mass": 0.8203125,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 256,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.5146957115208592,
+                0.4853042805937014
+              ],
+              "line_action": 18,
+              "action": 21,
+              "value": [
+                0.5146957115208592,
+                0.4853042805937014
+              ],
+              "total_child_visits": 256,
+              "child_visit_weighted_q_sum": 124.19699081778526,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 68,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.3871003906516468
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 40,
+                "prior": 0.04537050798535347,
+                "search_prior": 0.04537050798535347,
+                "q": 0.528971815109253
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 68,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.6128995804225698,
+                0.3871003906516468
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.6128995804225698,
+                0.3871003906516468
+              ],
+              "total_child_visits": 67,
+              "child_visit_weighted_q_sum": 41.237493842840195,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 67,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.6154849827289581
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 67,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.6154849827289581
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 67,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.6154849827289581,
+                0.3845149874687195
+              ],
+              "line_action": 27,
+              "action": 27,
+              "value": [
+                0.6154849827289581,
+                0.3845149874687195
+              ],
+              "total_child_visits": 66,
+              "child_visit_weighted_q_sum": 40.79832065105438,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 66,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.618156373500824
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 66,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.618156373500824
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 68,
+                "evaluated": true,
+                "value": [
+                  0.6128995804225698,
+                  0.3871003906516468
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 67,
+                "evaluated": true,
+                "value": [
+                  0.6154849827289581,
+                  0.3845149874687195
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 66,
+                "evaluated": true,
+                "value": [
+                  0.618156373500824,
+                  0.38184359669685364
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 2048,
+          "choice": 21,
+          "accepted": true,
+          "accepted_target_mass": 0.89404296875,
+          "q_best_actions": [
+            21
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.1387421404473662,
+          "recent_accepted_mass": 0.931640625,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 1,
+              "visits": 2048,
+              "model_value": [
+                0.47379061579704285,
+                0.52620929479599
+              ],
+              "backed_value": [
+                0.4846595589302411,
+                0.5153404341318829
+              ],
+              "line_action": 18,
+              "action": 21,
+              "value": [
+                0.4846595589302411,
+                0.5153404341318829
+              ],
+              "total_child_visits": 2048,
+              "child_visit_weighted_q_sum": 1055.4063402414322,
+              "line_child": {
+                "actions": [
+                  18
+                ],
+                "visits": 217,
+                "prior": 0.6844372749328613,
+                "search_prior": 0.6844372749328613,
+                "q": 0.3949778206337432
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  21
+                ],
+                "visits": 1247,
+                "prior": 0.09642075002193451,
+                "search_prior": 0.09642075002193451,
+                "q": 0.5337199610811094
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 217,
+              "model_value": [
+                0.4396776258945465,
+                0.5603224039077759
+              ],
+              "backed_value": [
+                0.6050221793662568,
+                0.3949778206337432
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.6050221793662568,
+                0.3949778206337432
+              ],
+              "total_child_visits": 216,
+              "child_visit_weighted_q_sum": 130.85013529658318,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 216,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.6057876634101073
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 216,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.6057876634101073
+              }
+            },
+            {
+              "depth": 2,
+              "actor": 0,
+              "visits": 216,
+              "model_value": [
+                0.4391731917858124,
+                0.5608267784118652
+              ],
+              "backed_value": [
+                0.6057876634101073,
+                0.394212336451919
+              ],
+              "line_action": 27,
+              "action": 27,
+              "value": [
+                0.6057876634101073,
+                0.394212336451919
+              ],
+              "total_child_visits": 215,
+              "child_visit_weighted_q_sum": 130.41096210479736,
+              "line_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 215,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.606562614440918
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  27
+                ],
+                "visits": 215,
+                "prior": 1.0,
+                "search_prior": 1.0,
+                "q": 0.606562614440918
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  18
+                ],
+                "visits": 217,
+                "evaluated": true,
+                "value": [
+                  0.6050221793662568,
+                  0.3949778206337432
+                ]
+              },
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 216,
+                "evaluated": true,
+                "value": [
+                  0.6057876634101073,
+                  0.394212336451919
+                ]
+              },
+              {
+                "actions": [
+                  27
+                ],
+                "visits": 215,
+                "evaluated": true,
+                "value": [
+                  0.606562614440918,
+                  0.39343738555908203
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        }
+      ]
+    },
+    {
+      "case": "own_take_clear",
+      "exact": false,
+      "method": "base",
+      "seed": 0,
+      "first_clear_evaluated": 5,
+      "preview_hits": 0,
+      "snapshots": [
+        {
+          "iteration": 5,
+          "choice": 2,
+          "accepted": false,
+          "accepted_target_mass": 0.4,
+          "q_best_actions": [
+            3
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.01716315746307373,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 0,
+              "visits": 5,
+              "model_value": [
+                0.5153800249099731,
+                0.48462000489234924
+              ],
+              "backed_value": [
+                0.52703923980395,
+                0.47296080489953357
+              ],
+              "line_action": 3,
+              "action": 2,
+              "value": [
+                0.52703923980395,
+                0.47296080489953357
+              ],
+              "total_child_visits": 5,
+              "child_visit_weighted_q_sum": 2.646855413913727,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 2,
+                "prior": 0.3970426023006439,
+                "search_prior": 0.3970426023006439,
+                "q": 0.5396689772605896
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 2,
+                "prior": 0.3970426023006439,
+                "search_prior": 0.3970426023006439,
+                "q": 0.5396689772605896
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 2,
+              "model_value": [
+                0.5114316344261169,
+                0.48856836557388306
+              ],
+              "backed_value": [
+                0.5396689772605896,
+                0.4603310525417328
+              ],
+              "line_action": 24,
+              "action": 24,
+              "value": [
+                0.5396689772605896,
+                0.4603310525417328
+              ],
+              "total_child_visits": 1,
+              "child_visit_weighted_q_sum": 0.5679063200950623,
+              "line_child": {
+                "actions": [
+                  24
+                ],
+                "visits": 1,
+                "prior": 0.2153635025024414,
+                "search_prior": 0.2153635025024414,
+                "q": 0.5679063200950623
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  24
+                ],
+                "visits": 1,
+                "prior": 0.2153635025024414,
+                "search_prior": 0.2153635025024414,
+                "q": 0.5679063200950623
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 2,
+                "evaluated": true,
+                "value": [
+                  0.5396689772605896,
+                  0.4603310525417328
+                ]
+              },
+              {
+                "actions": [
+                  24
+                ],
+                "visits": 1,
+                "evaluated": true,
+                "value": [
+                  0.5679063200950623,
+                  0.4320937395095825
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 256,
+          "choice": 3,
+          "accepted": true,
+          "accepted_target_mass": 0.5234375,
+          "q_best_actions": [
+            3
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.03140346439027075,
+          "recent_accepted_mass": 0.609375,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 0,
+              "visits": 256,
+              "model_value": [
+                0.5153800249099731,
+                0.48462000489234924
+              ],
+              "backed_value": [
+                0.5154435654326636,
+                0.48455646077482617
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.5154435654326636,
+                0.48455646077482617
+              ],
+              "total_child_visits": 256,
+              "child_visit_weighted_q_sum": 131.95361629128456,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 134,
+                "prior": 0.3970426023006439,
+                "search_prior": 0.3970426023006439,
+                "q": 0.5304095271363187
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 134,
+                "prior": 0.3970426023006439,
+                "search_prior": 0.3970426023006439,
+                "q": 0.5304095271363187
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 134,
+              "model_value": [
+                0.5114316344261169,
+                0.48856836557388306
+              ],
+              "backed_value": [
+                0.5304095271363187,
+                0.4695904957714365
+              ],
+              "line_action": 24,
+              "action": 24,
+              "value": [
+                0.5304095271363187,
+                0.4695904957714365
+              ],
+              "total_child_visits": 133,
+              "child_visit_weighted_q_sum": 70.56344500184059,
+              "line_child": {
+                "actions": [
+                  24
+                ],
+                "visits": 63,
+                "prior": 0.2153635025024414,
+                "search_prior": 0.2153635025024414,
+                "q": 0.575387716293335
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  24
+                ],
+                "visits": 63,
+                "prior": 0.2153635025024414,
+                "search_prior": 0.2153635025024414,
+                "q": 0.575387716293335
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 134,
+                "evaluated": true,
+                "value": [
+                  0.5304095271363187,
+                  0.4695904957714365
+                ]
+              },
+              {
+                "actions": [
+                  24
+                ],
+                "visits": 63,
+                "evaluated": true,
+                "value": [
+                  0.575387716293335,
+                  0.4246123433113098
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        },
+        {
+          "iteration": 2048,
+          "choice": 3,
+          "accepted": true,
+          "accepted_target_mass": 0.8603515625,
+          "q_best_actions": [
+            3
+          ],
+          "q_best_accepted": true,
+          "good_minus_bad_q": 0.08496910756481357,
+          "recent_accepted_mass": 0.935546875,
+          "line": [
+            {
+              "depth": 0,
+              "actor": 0,
+              "visits": 2048,
+              "model_value": [
+                0.5153800249099731,
+                0.48462000489234924
+              ],
+              "backed_value": [
+                0.5701469944825459,
+                0.42985300454295167
+              ],
+              "line_action": 3,
+              "action": 3,
+              "value": [
+                0.5701469944825459,
+                0.42985300454295167
+              ],
+              "total_child_visits": 2048,
+              "child_visit_weighted_q_sum": 1167.7158116698265,
+              "line_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 1762,
+                "prior": 0.3970426023006439,
+                "search_prior": 0.3970426023006439,
+                "q": 0.5820395392741031
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  3
+                ],
+                "visits": 1762,
+                "prior": 0.3970426023006439,
+                "search_prior": 0.3970426023006439,
+                "q": 0.5820395392741031
+              }
+            },
+            {
+              "depth": 1,
+              "actor": 0,
+              "visits": 1762,
+              "model_value": [
+                0.5114316344261169,
+                0.48856836557388306
+              ],
+              "backed_value": [
+                0.5820395392741031,
+                0.4179604595757505
+              ],
+              "line_action": 24,
+              "action": 24,
+              "value": [
+                0.5820395392741031,
+                0.4179604595757505
+              ],
+              "total_child_visits": 1761,
+              "child_visit_weighted_q_sum": 1025.0422365665436,
+              "line_child": {
+                "actions": [
+                  24
+                ],
+                "visits": 1466,
+                "prior": 0.2153635025024414,
+                "search_prior": 0.2153635025024414,
+                "q": 0.5996854901313782
+              },
+              "best_evaluated_child": {
+                "actions": [
+                  24
+                ],
+                "visits": 1466,
+                "prior": 0.2153635025024414,
+                "search_prior": 0.2153635025024414,
+                "q": 0.5996854901313782
+              }
+            }
+          ],
+          "witness": {
+            "status": "available",
+            "edges": [
+              {
+                "actions": [
+                  3
+                ],
+                "visits": 1762,
+                "evaluated": true,
+                "value": [
+                  0.5820395392741031,
+                  0.4179604595757505
+                ]
+              },
+              {
+                "actions": [
+                  24
+                ],
+                "visits": 1466,
+                "evaluated": true,
+                "value": [
+                  0.5996854901313782,
+                  0.4003145098686218
+                ]
+              }
+            ],
+            "evaluated": true,
+            "visited": true
+          }
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "path": ".runs/value-propagation-20261019/full/trials.jsonl",
+      "sha256": "5727c19105e3b54b22829d6670ed4859a7ac592c00a6e59a2d6149ff3fd076eb"
+    },
+    {
+      "path": ".runs/value-propagation-20261019/full/neural.json",
+      "sha256": "5835e894b03ff7a836cb280a505b58ce9ff3e4c1d4d5c43846d09dab9eefb9c8"
+    },
+    {
+      "path": ".runs/value-propagation-20261019/full/manifest.json",
+      "sha256": "388319cabd1454a56f05c29470a6aee5273dc118fd4f792bb44475fc82bfbc70"
+    },
+    {
+      "path": ".runs/value-propagation-20261019/turn-completion.json",
+      "sha256": "a4c84b19e55dce028afeea3f2cecca28f812a126928f66f7e178bcef9c26347a"
+    }
+  ],
+  "validation": "134 unique trials; all16 base trials matched earlier learned-prior choices/targets at256/2048. Twelve no-op immediate-placement preview controls exactly matched base. Mixture formula checked on1100 recorded decision nodes. Root preview predictions and fixed-seat orientation checked. Reusable turn-completion helper reproduced measured values.",
+  "limitations": "Post-clear values and turn-completion scores are frozen-model estimates, not calibrated win-probability oracles. Preview interventions are deliberately informed by the known clearing line, proving mechanism rather than a deployable solution. Neural value under the current behavior policy need not equal optimal-play value. Four tactical seeds, seventeen selected exact controls, no new faceoffs or training."
+}

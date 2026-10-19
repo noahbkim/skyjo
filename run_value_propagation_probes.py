@@ -247,6 +247,52 @@ def neural_probe(position, evaluator):
     }
 
 
+def turn_completion_probe(state, evaluator):
+    """Enumerate one player's draw/take and best placement using neural leaves."""
+    actor = game.get_player(state)
+    if list(game.get_actions(state)) != [game.MASK_DRAW, game.MASK_TAKE]:
+        raise ValueError("Turn-completion probe requires a draw/take decision")
+    rows = []
+    for action in [game.MASK_DRAW, game.MASK_TAKE]:
+        first = game.chance_outcomes(state, action)
+        leaves, mapping = [], []
+        for child, weight in first:
+            assert game.get_player(child) == actor
+            placements = []
+            for placement in game.get_actions(child):
+                outcomes = game.chance_outcomes(child, int(placement))
+                if any(game.get_round_over(s) for s, _ in outcomes):
+                    raise ValueError("Turn-completion probe cannot cross round end")
+                indices = []
+                for leaf, probability in outcomes:
+                    indices.append((len(leaves), probability))
+                    leaves.append(leaf)
+                placements.append((int(placement), indices))
+            mapping.append((weight, placements))
+        predictions = evaluator.evaluate(leaves)
+        choices = []
+        for weight, placements in mapping:
+            values = [
+                (a, sum(p * predictions[i].value[actor] for i, p in indices))
+                for a, indices in placements
+            ]
+            best, value = max(values, key=lambda pair: pair[1])
+            choices.append(
+                {"weight": weight, "best_action": best, "value": float(value)}
+            )
+        rows.append(
+            {
+                "action": action,
+                "turn_completion_value": float(
+                    sum(c["weight"] * c["value"] for c in choices)
+                ),
+                "enumerated_leaf_states": len(leaves),
+                "placement_choices": choices,
+            }
+        )
+    return rows
+
+
 def probe(checkpoint_plan: Path, output: Path, workers: int = 8, smoke: bool = False):
     root = Path(__file__).resolve().parent
     all_cases = targets.positions(root / "configs/benchmarks/search_positions.json")
@@ -280,6 +326,7 @@ def probe(checkpoint_plan: Path, output: Path, workers: int = 8, smoke: bool = F
     try:
         initialize(checkpoints["candidate12"]["path"])
         probes = []
+        completed_turns = []
         for name in (
             ["candidate12"] if smoke else ["candidate12", "before4", "historical87"]
         ):
@@ -288,7 +335,34 @@ def probe(checkpoint_plan: Path, output: Path, workers: int = 8, smoke: bool = F
             )
             for p, _ in selected:
                 probes.append({"model": name, **neural_probe(p, evaluator)})
+                if p.id.startswith("giveaway"):
+                    state = witness_states(p, p.witnesses[0])[0][1]
+                elif p.id == "own_take_clear":
+                    state = p.state
+                else:
+                    continue
+                completed_turns.append(
+                    {
+                        "model": name,
+                        "case": p.id,
+                        "actions": turn_completion_probe(state, evaluator),
+                    }
+                )
+            if not smoke:
+                control = next(
+                    p for p, _ in all_cases if p.id == "own_no_clear_control"
+                )
+                completed_turns.append(
+                    {
+                        "model": name,
+                        "case": control.id,
+                        "actions": turn_completion_probe(control.state, evaluator),
+                    }
+                )
         (output / "neural.json").write_text(json.dumps(probes, indent=2) + "\n")
+        (output / "turn-completion.json").write_text(
+            json.dumps(completed_turns, indent=2) + "\n"
+        )
         tasks = [
             (p, None, method, seed, 32 if smoke else 2048)
             for p, _ in selected

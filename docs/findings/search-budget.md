@@ -514,6 +514,80 @@ recipe or production search default changed. [Evidence](evidence/search-target-p
 preserves aggregated snapshots, neural probes, allocation-split source, hashes
 and limits; full traces remain local.
 
+**Value foresight and propagation probes, October 19:** 134 searches (27s at8
+workers), plus exact ordinary-chance one-action and turn-completion neural
+probes. Entrypoint `run_value_propagation_probes.py`; artifacts
+`.runs/value-propagation-20261019/`. Candidate12/before4/historical87 neural
+probes cover both giveaways and own TAKE/CLEAR. Search interventions use
+candidate12, four tactical seeds, 2048 traversals; best-response backup also
+gets17 exact controls × two seeds ×256, and known continuation states receive
+fresh256 searches. No weights or production defaults change.
+
+Candidate12 values for the player who can clear jump after the clear:
+
+| Opportunity | Raw immediately before CLEAR | Expected neural value after CLEAR |
+| --- | ---: | ---: |
+| Opponent can clear9 | 0.4392 | 0.6261 |
+| Opponent can clear12 | 0.4885 | 0.6533 |
+| Own clear10 | 0.5114 | 0.5680 |
+
+In all three, one-action enumeration ranks the clearing placement first using
+the unchanged neural evaluator. Yet at acquisition nodes one-action lookahead
+prefers DRAW. Completing the same player's turn (DRAW/TAKE, then best placement,
+with ordinary chance integrated exactly) reverses that ranking appropriately:
+
+| Candidate12 acquisition state | One-action DRAW /TAKE | Completed-turn DRAW /TAKE |
+| --- | ---: | ---: |
+| After giving9 | 0.4514 /0.4392 | 0.4696 /0.6261 |
+| After giving12 | 0.4980 /0.4885 | 0.5469 /0.6533 |
+| Own clearing10 | 0.5199 /0.5114 | 0.5061 /0.5680 |
+| Own nonclearing11 control | 0.5211 /0.5128 | 0.5051 /0.4873 |
+
+These are neural expectimax estimates, not outcome oracles. The same value
+model distinguishes the useful completed boards; it does not represent those
+opportunities strongly before the placement decision.
+
+**Known evidence is diluted inside the tree, not only in root targets.** In
+Give9 seed0, search first evaluates CLEAR at iteration415: the clearer's clear
+child is0.6241, but has only1 of38 child visits. The placement node backs up
+0.4350, and the preceding TAKE/DRAW node backs up0.4495. CurrentMixture averages
+`(model_value + sum(child_visits * child_value)) / (1 + sum(child_visits))`.
+This formula was verified on1100 recorded nodes; fixed-player orientation was
+checked. This is observed backup behavior, not evidence of an arithmetic bug.
+
+**Counterfactual interventions keep root predictions unchanged.** At non-root
+witness prefixes only, value-preview substitutes the expected post-clear neural
+value; policy-preview directs TAKE/CLEAR with probability1; both combines them.
+Value-preview alone still avoids0/4 giveaways at256 on both cases. In Give9
+seed0 the supplied clearer value0.6261 is averaged back down to0.4481 by256
+because search explores other continuation actions. Policy-preview, without
+changing any value weights, avoids4/4 on both: avoidance target masses72.9% and
+88.3%, versus baseline21.1% and69.3%. These informed interventions demonstrate
+a mechanism; they are not deployable policies or strength tests.
+
+Best-response backups propagate the discovered0.6268 clear value immediately
+through both opponent decision nodes in Give9 seed0. They still avoid0/4 at256,
+because discovery remains late, but improve2048 avoidance mass to81.1%/85.7%
+from66.2%/77.2%. Own TAKE256 target rises51.4%→63.5%. Exact-control target regret
+is0.01739 versus mixture0.01707, with zero greedy regret for both at256. This
+changes internal backup semantics, distinct from the earlier losing highest-Q
+final-action faceoff; optimism from noisy values remains a risk to test.
+
+Fresh256 searches after the opponent receives the giveaway still choose DRAW
+in4/4 for both positions (TAKE target12.7%/12.4%). Fresh256 after taking choose
+CLEAR in4/4. Thus the actual search player also misses acquisition: a shared
+self-play weakness could reinforce these targets. Neural values trained on
+behavior-policy outcomes need not equal optimal-play values, so failure to
+anticipate an opportunity does not by itself prove value miscalibration.
+
+Updated priority: probe turn-completion lookahead/compound same-player decisions
+and backup policies that better represent effective continuation choices, ahead
+of blanket uniform-prior changes. Retain broad exact controls and matched
+nonclearing examples; compare inference work and faceoff strength before a new
+training recipe. The post-clear evaluator supplies useful relative information,
+but its absolute calibration is still unverified. [Evidence](evidence/value-propagation-20261019.json)
+preserves stage estimates, interventions, traces, source hashes and validation.
+
 ## Earlier inference and training evidence
 
 **Conclusion, through October 9, 2026:** inference search gains depend on the
