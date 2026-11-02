@@ -8,15 +8,17 @@ import numpy as np
 import pytest
 import torch
 from test_full_game import completed_round
+from test_mcts_symmetry import FixedEvaluator
 
 from skyjo.engine import game as sj
 from skyjo.experiments import generation, selfplay_training
-from skyjo.experiments.contestants import ContestantConfig
+from skyjo.experiments.contestants import ContestantConfig, PreparedContestant
+from skyjo.experiments.playout_budget import BUDGET_SEED_STREAM, RandomizedBudgetPlayer
 from skyjo.experiments.training_setup import initialize_training_data_buffer
 from skyjo.learning import batches, buffer, models, observations, replay_io
 from skyjo.search.mcts import SearchConfig
 from skyjo.simulation import play
-from skyjo.simulation.jobs import GeneratedGame, derive_game_seed
+from skyjo.simulation.jobs import GameRandomStreams, GeneratedGame, derive_game_seed
 
 
 def test_game_seeds_are_stable_and_separate_games_and_streams():
@@ -40,6 +42,8 @@ def _assert_same_games(expected, actual):
             left.result.rounds, right.result.rounds, strict=True
         ):
             assert left_round.cumulative_scores == right_round.cumulative_scores
+            assert left_round.round_scores == right_round.round_scores
+            assert left_round.ending_player == right_round.ending_player
             for a, b in zip(left_round.history, right_round.history, strict=True):
                 assert sj.hash_skyjo(a.state) == sj.hash_skyjo(b.state)
                 assert a.action == b.action
@@ -47,6 +51,76 @@ def _assert_same_games(expected, actual):
                 np.testing.assert_array_equal(
                     a.action_probabilities, b.action_probabilities
                 )
+                np.testing.assert_array_equal(a.training_policy, b.training_policy)
+
+
+@pytest.mark.parametrize(
+    "mode,random_caps", [("search", False), ("search", True), ("policy", False)]
+)
+def test_concurrent_games_match_serial_play_and_refill_finished_slots(
+    monkeypatch, mode, random_caps
+):
+    torch.set_num_threads(1)
+    model_settings = {
+        "embedding_dimensions": 4,
+        "global_state_embedding_dimensions": 8,
+        "num_heads": 1,
+    }
+    model = models.build(model_settings, players=2, device="cpu")
+    config = ContestantConfig(
+        mode=mode,
+        iterations=2,
+        temperature=1,
+        search=SearchConfig(dirichlet_epsilon=0.25),
+    )
+
+    class CountedEvaluator(FixedEvaluator):
+        def __init__(self):
+            super().__init__()
+            self.batch_sizes = []
+
+        def evaluate(self, states):
+            self.batch_sizes.append(len(states))
+            return super().evaluate(states)
+
+    evaluator = CountedEvaluator()
+    prepared = PreparedContestant(config, evaluator)
+    monkeypatch.setattr(generation.contestants, "prepare", lambda *a, **kw: prepared)
+    expected = []
+    for index in range(20, 23):
+        seed = derive_game_seed(31, index)
+        streams = GameRandomStreams.from_seed(seed)
+        agent = prepared.player(streams.search)
+        if random_caps:
+            agent = RandomizedBudgetPlayer(
+                prepared,
+                fast_iterations=1,
+                full_probability=0.25,
+                search_rng=streams.search,
+                budget_rng=np.random.default_rng(
+                    derive_game_seed(31, index, BUDGET_SEED_STREAM)
+                ),
+            )
+        result = play.play_game(
+            [agent] * 2, environment_rng=streams.environment, action_rng=streams.actions
+        )
+        expected.append(GeneratedGame(index, seed, result))
+    evaluator.batch_sizes.clear()
+    actual = generation.play_games_locally(
+        model.state_dict(),
+        model_settings,
+        config,
+        2,
+        3,
+        31,
+        20,
+        concurrent_games=2,
+        fast_search_iterations=1 if random_caps else 0,
+        full_search_probability=0.25 if random_caps else 1.0,
+    )
+    _assert_same_games(expected, actual)
+    assert max(evaluator.batch_sizes) == 2
+    assert evaluator.batch_sizes[-1] == 1
 
 
 @pytest.mark.parametrize("random_caps", [False, True])

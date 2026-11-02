@@ -242,6 +242,7 @@ def train_self_play(
         "players": players,
         "run_seed": run_seed,
         "start_state_generator": start_state_generator,
+        "concurrent_games": settings.generation.concurrent_games,
         "fast_search_iterations": settings.generation.fast_search_iterations,
         "full_search_probability": settings.generation.full_search_probability,
     }

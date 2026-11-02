@@ -90,7 +90,12 @@ def test_invalid_config_fails_before_creating_run(tmp_path):
 
 
 def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
-    source = REPOSITORY / "configs" / "smoke.toml"
+    _, config = experiment_config.load_configuration(
+        REPOSITORY / "configs" / "smoke.toml"
+    )
+    config["selfplay"].update(games_per_task=2, concurrent_games=2)
+    source = tmp_path / "concurrent-smoke.json"
+    source.write_text(json.dumps(config))
     run_paths = []
     for _ in range(2):
         completed = subprocess.run(

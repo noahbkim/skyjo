@@ -13,9 +13,10 @@ import numpy as np
 from skyjo.engine import game as sj
 from skyjo.simulation.decisions import validate_probabilities
 
+from .batching import EvaluationWork, evaluate
 from .configuration import DEFAULT_SEARCH_CONFIG, SearchConfig, resolve_components
 from .evaluator import BoundaryEvaluator, Evaluator
-from .mcts import DecisionStateNode, run_mcts
+from .mcts import DecisionStateNode, mcts_steps
 from .strategies import NodeView, PolicyInput, SearchComponents, frozen_array
 from .symmetry import ActionGroups, safe_to_merge_actions
 
@@ -40,7 +41,33 @@ def search(
     rng: np.random.Generator | None = None,
     components: SearchComponents | None = None,
 ) -> SearchResult:
-    """Run a total traversal budget and construct independently chosen policies."""
+    """Run search synchronously using the same algorithm as batched self-play."""
+    return evaluate(
+        search_steps(
+            state,
+            evaluator,
+            iterations,
+            config=config,
+            temperature=temperature,
+            boundary_evaluator=boundary_evaluator,
+            rng=rng,
+            components=components,
+        )
+    )
+
+
+def search_steps(
+    state: sj.Skyjo,
+    evaluator: Evaluator,
+    iterations: int,
+    *,
+    config: SearchConfig = DEFAULT_SEARCH_CONFIG,
+    temperature: float = 0.0,
+    boundary_evaluator: BoundaryEvaluator | None = None,
+    rng: np.random.Generator | None = None,
+    components: SearchComponents | None = None,
+) -> EvaluationWork[SearchResult]:
+    """Yield EvaluationRequests, then return search statistics and both policies."""
     if type(iterations) is not int or iterations < 1:
         raise ValueError("iterations must be positive")
     if not np.isfinite(temperature) or temperature < 0:
@@ -69,8 +96,9 @@ def search(
             np.random.default_rng(int(rng.integers(0, 2**63))) for _ in range(replicas)
         ]
     )
-    roots = tuple(
-        run_mcts(
+    roots = []
+    for budget, generator in zip(budgets, generators, strict=True):
+        root = yield from mcts_steps(
             state,
             evaluator,
             budget,
@@ -82,8 +110,8 @@ def search(
             # Replicas need one conservative partition shared by every tree.
             symmetry_budget=iterations if replicas > 1 else None,
         )
-        for budget, generator in zip(budgets, generators, strict=True)
-    )
+        roots.append(root)
+    roots = tuple(roots)
     views = [root.view() for root in roots]
     summary = views[0]
     contexts = tuple(
