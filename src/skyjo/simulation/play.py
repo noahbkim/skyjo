@@ -12,7 +12,7 @@ from skyjo.engine import game as sj
 from skyjo.engine import values
 
 from . import player
-from .decisions import get_decision
+from .decisions import PlayerDecision, get_decision, validate_decision
 
 logger = logging.getLogger(__name__)
 
@@ -91,12 +91,46 @@ def play_round(
     action_rng: np.random.Generator | None = None,
 ) -> RoundHistory:
     """Play one round, retaining each decision and its final snapshot."""
+    return _play_steps(
+        _round_steps(
+            len(players),
+            debug,
+            start_state,
+            environment_rng=environment_rng,
+            action_rng=action_rng,
+        ),
+        players,
+    )
+
+
+def _play_steps(steps, players):
+    try:
+        state = next(steps)
+        while True:
+            state = steps.send(
+                get_decision(players[sj.get_player(state)], state, diagnostics=False)
+            )
+    except StopIteration as completed:
+        return completed.value
+    finally:
+        steps.close()
+
+
+def _round_steps(
+    players: int,
+    debug: bool = False,
+    start_state: sj.Skyjo | None = None,
+    *,
+    environment_rng: np.random.Generator | None = None,
+    action_rng: np.random.Generator | None = None,
+) -> typing.Generator[sj.Skyjo, PlayerDecision, RoundHistory]:
+    """Play one round, retaining each decision and its final snapshot."""
     environment_rng = (
         environment_rng if environment_rng is not None else np.random.default_rng()
     )
     action_rng = action_rng if action_rng is not None else np.random.default_rng()
     if start_state is None:
-        game_state = sj.new(players=len(players), rng=environment_rng)
+        game_state = sj.new(players=players, rng=environment_rng)
         game_state = sj.start_round(game_state, rng=environment_rng)
     else:
         game_state = start_state
@@ -105,9 +139,8 @@ def play_round(
     if debug:
         logger.info(f"{sj.visualize_state(game_state)}")
     while not sj.get_round_over(game_state):
-        decision = get_decision(
-            players[sj.get_player(game_state)], game_state, diagnostics=False
-        )
+        decision = yield game_state
+        validate_decision(game_state, decision)
         action_probabilities = decision.probabilities
         action = action_rng.choice(sj.MASK_SIZE, p=action_probabilities)
         assert sj.actions(game_state)[action]
@@ -147,7 +180,28 @@ def play_game(
     action_rng: np.random.Generator | None = None,
 ) -> GameResult:
     """Play to 100 or more from a fresh game or an optional active round."""
-    if not 2 <= len(players) <= sj.PLAYER_COUNT:
+    return _play_steps(
+        game_steps(
+            len(players),
+            debug,
+            start_state,
+            environment_rng=environment_rng,
+            action_rng=action_rng,
+        ),
+        players,
+    )
+
+
+def game_steps(
+    players: int,
+    debug: bool = False,
+    start_state: sj.Skyjo | None = None,
+    *,
+    environment_rng: np.random.Generator | None = None,
+    action_rng: np.random.Generator | None = None,
+) -> typing.Generator[sj.Skyjo, PlayerDecision, GameResult]:
+    """Yield decision states and receive PlayerDecision objects until game over."""
+    if not 2 <= players <= sj.PLAYER_COUNT:
         raise ValueError(f"Expected between 2 and {sj.PLAYER_COUNT} players")
 
     environment_rng = (
@@ -156,16 +210,16 @@ def play_game(
     action_rng = action_rng if action_rng is not None else np.random.default_rng()
     state = (
         sj.start_round(
-            sj.new(players=len(players), rng=environment_rng), rng=environment_rng
+            sj.new(players=players, rng=environment_rng), rng=environment_rng
         )
         if start_state is None
         else start_state
     )
-    if sj.get_player_count(state) != len(players) or sj.get_round_over(state):
+    if sj.get_player_count(state) != players or sj.get_round_over(state):
         raise ValueError("Expected an active round matching the supplied players")
     rounds = []
     while True:
-        history = play_round(
+        history = yield from _round_steps(
             players,
             debug=debug,
             start_state=state,

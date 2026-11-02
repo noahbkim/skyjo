@@ -46,6 +46,7 @@ DEFAULTS = {
     "selfplay": {
         "games_per_iteration": 1024,
         "games_per_task": 8,
+        "concurrent_games": 1,
         "start_state": "standard",
         "fast_search_iterations": 0,
         "full_search_probability": 1.0,
@@ -221,7 +222,7 @@ def resolve_configuration(supplied: dict, *, base_directory: pathlib.Path) -> di
             "replay_ratio",
             "learn_rate",
         ),
-        "selfplay": ("games_per_iteration", "games_per_task"),
+        "selfplay": ("games_per_iteration", "games_per_task", "concurrent_games"),
         "search": ("iterations",),
         "replay": ("capacity",),
         "budget": ("checkpoint_interval",),

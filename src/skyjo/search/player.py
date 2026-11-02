@@ -5,10 +5,11 @@ import numpy as np
 from skyjo.engine import game as sj
 from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
 
+from .batching import EvaluationWork
 from .configuration import DEFAULT_SEARCH_CONFIG, SearchConfig
 from .evaluator import BoundaryEvaluator, Evaluator
 from .mcts import run_mcts
-from .runner import search
+from .runner import search, search_steps
 
 
 class SearchPlayer:
@@ -47,7 +48,24 @@ class SearchPlayer:
         return self.search(game_state).action_probabilities
 
     def get_decision(self, state, *, diagnostics=True):
-        result = self.search(state)
+        return self._decision(self.search(state), diagnostics=diagnostics)
+
+    def decision_steps(
+        self, state, *, diagnostics=False
+    ) -> EvaluationWork[PlayerDecision]:
+        result = yield from search_steps(
+            state,
+            self.evaluator,
+            self.iterations,
+            config=self.config,
+            temperature=self.temperature,
+            boundary_evaluator=self.boundary_evaluator,
+            rng=self.rng,
+            components=self.components,
+        )
+        return self._decision(result, diagnostics=diagnostics)
+
+    def _decision(self, result, *, diagnostics):
         probabilities = result.action_probabilities
         if not diagnostics:
             return PlayerDecision(probabilities, training_policy=result.training_policy)

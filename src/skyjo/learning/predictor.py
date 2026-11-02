@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from skyjo.engine import game as sj
+from skyjo.search.batching import EvaluationRequest, evaluate
 from skyjo.search.evaluator import Evaluator, Prediction
 from skyjo.search.symmetry import ActionGroups
 from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
@@ -16,7 +17,13 @@ from . import batches, skynet
 class LocalPredictor:
     """Encode states and evaluate bounded tensor batches in input order."""
 
-    def __init__(self, model: skynet.SkyNet, max_batch_size: int):
+    def __init__(
+        self, model: skynet.SkyNet, max_batch_size: int, *, fixed_eval_mode=False
+    ):
+        # Opt in only for an inference-owned model that will never switch to train.
+        self.fixed_eval_mode = fixed_eval_mode
+        if fixed_eval_mode:
+            model.eval()
         if type(max_batch_size) is not int or max_batch_size <= 0:
             raise ValueError("max_batch_size must be a positive integer")
         self.model = model
@@ -26,7 +33,8 @@ class LocalPredictor:
     def evaluate(self, states: Sequence[sj.Skyjo]) -> list[Prediction]:
         if not states:
             return []
-        self.model.eval()
+        if not self.fixed_eval_mode:
+            self.model.eval()
         predictions = []
         for start in range(0, len(states), self.max_batch_size):
             selected = states[start : start + self.max_batch_size]
@@ -61,7 +69,11 @@ class PolicyPlayer:
         return self.get_decision(state, diagnostics=False).probabilities
 
     def get_decision(self, state: sj.Skyjo, *, diagnostics=True) -> PlayerDecision:
-        prediction = self.evaluator.evaluate([state])[0]
+        return evaluate(self.decision_steps(state, diagnostics=diagnostics))
+
+    def decision_steps(self, state, *, diagnostics=False):
+        predictions = yield EvaluationRequest(self.evaluator, [state])
+        prediction = predictions[0]
         legal = np.flatnonzero(sj.actions(state))
         probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
         groups = ActionGroups.from_state(state, merge=self.group_actions)

@@ -42,3 +42,10 @@ class RandomizedBudgetPlayer:
             state, diagnostics=diagnostics
         )
         return replace(decision, trainable=full)
+
+    def decision_steps(self, state, *, diagnostics=False):
+        full = bool(self.budget_rng.random() < self.full_probability)
+        decision = yield from (self.full if full else self.fast).decision_steps(
+            state, diagnostics=diagnostics
+        )
+        return replace(decision, trainable=full)

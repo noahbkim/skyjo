@@ -24,6 +24,7 @@ class GenerationConfig:
     start_state: str
     fast_search_iterations: int = 0
     full_search_probability: float = 1.0
+    concurrent_games: int = 1
 
 
 @dataclass(frozen=True)

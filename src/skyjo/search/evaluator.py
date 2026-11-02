@@ -39,6 +39,13 @@ class NextDealEvaluator:
     evaluator: Evaluator
 
     def evaluate(self, completed_rounds, rng):
+        from .batching import evaluate
+
+        return evaluate(self.evaluate_steps(completed_rounds, rng))
+
+    def evaluate_steps(self, completed_rounds, rng):
+        from .batching import EvaluationRequest
+
         result = np.empty(
             (len(completed_rounds), completed_rounds[0].players), dtype=np.float32
         )
@@ -49,8 +56,7 @@ class NextDealEvaluator:
             else:
                 indices.append(index)
                 deals.append(sj.start_next_round(state, rng=rng))
-        for index, prediction in zip(
-            indices, self.evaluator.evaluate(deals), strict=True
-        ):
+        predictions = (yield EvaluationRequest(self.evaluator, deals)) if deals else []
+        for index, prediction in zip(indices, predictions, strict=True):
             result[index] = prediction.value
         return result

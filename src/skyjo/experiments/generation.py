@@ -14,6 +14,7 @@ from skyjo.experiments import contestants, experiment_training
 from skyjo.experiments.contestants import ContestantConfig
 from skyjo.experiments.playout_budget import BUDGET_SEED_STREAM, RandomizedBudgetPlayer
 from skyjo.learning import models
+from skyjo.search.batching import evaluate_concurrently
 from skyjo.simulation import play
 from skyjo.simulation.jobs import GameRandomStreams, GeneratedGame, derive_game_seed
 
@@ -39,7 +40,10 @@ def play_games_locally(
     auxiliary_objectives=None,
     fast_search_iterations: int = 0,
     full_search_probability: float = 1.0,
+    concurrent_games: int = 1,
 ) -> list[GeneratedGame]:
+    if type(concurrent_games) is not int or concurrent_games < 1:
+        raise ValueError("concurrent_games must be a positive integer")
     model = models.build(
         model_settings,
         players=players,
@@ -47,35 +51,68 @@ def play_games_locally(
         auxiliary_objectives=auxiliary_objectives,
     )
     model.load_state_dict(model_state_dict)
-    prepared = contestants.prepare(model_player_config, model=model.eval())
-    games = []
-    for index in range(first_game_index, first_game_index + number_of_games):
-        seed = derive_game_seed(run_seed, index)
-        streams = GameRandomStreams.from_seed(seed)
-        agent = prepared.player(streams.search)
-        if fast_search_iterations:
-            agent = RandomizedBudgetPlayer(
+    prepared = contestants.prepare(
+        model_player_config, model=model, fixed_eval_mode=True
+    )
+    return evaluate_concurrently(
+        (
+            _game_steps(
                 prepared,
-                fast_iterations=fast_search_iterations,
-                full_probability=full_search_probability,
-                search_rng=streams.search,
-                budget_rng=np.random.default_rng(
-                    derive_game_seed(run_seed, index, BUDGET_SEED_STREAM)
-                ),
+                players,
+                run_seed,
+                index,
+                start_state_generator,
+                fast_search_iterations,
+                full_search_probability,
             )
-        start = (
-            None
-            if start_state_generator is None
-            else start_state_generator(streams.environment)
+            for index in range(first_game_index, first_game_index + number_of_games)
+        ),
+        concurrent_games,
+    )
+
+
+def _game_steps(
+    prepared,
+    players,
+    run_seed,
+    index,
+    start_state_generator,
+    fast_search_iterations,
+    full_search_probability,
+):
+    seed = derive_game_seed(run_seed, index)
+    streams = GameRandomStreams.from_seed(seed)
+    agent = prepared.player(streams.search)
+    if fast_search_iterations:
+        agent = RandomizedBudgetPlayer(
+            prepared,
+            fast_iterations=fast_search_iterations,
+            full_probability=full_search_probability,
+            search_rng=streams.search,
+            budget_rng=np.random.default_rng(
+                derive_game_seed(run_seed, index, BUDGET_SEED_STREAM)
+            ),
         )
-        result = play.play_game(
-            [agent] * players,
-            start_state=start,
-            environment_rng=streams.environment,
-            action_rng=streams.actions,
-        )
-        games.append(GeneratedGame(index, seed, result))
-    return games
+    start = (
+        None
+        if start_state_generator is None
+        else start_state_generator(streams.environment)
+    )
+    game = play.game_steps(
+        players,
+        start_state=start,
+        environment_rng=streams.environment,
+        action_rng=streams.actions,
+    )
+    try:
+        state = next(game)
+        while True:
+            decision = yield from agent.decision_steps(state)
+            state = game.send(decision)
+    except StopIteration as completed:
+        return GeneratedGame(index, seed, completed.value)
+    finally:
+        game.close()
 
 
 def game_batch_sizes(total_games: int, games_per_task: int):

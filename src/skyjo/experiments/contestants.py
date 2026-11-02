@@ -102,7 +102,9 @@ class PreparedContestant:
         )
 
 
-def prepare(config: ContestantConfig, *, model=None, max_batch_size=512):
+def prepare(
+    config: ContestantConfig, *, model=None, max_batch_size=512, fixed_eval_mode=False
+):
     if model is None:
         if config.checkpoint is None:
             raise ValueError("A contestant requires a model or checkpoint")
@@ -114,7 +116,11 @@ def prepare(config: ContestantConfig, *, model=None, max_batch_size=512):
         )
         boundary = boundary_inference.ScoreBoundaryEvaluator(boundary_model)
     return PreparedContestant(
-        config, predictor.LocalPredictor(model, max_batch_size), boundary
+        config,
+        predictor.LocalPredictor(
+            model, max_batch_size, fixed_eval_mode=fixed_eval_mode
+        ),
+        boundary,
     )
 
 

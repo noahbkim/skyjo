@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from copy import deepcopy
 
 import numpy as np
@@ -12,14 +12,19 @@ import numpy as np
 from skyjo.engine import game as sj
 
 from . import symmetry
+from .batching import EvaluationRequest, EvaluationWork, evaluate
 from .configuration import DEFAULT_SEARCH_CONFIG, SearchConfig, resolve_components
 from .evaluator import BoundaryEvaluator, Evaluator, NextDealEvaluator, Prediction
+from .storage import EdgeStatistics, LazyChildren
 from .strategies import (
+    PUCT,
     AllocationSession,
+    CurrentMixture,
     Evidence,
     NodeView,
     SearchComponents,
     ValueAccumulator,
+    _PUCTSession,
     frozen_array,
 )
 
@@ -82,8 +87,9 @@ class DecisionStateNode:
         init=False, default=None
     )
     _node_id: int = dataclasses.field(init=False)
+    _statistics: EdgeStatistics | None = dataclasses.field(init=False, default=None)
     model_prediction: Prediction | None = None
-    children: dict[int, MCTSNode] = dataclasses.field(default_factory=dict)
+    children: Mapping[int, MCTSNode] = dataclasses.field(default_factory=dict)
     visit_count: int = 0
     is_expanded: bool = False
     dirichlet_noise: np.ndarray = dataclasses.field(init=False)
@@ -111,14 +117,19 @@ class DecisionStateNode:
 
     def view(self):
         actions = tuple(self.children)
+        children = (
+            self.children.statistics()
+            if isinstance(self.children, LazyChildren)
+            else tuple(self.children.values())
+        )
         return NodeView(
             self.action_groups,
             actions,
             frozen_array([self.action_priors[a] for a in actions]),
             frozen_array([self.model_action_priors[a] for a in actions]),
-            frozen_array([self.children[a].visit_count for a in actions]),
-            frozen_array([self.children[a].state_value for a in actions]),
-            frozen_array([self.children[a].has_value_estimate for a in actions]),
+            frozen_array([child.visit_count for child in children]),
+            frozen_array([child.state_value for child in children]),
+            frozen_array([child.has_value_estimate for child in children]),
             sj.get_player(self.state),
             frozen_array(self.state_value),
             frozen_array(self.model_prediction.value),
@@ -129,6 +140,15 @@ class DecisionStateNode:
         )
 
     def refresh_value(self, evidence=None):
+        if self._statistics is not None and evidence is not None:
+            data = self._statistics
+            # Preserve the reference mixture's operation order and dtype.
+            self._state_value = (
+                self.model_prediction.value
+                + (data.visits[:, None] * data.values).sum(axis=0)
+            ) / (1 + data.visits.sum())
+            self._valuation_state.value = self._state_value
+            return
         self._valuation_state.update(
             self.view(),
             evidence if evidence is not None else Evidence(self.state_value, "refresh"),
@@ -158,10 +178,22 @@ class DecisionStateNode:
             self.base_action_priors[list(representatives)] = 1 / len(representatives)
         self.action_priors = self.base_action_priors
         self.is_expanded = True
-        self.children = {
-            action: self.create_child_node(action)
-            for action in self.action_groups.representatives
-        }
+        components = self.context.components
+        if (
+            type(components.valuation) is CurrentMixture
+            and type(components.root_exploration) is PUCT
+            and type(components.interior_exploration) is PUCT
+            and type(self.context.root_session) is _PUCTSession
+            and type(self.context.interior_session) is _PUCTSession
+        ):
+            self.children = LazyChildren(self, self.action_groups.representatives)
+            self._statistics = EdgeStatistics(self)
+        else:
+            # Custom strategies retain their immutable-snapshot contract.
+            self.children = {
+                action: self.create_child_node(action)
+                for action in self.action_groups.representatives
+            }
 
     def create_child_node(self, action):
         if sj.get_round_about_to_end(self.state):
@@ -181,7 +213,11 @@ class DecisionStateNode:
             if self.parent is None
             else self.context.interior_session
         )
-        action = session.select(self.view())
+        data = self._statistics
+        if data is not None:
+            data.state_value = self.state_value
+            data.visit_count = self.visit_count
+        action = session.select(self.view() if data is None else data)
         if action not in self.children:
             raise ValueError("Exploration selected an illegal action group")
         return self.children[action]
@@ -220,6 +256,11 @@ class DecisionStateNode:
             ) * self.base_action_priors + epsilon * self.action_groups.aggregate(
                 self.dirichlet_noise
             )
+
+        if self._statistics is not None:
+            self._statistics.priors[:] = self.action_priors[
+                list(self._statistics.actions)
+            ]
 
 
 @dataclasses.dataclass(slots=True)
@@ -337,6 +378,9 @@ class RoundBoundaryNode:
         )
 
     def evaluate(self):
+        return evaluate(self.evaluate_steps())
+
+    def evaluate_steps(self):
         """Pool fresh outcome evidence independently of traversal counts."""
         first = self.deterministic_completed_state
         if first is not None:
@@ -359,9 +403,13 @@ class RoundBoundaryNode:
                 for _ in range(samples - 1)
             ]
         assert self.context.boundary_evaluator is not None
-        predictions = self.context.boundary_evaluator.evaluate(
-            completed, self.context.rng
-        )
+        boundary = self.context.boundary_evaluator
+        if type(boundary) is NextDealEvaluator:
+            predictions = yield from boundary.evaluate_steps(
+                completed, self.context.rng
+            )
+        else:
+            predictions = boundary.evaluate(completed, self.context.rng)
         batch_total = predictions.sum(axis=0, dtype=np.float32)
         self.sample_value_total += batch_total
         self.sample_count += len(completed)
@@ -391,6 +439,9 @@ def backpropagate(search_path: list[MCTSNode], evidence: Evidence | None = None)
             node.refresh_value(evidence)
         elif isinstance(node, AfterStateNode):
             node.refresh_value()
+        parent = node.parent
+        if isinstance(parent, DecisionStateNode) and parent._statistics is not None:
+            parent._statistics.update_child(node)
 
 
 def run_mcts(
@@ -406,7 +457,37 @@ def run_mcts(
     symmetry_budget: int | None = None,
     observer: Callable[[DecisionStateNode], None] | None = None,
 ) -> DecisionStateNode:
-    """Build and search a fresh tree from game_state, using fixed-seat values.
+    """Synchronously drive the shared resumable tree search."""
+    return evaluate(
+        mcts_steps(
+            game_state,
+            evaluator,
+            iterations,
+            config=config,
+            boundary_evaluator=boundary_evaluator,
+            rng=rng,
+            components=components,
+            cover_root=cover_root,
+            symmetry_budget=symmetry_budget,
+            observer=observer,
+        )
+    )
+
+
+def mcts_steps(
+    game_state: sj.Skyjo,
+    evaluator: Evaluator,
+    iterations: int,
+    *,
+    config: SearchConfig = DEFAULT_SEARCH_CONFIG,
+    boundary_evaluator: BoundaryEvaluator | None = None,
+    rng: np.random.Generator | None = None,
+    components: SearchComponents | None = None,
+    cover_root: bool = False,
+    symmetry_budget: int | None = None,
+    observer: Callable[[DecisionStateNode], None] | None = None,
+) -> EvaluationWork[DecisionStateNode]:
+    """Yield EvaluationRequests while building a fresh tree with fixed-seat values.
 
     An optional observer reads the live root after every completed backup. It
     must not mutate the tree or consume search RNG; no snapshots are copied here.
@@ -438,12 +519,12 @@ def run_mcts(
     if merging and symmetry_budget is None:
         rng_state = deepcopy(rng.bit_generator.state)
         try:
-            return build_tree(True)
+            return (yield from build_tree(True))
         except _SymmetryRecyclingRisk:
             # Discard all grouped values and allocation sessions before retrying.
             rng.bit_generator.state = rng_state
-        return build_tree(False)
-    return build_tree(merging)
+        return (yield from build_tree(False))
+    return (yield from build_tree(merging))
 
 
 def _search_tree(
@@ -483,7 +564,8 @@ def _search_tree(
         context,
         effective_merge_symmetric_actions=merge,
     )
-    root_node.expand(evaluator.evaluate([game_state])[0])
+    predictions = yield EvaluationRequest(evaluator, [game_state])
+    root_node.expand(predictions[0])
     root_node.refresh_root_noise()
     for iteration in range(iterations):
         start = (
@@ -499,15 +581,14 @@ def _search_tree(
             path.insert(0, root_node)
         leaf = path[-1]
         if isinstance(leaf, RoundBoundaryNode):
-            evidence = leaf.evaluate()
+            evidence = yield from leaf.evaluate_steps()
         elif isinstance(leaf, AfterStateNode):
             leaf.discover(config.after_state_evaluate_all_children)
             children = list(leaf.children.values())
-            for child, prediction in zip(
-                children,
-                evaluator.evaluate([child.state for child in children]),
-                strict=True,
-            ):
+            predictions = yield EvaluationRequest(
+                evaluator, [child.state for child in children]
+            )
+            for child, prediction in zip(children, predictions, strict=True):
                 child.expand(prediction)
             leaf.expand()
             evidence = Evidence(
@@ -519,7 +600,8 @@ def _search_tree(
                 leaf = children[0]
                 path.append(leaf)
         else:
-            leaf.expand(evaluator.evaluate([leaf.state])[0])
+            predictions = yield EvaluationRequest(evaluator, [leaf.state])
+            leaf.expand(predictions[0])
             evidence = Evidence(leaf.model_prediction.value.copy())
         backpropagate(path, evidence)
         if context.root_session.observe is not None:
