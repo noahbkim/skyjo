@@ -137,3 +137,97 @@ scores. This preserves normal scoring, including doubling, and reports round
 scores plus paired score-margin/win-credit summaries. Search still evaluates
 full-game outcomes: this measures opening-round performance, not full-game
 strength. Use separate fresh seeds for a confirmation comparison.
+
+## Fast component faceoffs
+
+Use the same comparison runner for policy-only or one-action value-only play:
+
+```sh
+uv run python run_checkpoint_comparison.py \
+  --control old.pth --variant new.pth --mode policy
+
+uv run python run_checkpoint_comparison.py \
+  --control old.pth --variant new.pth --mode value
+
+uv run python run_checkpoint_comparison.py \
+  --control old.pth --variant new.pth --mode value \
+  --value-chance sampled --value-samples 4 --boundary-samples 10
+```
+
+These shared shortcuts configure both contestants. `--mode policy` defaults to
+temperature 1: sample from the model's legal policy. Use `--temperature 0` for
+greedy play, or another positive temperature for probabilities proportional to
+`p ** (1 / temperature)`. Temperature acts on symmetry-group mass for group
+models and individual actions for historical action-normalized models. Zero
+probabilities stay zero. The game owns action sampling and its RNG.
+
+`--mode value` evaluates every legal action exactly one engine action ahead and
+chooses the highest expected win credit for the original acting seat. Taking or
+drawing a card stops before the subsequent placement decision. Policy outputs
+do not affect selection, and no action grouping or pruning is used. Successor
+states are evaluated in batches. Equal action values choose the lowest action
+index; nonzero value-mode temperatures are rejected.
+
+Ordinary chance defaults to `enumerated`: every possible draw or reveal uses its
+true engine probability, including deck recycling and any predetermined card.
+`sampled` instead averages a fixed number of independent outcomes per random
+action (`--value-samples`, default 1). Deterministic ordinary actions need one
+successor. Round-ending actions always use `--boundary-samples` (default 10),
+which samples all remaining reveals jointly. Finished games use exact outcomes,
+sharing ties. Continuing rounds use a sampled next deal and the main model, or
+the optional `boundary_checkpoint` evaluator from contestant settings. Exact
+ordinary chance does not make neural values or round-ending estimates exact.
+
+For asymmetric comparisons, use `--control-settings` and `--variant-settings`.
+Settings files cannot be combined with shared shortcuts. Available presets:
+
+| Preset | Behavior |
+| --- | --- |
+| `configs/evaluation-policy.toml` | Existing greedy policy |
+| `configs/evaluation-policy-sampled.toml` | Policy sampling, temperature 1 |
+| `configs/evaluation-value.toml` | Exact ordinary chance, 10 boundary samples |
+| `configs/evaluation-value-sampled.toml` | 4 ordinary samples, 10 boundary samples |
+
+Value options live in a separate `[value]` table (`chance`, `samples`, and
+`boundary_samples`); search options remain in `[search]`. Existing commands and
+policy settings that omit temperature retain their previous behavior.
+
+The same players and configuration are importable without the CLI:
+
+```python
+from pathlib import Path
+import numpy as np
+
+from skyjo.experiments.contestants import ContestantConfig, prepare
+from skyjo.experiments.evaluation import EvaluationConfig, evaluate_checkpoints
+from skyjo.learning.predictor import PolicyPlayer
+from skyjo.search.value_player import ValueConfig, ValuePlayer
+
+config = ContestantConfig(
+    checkpoint=str(Path("model.pth").resolve()),
+    mode="value",
+    value=ValueConfig(chance="enumerated", boundary_samples=10),
+)
+prepared = prepare(config)
+player = prepared.player(np.random.default_rng(42))
+
+# Or supply any existing Evaluator directly; no checkpoint loading is required.
+policy_player = PolicyPlayer(prepared.evaluator, temperature=1)
+value_player = ValuePlayer(
+    prepared.evaluator, config=ValueConfig(), rng=np.random.default_rng(42)
+)
+# Both support get_decision(state), get_action_probabilities(state), and
+# decision_steps(state) for the existing cooperative batching scheduler.
+
+report = evaluate_checkpoints(
+    EvaluationConfig(config, config, seed_count=2, seed=42)
+).to_dict()
+```
+
+Reports retain paired seats, seeds, resolved settings, checkpoint provenance,
+win credit, and score margins. `games_per_second` divides completed games by
+`evaluation_seconds`, including evaluator setup and worker startup. First-round
+mode reports completed rounds at the same rate field. Compare measured throughput:
+exact value enumeration can evaluate more states than small-budget search.
+Component faceoffs measure policy distribution quality and value-based action
+ranking; periodically confirm overall playing strength with full-search faceoffs.

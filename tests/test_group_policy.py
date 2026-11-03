@@ -1,5 +1,7 @@
 """Group probabilities survive model, loss, search and checkpoint boundaries."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
@@ -10,6 +12,7 @@ from skyjo.experiments.contestants import load_model
 from skyjo.learning import batches, checkpoint, losses, models, predictor
 from skyjo.learning.policy import group_normalized_logits
 from skyjo.search import mcts
+from skyjo.search.evaluator import Prediction
 from skyjo.search.runner import search
 from skyjo.search.symmetry import ActionGroups
 
@@ -64,6 +67,12 @@ def test_default_model_search_and_visit_targets_share_group_probabilities():
     assert len(groups) == 10
     np.testing.assert_allclose(result.summary.priors, np.full(10, 0.1))
     prediction = evaluator.evaluate([state])[0]
+    np.testing.assert_allclose(
+        predictor.PolicyPlayer(evaluator, temperature=1).get_action_probabilities(
+            state
+        ),
+        prediction.policy,
+    )
     # A larger group must not lose greedy policy play to a singleton merely
     # because its probability is split across several representations.
     assert prediction.policy.argmax() == 7
@@ -82,6 +91,36 @@ def test_default_model_search_and_visit_targets_share_group_probabilities():
     model.policy_normalization = "actions"
     legacy = evaluator.evaluate([state])[0]
     np.testing.assert_allclose(legacy.policy[game.actions(state).astype(bool)], 1 / 19)
+
+
+@pytest.mark.parametrize("group_actions", [False, True])
+def test_policy_temperature_preserves_zeros_and_uses_the_model_probability_space(
+    group_actions,
+):
+    state = board_state()
+    policy = np.zeros(game.MASK_SIZE)
+    group = [4, 8, 9, 13]
+    policy[group] = 0.15
+    policy[7] = 0.4
+    evaluator = SimpleNamespace(
+        evaluate=lambda states: [Prediction(np.array([0.5, 0.5]), policy)]
+    )
+    for temperature in (0, 0.5, 1):
+        actual = predictor.PolicyPlayer(
+            evaluator, temperature=temperature, group_actions=group_actions
+        ).get_action_probabilities(state)
+        expected = np.zeros(game.MASK_SIZE)
+        if temperature == 0:
+            expected[4 if group_actions else 7] = 1
+        elif temperature == 1:
+            expected = policy
+        elif group_actions:
+            expected[group] = (0.6**2 / (0.6**2 + 0.4**2)) / 4
+            expected[7] = 0.4**2 / (0.6**2 + 0.4**2)
+        else:
+            expected = policy**2 / np.sum(policy**2)
+        np.testing.assert_allclose(actual, expected)
+        assert not actual[policy == 0].any()
 
 
 @pytest.mark.parametrize("mode", ["groups", "actions"])

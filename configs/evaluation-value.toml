@@ -1,0 +1,6 @@
+# Exact ordinary chance; round-ending reveals and next deals remain sampled.
+mode = "value"
+
+[value]
+chance = "enumerated"
+boundary_samples = 10

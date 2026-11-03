@@ -8,6 +8,7 @@ import torch
 from skyjo.engine import game as sj
 from skyjo.search.batching import EvaluationRequest, evaluate
 from skyjo.search.evaluator import Evaluator, Prediction
+from skyjo.search.strategies import softmax
 from skyjo.search.symmetry import ActionGroups
 from skyjo.simulation.decisions import DiagnosticSection, PlayerDecision
 
@@ -54,10 +55,19 @@ class LocalPredictor:
 
 
 class PolicyPlayer:
-    """Greedy policy play in the model's action or group probability space."""
+    """Temperature-controlled play in the model's action/group probability space."""
 
-    def __init__(self, evaluator: Evaluator, *, group_actions: bool | None = None):
+    def __init__(
+        self,
+        evaluator: Evaluator,
+        *,
+        temperature: float = 0.0,
+        group_actions: bool | None = None,
+    ):
+        if not np.isfinite(temperature) or temperature < 0:
+            raise ValueError("temperature must be finite and nonnegative")
         self.evaluator = evaluator
+        self.temperature = temperature
         if group_actions is None:
             group_actions = (
                 isinstance(evaluator, LocalPredictor)
@@ -75,19 +85,23 @@ class PolicyPlayer:
         predictions = yield EvaluationRequest(self.evaluator, [state])
         prediction = predictions[0]
         legal = np.flatnonzero(sj.actions(state))
-        probabilities = np.zeros(sj.MASK_SIZE, dtype=np.float32)
         groups = ActionGroups.from_state(state, merge=self.group_actions)
-        priors = groups.aggregate(prediction.policy)
-        choices = np.asarray(groups.representatives)
-        probabilities[choices[priors[choices].argmax()]] = 1
+        priors = groups.aggregate(prediction.policy)[list(groups.representatives)]
+        logits = np.full(len(priors), -np.inf)
+        positive = priors > 0
+        logits[positive] = np.log(priors[positive])
+        probabilities = groups.distribute(
+            softmax(logits, self.temperature), greedy=self.temperature == 0
+        )
         return PlayerDecision(
             probabilities,
             (
                 DiagnosticSection(
-                    "Model policy (greedy selection)",
-                    text="Selection maximizes total probability per symmetry group."
+                    "Model policy",
+                    text="Temperature applies to total probability per symmetry group."
                     if self.group_actions
-                    else "Selection maximizes individual action probability.",
+                    else "Temperature applies to individual action probabilities.",
+                    metrics={"Temperature": self.temperature},
                     columns=("Action", "Model prior", "Selection probability"),
                     rows=tuple(
                         (

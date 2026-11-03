@@ -22,8 +22,75 @@ from skyjo.experiments.contestants import ContestantConfig
 from skyjo.learning import checkpoint, models
 from skyjo.learning.boundary_value import BoundaryValueModel
 from skyjo.search.mcts import SearchConfig
+from skyjo.search.value_player import ValueConfig
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    "arguments,mode,temperature,value",
+    [
+        (["--mode", "policy"], "policy", 1, ValueConfig()),
+        (["--mode", "policy", "--temperature", "0"], "policy", 0, ValueConfig()),
+        (["--mode", "value"], "value", 0, ValueConfig()),
+        (
+            [
+                "--mode",
+                "value",
+                "--value-chance",
+                "sampled",
+                "--value-samples",
+                "4",
+                "--boundary-samples",
+                "3",
+            ],
+            "value",
+            0,
+            ValueConfig(chance="sampled", samples=4, boundary_samples=3),
+        ),
+    ],
+)
+def test_shared_shortcuts_configure_both_contestants(
+    tmp_path, monkeypatch, arguments, mode, temperature, value
+):
+    captured = []
+
+    def launch(settings, *args, **kwargs):
+        captured.append(settings)
+        return tmp_path
+
+    monkeypatch.setattr(evaluation, "launch_comparison", launch)
+    app = typer.Typer()
+    app.command()(cli.compare)
+    result = CliRunner().invoke(
+        app, ["--control", "control.pth", "--variant", "variant.pth", *arguments]
+    )
+    assert result.exit_code == 0, result.output
+    for name in ("control", "variant"):
+        config = getattr(captured[0], name)
+        assert Path(config.checkpoint).name == f"{name}.pth"
+        assert (config.mode, config.temperature, config.value) == (
+            mode,
+            temperature,
+            value,
+        )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--mode", "value", "--temperature", "1"],
+        ["--mode", "policy", "--boundary-samples", "2"],
+        ["--mode", "policy", "--control-settings", "settings.toml"],
+        ["--mode", "unknown"],
+    ],
+)
+def test_shortcuts_reject_incompatible_settings_before_loading_checkpoints(arguments):
+    app = typer.Typer()
+    app.command()(cli.compare)
+    result = CliRunner().invoke(app, ["--control", "missing.pth", *arguments])
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
 
 
 @pytest.fixture
@@ -280,3 +347,47 @@ def test_abrupt_parallel_worker_exit_fails_recorded_run(tmp_path, model_checkpoi
     (run_path,) = (tmp_path / "runs").iterdir()
     assert json.loads((run_path / "run.json").read_text())["status"] == "failed"
     assert not (run_path / "comparison.json").exists()
+
+
+@pytest.mark.parametrize(
+    "chance,first_round", [("enumerated", True), ("sampled", False)]
+)
+def test_component_faceoffs_match_serial_and_parallel_and_record_settings(
+    tmp_path, model_checkpoint, chance, first_round
+):
+    value = ValueConfig(chance=chance, samples=4, boundary_samples=2)
+    settings = evaluation.EvaluationConfig(
+        ContestantConfig(
+            checkpoint=str(model_checkpoint), mode="policy", temperature=1
+        ),
+        ContestantConfig(checkpoint=str(model_checkpoint), mode="value", value=value),
+        seed_count=1,
+        seed=19,
+        first_round=first_round,
+    )
+    saved, threads = checkpoint.capture_rng_state(), torch.get_num_threads()
+    serial = evaluation.evaluate_checkpoints(settings).to_dict()
+    assert_runtime_unchanged(saved, threads)
+    value_file = tmp_path / "value.toml"
+    value_file.write_text(
+        f'mode = "value"\n[value]\nchance = "{chance}"\nsamples = 4\nboundary_samples = 2\n'
+    )
+    # Exercise the importable CLI entrypoint as well as file-based configuration.
+    path = cli.compare(
+        model_checkpoint,
+        control_settings=ROOT / "configs/evaluation-policy-sampled.toml",
+        variant_settings=value_file,
+        seed_count=1,
+        seed=19,
+        workers=2,
+        first_round=first_round,
+        runs_dir=tmp_path / "runs",
+        allow_dirty=True,
+    )
+    report = json.loads((path / "comparison.json").read_text())
+    assert report["games"] == serial["games"]
+    assert report["settings"] == dataclasses.asdict(
+        dataclasses.replace(settings, workers=2)
+    )
+    assert report["games_per_second"] == pytest.approx(2 / report["evaluation_seconds"])
+    assert_runtime_unchanged(saved, threads)

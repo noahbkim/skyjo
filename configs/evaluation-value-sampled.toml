@@ -1,0 +1,7 @@
+# Fixed samples per action, independent of policy priors.
+mode = "value"
+
+[value]
+chance = "sampled"
+samples = 4
+boundary_samples = 10
