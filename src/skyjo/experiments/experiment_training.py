@@ -42,8 +42,9 @@ class ObservationConfig:
 class GenerationProgress:
     """Completion milestones, optionally throttled by a minimum time interval.
 
-    Workers return whole tasks, so partial counts omit ongoing work. Do not
-    extrapolate an ETA or throughput from these biased, stepwise counts.
+    Workers return whole tasks, so rates describe returned work, not live work.
+    ETA is a rough cumulative-rate estimate after 25% of games have returned.
+    Milestone-only updates avoid repeatedly extrapolating a stale count.
     """
 
     def __init__(self, total_games: int, interval: float):
@@ -73,12 +74,19 @@ class GenerationProgress:
                 self.decisions / elapsed,
             )
         else:
+            eta = (
+                f"~{(self.total_games - self.games) * elapsed / self.games / 3600:.2f}h"
+                if self.games >= math.ceil(self.total_games / 4)
+                else "pending (under 25% returned)"
+            )
             logger.info(
-                "[SELF-PLAY] %s/%s games returned | %.1fs elapsed | %s decisions returned",
+                "[SELF-PLAY] %s/%s games returned | %.2fh elapsed | %.3f games/s | %.1f decisions/s | ETA %s (rough; task-batched rates)",
                 self.games,
                 self.total_games,
-                elapsed,
-                self.decisions,
+                elapsed / 3600,
+                self.games / elapsed,
+                self.decisions / elapsed,
+                eta,
             )
         self.next_report = now + self.interval
         self.next_games = self.games + self.game_step

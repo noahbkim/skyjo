@@ -163,11 +163,27 @@ def test_progress_requires_new_game_milestone_and_time_but_always_logs_completio
     assert len(caplog.records) == 3
     assert "10/100 games returned" in caplog.messages[0]
     assert "20/100 games returned" in caplog.messages[1]
-    assert all(
-        "ETA" not in message and "decisions/s" not in message
-        for message in caplog.messages[:-1]
-    )
+    assert "0.333 games/s" in caplog.messages[0]
+    assert "6.7 decisions/s" in caplog.messages[0]
+    assert "ETA pending" in caplog.messages[0]
     assert "complete" in caplog.messages[-1]
+
+
+def test_eta_uses_returned_work_and_does_not_repeat_during_idle(monkeypatch, caplog):
+    now = [0.0]
+    monkeypatch.setattr(experiment_training.time, "perf_counter", lambda: now[0])
+    progress = experiment_training.GenerationProgress(1000, interval=30)
+    with caplog.at_level(logging.INFO):
+        now[0] = 3600
+        progress.games = 250
+        progress.decisions = 180000
+        progress.report()
+        now[0] = 7200
+        progress.report()
+    assert len(caplog.records) == 1
+    assert "0.069 games/s" in caplog.messages[0]
+    assert "50.0 decisions/s" in caplog.messages[0]
+    assert "ETA ~3.00h (rough; task-batched rates)" in caplog.messages[0]
 
 
 def test_default_progress_reports_only_completion_even_after_long_idle(

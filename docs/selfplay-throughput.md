@@ -25,9 +25,13 @@ Progress counts include only returned worker tasks, not completed games still
 inside an unfinished task. `logging.progress_interval_seconds = 0` prints only
 the final generation summary. A positive value enables roughly 10% game-count
 milestones with that minimum spacing in seconds; idle waits emit nothing.
-Partial counts intentionally have no extrapolated ETA or throughput. Use the
-completed generation's decisions/second to compare throughput, alongside game
-lengths and rounds/game to explain changes in games/hour.
+Milestones show cumulative returned games/second and decisions/second. After
+25% of games return, they also show a rough generation ETA based on that rate.
+These task-batched estimates omit in-flight work and can jump when tasks return;
+the ETA does not include subsequent target construction or training. Idle waits
+do not repeatedly recalculate an ETA from a stale count. Use the completed
+generation's decisions/second to compare throughput, alongside game lengths and
+rounds/game to explain changes in games/hour.
 
 Each completed iteration logs game-length mean/median/p90/max, round scores,
 clears, no-progress endings, action rates per eligible decision, replay fitting
