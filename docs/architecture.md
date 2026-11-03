@@ -22,8 +22,10 @@ actions remain singletons. Grouping is computed from tensor observations on the
 model device, without reconstructing engine states or importing Torch into search.
 
 Search sums these per-action probabilities into its effective action groups.
-Policy-only play also maximizes group probability for group-normalized models,
-choosing a representative; historical models retain individual-action argmax.
+Policy-only play applies temperature in the model's probability space: groups
+for group-normalized models and individual actions for historical models.
+Temperature zero chooses an argmax representative; positive temperatures sample
+from the tempered distribution, splitting group mass uniformly among members.
 Visit targets already split group probability uniformly; target symmetrization
 preserves that mass, so no additional target division is needed. Search safety
 may still disable shared tree nodes near deck recycling; the model's policy
@@ -46,6 +48,14 @@ targets use **current-player order**. Convert at the inference boundary: otherwi
 values accumulated across turns refer to different players. The primary target
 is eventual game-win credit, shared on ties. Auxiliary round scores supplement
 that target; resampling a round ending must not change the observed game winner.
+
+Value-only play evaluates all legal actions one engine action ahead, batches
+successor inference, and chooses the highest expected value for the original
+acting seat. It uses no policy priors or symmetry reduction. Ordinary chance can
+be enumerated with true probabilities or sampled; round endings use explicit
+samples and the same terminal/continuing-round evaluator contracts as search.
+See [component faceoffs](search-benchmarks.md#fast-component-faceoffs) for the
+Python interfaces and CLI presets.
 
 Replay retains and evicts complete games and splits by game to avoid leaking
 correlated positions across training and validation. Persistence imports data

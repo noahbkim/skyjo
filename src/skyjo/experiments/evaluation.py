@@ -67,6 +67,9 @@ class MatchResult:
             "games": list(self.games),
             **summarize_match(self.games),
             "evaluation_seconds": self.seconds,
+            "games_per_second": len(self.games) / self.seconds
+            if self.seconds > 0
+            else 0.0,
         }
 
 

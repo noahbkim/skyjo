@@ -17,24 +17,30 @@ from skyjo.learning import (
 )
 from skyjo.search.mcts import SearchConfig
 from skyjo.search.player import SearchPlayer
+from skyjo.search.value_player import ValueConfig, ValuePlayer
 
 
 @dataclass(frozen=True)
 class ContestantConfig:
     checkpoint: str | None = None
-    mode: Literal["search", "policy"] = "search"
+    mode: Literal["search", "policy", "value"] = "search"
     iterations: int = 128
     temperature: float = 0.0
     search: SearchConfig = field(default_factory=SearchConfig)
     boundary_checkpoint: str | None = None
+    value: ValueConfig = field(default_factory=ValueConfig)
 
     def __post_init__(self):
-        if self.mode not in ("search", "policy"):
-            raise ValueError("Player mode must be search or policy")
+        if self.mode not in ("search", "policy", "value"):
+            raise ValueError("Player mode must be search, policy, or value")
         if type(self.iterations) is not int or self.iterations < 1:
             raise ValueError("Search iterations must be positive")
         if not np.isfinite(self.temperature) or self.temperature < 0:
             raise ValueError("Action temperature must be finite and nonnegative")
+        if self.mode == "value" and self.temperature != 0:
+            raise ValueError("Value-only play requires temperature zero")
+        if self.mode != "value" and self.value != ValueConfig():
+            raise ValueError("Value settings require value-only play")
         if self.mode == "policy" and (
             self.boundary_checkpoint is not None
             or self.search.boundary_samples != 1
@@ -91,7 +97,16 @@ class PreparedContestant:
 
     def player(self, rng: np.random.Generator):
         if self.config.mode == "policy":
-            return predictor.PolicyPlayer(self.evaluator)
+            return predictor.PolicyPlayer(
+                self.evaluator, temperature=self.config.temperature
+            )
+        if self.config.mode == "value":
+            return ValuePlayer(
+                self.evaluator,
+                config=self.config.value,
+                boundary_evaluator=self.boundary_evaluator,
+                rng=rng,
+            )
         return SearchPlayer(
             self.evaluator,
             self.config.iterations,
@@ -132,6 +147,7 @@ def from_file(
 
     options = {} if settings_path is None else tomllib.loads(settings_path.read_text())
     search = SearchConfig(**options.pop("search", {}))
+    value = ValueConfig(**options.pop("value", {}))
     boundary = options.pop("boundary_checkpoint", None)
     if boundary is not None:
         boundary = str((settings_path.parent / boundary).resolve())
@@ -140,5 +156,39 @@ def from_file(
         search=search,
         iterations=options.pop("iterations", iterations),
         boundary_checkpoint=boundary,
+        value=value,
         **options,
+    )
+
+
+def from_shortcut(
+    checkpoint_path: Path,
+    *,
+    mode="search",
+    iterations=128,
+    temperature=None,
+    value_chance=None,
+    value_samples=None,
+    boundary_samples=None,
+):
+    """Build a quick faceoff contestant; policy shortcuts sample by default."""
+    options = {
+        name: value
+        for name, value in (
+            ("chance", value_chance),
+            ("samples", value_samples),
+            ("boundary_samples", boundary_samples),
+        )
+        if value is not None
+    }
+    if options and mode != "value":
+        raise ValueError("Value chance/sample options require --mode value")
+    return ContestantConfig(
+        checkpoint=str(checkpoint_path.resolve()),
+        mode=mode,
+        iterations=iterations,
+        temperature=(1.0 if mode == "policy" else 0.0)
+        if temperature is None
+        else temperature,
+        value=ValueConfig(**options),
     )

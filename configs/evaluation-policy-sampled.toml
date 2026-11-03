@@ -1,0 +1,3 @@
+# Use with run_checkpoint_comparison.py --control-settings or --variant-settings.
+mode = "policy"
+temperature = 1.0
