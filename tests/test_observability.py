@@ -136,32 +136,37 @@ def test_observing_training_preserves_updates_rng_and_module_modes():
     assert stats.summary()["policy/all/positions"] == 6
 
 
-def test_progress_is_timed_including_idle_intervals_and_final_completion(
+def test_progress_requires_new_game_milestone_and_time_but_always_logs_completion(
     monkeypatch, caplog
 ):
     now = [0.0]
     monkeypatch.setattr(experiment_training.time, "perf_counter", lambda: now[0])
-    progress = experiment_training.GenerationProgress(8, interval=30)
+    progress = experiment_training.GenerationProgress(100, interval=30)
     with caplog.at_level(logging.INFO):
         now[0] = 5
-        progress.games = 2
+        progress.games = 10
         progress.decisions = 200
         progress.report()
         assert not caplog.records
-        assert progress.wait_seconds() == 25
         now[0] = 30
         progress.report()
         now[0] = 60
-        progress.report()  # No newly completed task: still report the stall.
+        progress.report()  # Idle intervals do not repeat a stale count/rate.
+        progress.games = 11
+        progress.report()  # Less than another 10% of the batch.
+        progress.games = 20
+        progress.report()
         now[0] = 61
-        progress.games = 8
+        progress.games = 100
         progress.decisions = 800
         progress.report(final=True)
     assert len(caplog.records) == 3
-    assert "2/8 games" in caplog.messages[0]
-    assert "0.067 games/s" in caplog.messages[0]
-    assert "6.7 decisions/s" in caplog.messages[0]
-    assert "ETA 90.0s" in caplog.messages[0]
+    assert "10/100 games returned" in caplog.messages[0]
+    assert "20/100 games returned" in caplog.messages[1]
+    assert all(
+        "ETA" not in message and "decisions/s" not in message
+        for message in caplog.messages[:-1]
+    )
     assert "complete" in caplog.messages[-1]
 
 
@@ -179,7 +184,6 @@ def test_default_progress_reports_only_completion_even_after_long_idle(
             now[0] = elapsed
             progress.games = games
             progress.report()
-            assert progress.wait_seconds() is None
         assert not caplog.records
         now[0] = 1000
         progress.games = 8

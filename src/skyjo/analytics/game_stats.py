@@ -199,6 +199,7 @@ def summarize_games(games: list[GameStats]) -> dict[str, float | int]:
             }
         )
     distributions = {
+        "game/decisions": [g.game_length for g in games],
         "round/turns": [r.turns for r in complete],
         "round/decisions": [r.decisions for r in complete],
         "round/score": [s for r in rounds for s in r.scores],
@@ -215,6 +216,7 @@ def summarize_games(games: list[GameStats]) -> dict[str, float | int]:
                         ("mean", np.mean(values)),
                         ("median", np.median(values)),
                         ("p90", np.percentile(values, 90)),
+                        ("max", np.max(values)),
                     )
                 }
             )
@@ -264,6 +266,7 @@ def format_summary(metrics: dict[str, float | int], *, detailed: bool = False) -
         f"{metrics['round/count']} rounds ({metrics['round/partial_count']} partial)"
     ]
     for name, label in (
+        ("game/decisions", "Decisions/game"),
         ("round/turns", "Turns/round"),
         ("round/decisions", "Decisions/round"),
         ("round/score", "Points/player-round"),

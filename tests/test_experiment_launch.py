@@ -37,7 +37,7 @@ def test_delivered_configs_resolve_and_round_trip(tmp_path):
     assert config["search"]["c_puct"] == 1.0
     assert config["replay"]["capacity"] == 524288
     assert config["logging"]["progress_interval_seconds"] == 0
-    assert config["validation"]["concept_interval"] == 5
+    assert config["validation"]["concept_interval"] == 1
     assert config["derived"]["optimizer"]["weight_decay"] == 1e-4
 
 
@@ -157,8 +157,12 @@ def test_real_smoke_cli_and_saved_config_rerun(tmp_path):
         assert iteration_metrics["generation/decisions_per_second"] > 0
         log = (run_path / "logs/train.log").read_text()
         assert "games/s" in log and "replay-equivalent passes" in log
-        assert "[TARGETS]" not in log and " tasks" not in log
-        assert log.count("[SELF-PLAY]") == 1
+        assert "[TARGETS]" not in log and "[SELF-PLAY] Completed" not in log
+        assert "decisions/game mean" in log
+        assert "Replay training averages" in log
+        assert "Lowest target support" in log
+        assert log.count("[SELF-PLAY]") == 2  # Start settings and completion only.
+        assert "games returned" not in log  # Progress is disabled in this config.
         assert log.count("[TRAIN]") == 1
         assert log.count("[GAMES]") == 1
         assert "p90=" not in log and "Action rates:" not in log

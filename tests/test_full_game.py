@@ -370,6 +370,9 @@ def test_round_statistics_count_turns_and_player_rounds(equal_hands):
     assert summary["round/turns/p90"] == 30
     assert summary["round/no_progress_rate"] == 0
     assert summary["game/rounds/mean"] == 3
+    assert summary["game/decisions/mean"] == 189
+    assert summary["game/decisions/p90"] == 189
+    assert summary["game/decisions/max"] == 189
 
 
 def test_round_statistics_preserve_seats_clears_and_partial_history():

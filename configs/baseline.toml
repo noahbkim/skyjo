@@ -49,8 +49,10 @@ threads_per_worker = 1
 debug = false
 
 [logging]
-# Completion summary only; set a positive interval for timed progress updates.
+# Completion only; a positive interval enables ~10% game milestones with this
+# minimum spacing in seconds. Idle periods do not repeat stale progress/ETAs.
 progress_interval_seconds = 0.0
 
 [validation]
-concept_interval = 5
+# Cheap heuristic diagnostics every iteration; these are not held-out win labels.
+concept_interval = 1

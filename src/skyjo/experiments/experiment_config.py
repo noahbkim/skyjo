@@ -66,7 +66,7 @@ DEFAULTS = {
     },
     "budget": {"iterations": 10, "max_seconds": 0.0, "checkpoint_interval": 1},
     "logging": {"progress_interval_seconds": 0.0},
-    "validation": {"concept_interval": 5},
+    "validation": {"concept_interval": 1},
     "execution": {
         "device": "cpu",
         "workers": 8,

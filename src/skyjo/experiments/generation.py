@@ -133,6 +133,12 @@ def generate_iteration(
 ) -> list[GeneratedGame]:
     """Collect actual completions; deterministic ordering is restored before replay."""
     sizes = game_batch_sizes(total_games, games_per_task)
+    logger.info(
+        "[SELF-PLAY] Generating %s games | %s games/task | up to %s concurrent games/worker | counts update when tasks return",
+        total_games,
+        games_per_task,
+        min(games_per_task, worker_kwargs.get("concurrent_games", 1)),
+    )
     starts = np.cumsum([0, *sizes[:-1]]).tolist()
     completed = queue.Queue()
     progress = experiment_training.GenerationProgress(
@@ -152,11 +158,7 @@ def generate_iteration(
     generated = []
     tasks = 0
     while tasks < len(sizes):
-        try:
-            succeeded, result = completed.get(timeout=progress.wait_seconds())
-        except queue.Empty:
-            progress.report()
-            continue
+        succeeded, result = completed.get()
         if not succeeded:
             raise result
         tasks += 1

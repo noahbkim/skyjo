@@ -16,7 +16,27 @@ threads_per_worker = 1
 task, so it cannot exceed the number of games assigned to that task in practice.
 Finished slots are refilled until the task runs out of games. `games_per_task`
 still controls multiprocessing task size; `execution.workers` controls processes.
+There is no barrier between cohorts of `concurrent_games` games. At the end of
+each task, however, its remaining games drain before that worker takes a new
+task. Small tasks can therefore lose batching efficiency to long-game tails.
 Four active games is a starting configuration, not a measured universal optimum.
+
+Progress counts include only returned worker tasks, not completed games still
+inside an unfinished task. `logging.progress_interval_seconds = 0` prints only
+the final generation summary. A positive value enables roughly 10% game-count
+milestones with that minimum spacing in seconds; idle waits emit nothing.
+Partial counts intentionally have no extrapolated ETA or throughput. Use the
+completed generation's decisions/second to compare throughput, alongside game
+lengths and rounds/game to explain changes in games/hour.
+
+Each completed iteration logs game-length mean/median/p90/max, round scores,
+clears, no-progress endings, action rates per eligible decision, replay fitting
+losses, policy entropy/KL, and phase timings. Replay fitting losses are training
+diagnostics, not held-out validation. The default `validation.concept_interval`
+is now 1: the cheap handcrafted suite logs action matches, target probability,
+and its three weakest examples each iteration. Explicit intervals remain honored;
+0 disables it. Its heuristic value MSE is not calibrated win-rate error, and the
+examples never become training labels. RNG and module modes are preserved.
 
 Each game retains separate environment, action, search, and randomized-budget
 RNG streams. Only one evaluation request is outstanding per game: its search

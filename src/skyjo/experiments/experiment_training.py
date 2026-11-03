@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass(frozen=True)
 class ObservationConfig:
     progress_interval_seconds: float = 0.0
-    concept_interval: int = 5
+    concept_interval: int = 1
 
     def __post_init__(self):
         if (
@@ -40,39 +40,48 @@ class ObservationConfig:
 
 
 class GenerationProgress:
-    """One completion summary, with optional timed updates when interval > 0."""
+    """Completion milestones, optionally throttled by a minimum time interval.
+
+    Workers return whole tasks, so partial counts omit ongoing work. Do not
+    extrapolate an ETA or throughput from these biased, stepwise counts.
+    """
 
     def __init__(self, total_games: int, interval: float):
         self.total_games = total_games
         self.interval = interval
         self.started = time.perf_counter()
         self.next_report = self.started + interval
+        self.game_step = max(1, math.ceil(total_games / 10))
+        self.next_games = self.game_step
         self.games = 0
         self.decisions = 0
 
-    def wait_seconds(self) -> float | None:
-        if self.interval == 0:
-            return None
-        return max(0, self.next_report - time.perf_counter())
-
     def report(self, *, final: bool = False) -> None:
         now = time.perf_counter()
-        if not final and (self.interval == 0 or now < self.next_report):
+        if not final and (
+            self.interval == 0 or now < self.next_report or self.games < self.next_games
+        ):
             return
         elapsed = max(now - self.started, 1e-9)
-        rate = self.games / elapsed
-        eta = f"{(self.total_games - self.games) / rate:.1f}s" if rate else "unknown"
-        logger.info(
-            "[SELF-PLAY] %s/%s games in %.1fs | %.3f games/s | %.1f decisions/s | ETA %s%s",
-            self.games,
-            self.total_games,
-            elapsed,
-            rate,
-            self.decisions / elapsed,
-            eta,
-            " | complete" if final else "",
-        )
+        if final:
+            logger.info(
+                "[SELF-PLAY] %s/%s games in %.1fs | %.3f games/s | %.1f decisions/s | complete",
+                self.games,
+                self.total_games,
+                elapsed,
+                self.games / elapsed,
+                self.decisions / elapsed,
+            )
+        else:
+            logger.info(
+                "[SELF-PLAY] %s/%s games returned | %.1fs elapsed | %s decisions returned",
+                self.games,
+                self.total_games,
+                elapsed,
+                self.decisions,
+            )
         self.next_report = now + self.interval
+        self.next_games = self.games + self.game_step
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,6 +184,29 @@ class RecipeRecording:
             {key: round(value, 5) for key, value in mean_losses.items()},
         )
         logger.debug("[TRAIN] Policy diagnostics: %s", result.diagnostics)
+        fit = [
+            f"{label} {mean_losses[key]:.4f}"
+            for key, label in (
+                ("outcome_value_loss", "value MSE"),
+                ("policy_loss", "policy CE"),
+                ("round_raw_score_mae_points", "raw-score MAE (points)"),
+                ("round_doubled_loss", "doubling BCE"),
+            )
+            if key in mean_losses
+        ]
+        if fit:
+            logger.info("[FIT] Replay training averages | %s", " | ".join(fit))
+        policy = [
+            f"{label} {result.diagnostics[key]:.4f}"
+            for key, label in (
+                ("policy/all/target_kl", "target-to-model KL"),
+                ("policy/all/target_entropy", "target entropy"),
+                ("policy/all/predicted_entropy", "model entropy"),
+            )
+            if key in result.diagnostics
+        ]
+        if policy:
+            logger.info("[FIT] Policy (nats) | %s", " | ".join(policy))
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "[TRAIN] Detailed losses:\n%s",
@@ -221,7 +253,22 @@ class RecipeRecording:
             },
             context={"game_sample_count": len(games)},
         )
-        logger.info("[GAMES] %s", game_stats.format_summary(round_metrics))
+        logger.info(
+            "[GAMES] %s games | decisions/game mean %.1f, median %.1f, p90 %.1f, max %s | rounds/game %.2f",
+            len(games),
+            round_metrics["game/decisions/mean"],
+            round_metrics["game/decisions/median"],
+            round_metrics["game/decisions/p90"],
+            int(round_metrics["game/decisions/max"]),
+            round_metrics["game/rounds/mean"],
+        )
+        logger.info("[ROUNDS] %s", game_stats.format_summary(round_metrics))
+        behavior = [
+            f"{name} {100 * round_metrics[f'action/{name}/rate']:.1f}%"
+            for name in ("take", "flip", "replace_face_up", "replace_face_down")
+            if f"action/{name}/rate" in round_metrics
+        ]
+        logger.info("[BEHAVIOR] Per eligible decision | %s", " | ".join(behavior))
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "[GAMES] Detailed summaries:\n%s\n%s",
@@ -241,6 +288,14 @@ class RecipeRecording:
                 budget_metrics["time/run_seconds"],
                 budget_metrics["budget/max_seconds"] or "unlimited",
             )
+        logger.info(
+            "[TIMING] Generation %.1fs (%.1f decisions/s) | targets %.1fs | training %.1fs | validation %.1fs",
+            timings["generation"],
+            new_positions / timings["generation"],
+            timings["target"],
+            timings["training"],
+            timings["validation"],
+        )
         logger.debug("[LEARN] Phase timings (seconds): %s", timings)
 
     def save_rounds(
@@ -308,9 +363,17 @@ class RecipeRecording:
             },
         )
         logger.info(
-            "[CONCEPTS] Heuristic checks: %s/%s target actions | mean target probability %.3f",
+            "[CONCEPTS] Heuristic checks: %s/%s target actions | mean target probability %.3f | heuristic-value MSE %.4f (not win-rate calibration)",
             summary["target_action_matches"],
             summary["example_count"],
             summary["mean_target_probability"],
+            summary["heuristic_value_mse"],
+        )
+        weakest = sorted(
+            report.examples, key=lambda example: example["target_probability"]
+        )[:3]
+        logger.info(
+            "[CONCEPTS] Lowest target support: %s",
+            "; ".join(f"{e['name']}: {e['target_probability']:.3f}" for e in weakest),
         )
         logger.debug("[CONCEPTS] Examples: %s", report.examples)
